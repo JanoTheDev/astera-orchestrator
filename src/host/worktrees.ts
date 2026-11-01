@@ -46,6 +46,8 @@ import { RepairNeeded } from '../core/settings/repairNeeded'
 import type { WorktreeInfo } from '../core/types'
 import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
+import { hostProcessDeps, stopProcessesIn, type StopInDeps } from './workspace/processesIn'
+import type { ProcId } from './workerLeftovers'
 import type { HostServer } from './server'
 
 /** How long a removal waits for a running, unattached app to attach (the app retries its Host with a 10 s backoff cap). */
@@ -55,8 +57,8 @@ export const WORKTREE_CALLS: ReadonlySet<string> = new Set(['worktree-list', 'wo
 export interface HostWorktreesDeps {
   profileDir: string
   homeDir: string
-  ptys: Pick<PtyRegistry, 'liveEntries' | 'kill'>
-  procs: Pick<ProcRegistry, 'liveEntries'>
+  ptys: Pick<PtyRegistry, 'liveEntries' | 'kill'> & Partial<Pick<PtyRegistry, 'list'>>
+  procs: Pick<ProcRegistry, 'liveEntries'> & Partial<Pick<ProcRegistry, 'list'>>
   getState(): OrchState
   broadcast(m: HostMessage): void
   log(m: string): void
@@ -66,6 +68,15 @@ export interface HostWorktreesDeps {
    *  plan risk 3, HOST_ACT_PATH_IN_USE). `lastAppPid` (leftovers Task 1, optional for the rigs): the pid the
    *  last app's hello gave, asked when app.pid names no live app. */
   app: Pick<HostServer, 'hasApp' | 'act'> & Partial<Pick<HostServer, 'lastAppPid'>>
+  /** T22: stops what still runs in a folder before it is removed. Test seam; the wiring leaves it out and gets
+   *  workspace/processesIn.ts over the real machine, with every live pty and line process spared. */
+  stopProcessesIn?: (dir: string) => Promise<unknown>
+  /** T22: what the leftover tracker recorded (pid and creation time) under a Dispatch's session (index.ts gives
+   *  `rememberedOf`). A folder's removal stops what was recorded under the Dispatches that worked in it: a `go run`
+   *  server names the folder nowhere on its command line, and Windows cannot read another process's cwd. */
+  remembered?(dispatchId: string): ProcId[]
+  /** Test seam over the real machine's process deps (list, stop); the wiring leaves it out. */
+  processes?: Partial<StopInDeps>
   /** Test seams; the wiring leaves them out. */
   closeTimeoutMs?: number
   pollMs?: number
@@ -205,6 +216,15 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     }
   }
 
+  // T22: what still runs in a folder (a server a worker left) is stopped right before its removal.
+  const liveRoots = (): number[] => {
+    if (!d.ptys.list || !d.procs.list) throw new Error('the live ptys and line processes cannot be listed')
+    return [...d.ptys.list(), ...d.procs.list()].filter((e) => e.alive && e.pid > 0).map((e) => e.pid)
+  }
+  const remembered = (dir: string): ProcId[] =>
+    d.remembered ? d.getState().dispatches.filter((x) => x.cwd && isPathWithin(dir, x.cwd)).flatMap((x) => d.remembered!(x.id)) : []
+  const stopIn = d.stopProcessesIn ?? ((dir: string) => stopProcessesIn(dir, { ...hostProcessDeps({ liveRoots, remembered, log: d.log }), ...d.processes }))
+
   // ---- the reap (rule 11, R9) ----
   const sessionsIn = (p: string): Live[] => {
     try {
@@ -305,8 +325,9 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
         dispatches: () => dispatches,
         isPathInUse,
         // Asked again at the removal itself: the first answer is up to the close timeout old by then,
-        // and the app may have attached or left in between.
-        beforeRemove: askApp,
+        // and the app may have attached or left in between. Then, with the folder going (a reap removes with force),
+        // what still runs in it is stopped.
+        beforeRemove: async (dir) => (await askApp(dir)) ?? (await stopIn(dir), null),
         log: d.log,
         closeTimeoutMs: d.closeTimeoutMs,
         pollMs: d.pollMs
@@ -421,6 +442,7 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     state: () => d.getState(),
     isPathInUse,
     log: d.log,
+    stopProcessesIn: stopIn,
     ...(d.activity ? { activity: d.activity } : {})
   }
 
@@ -480,7 +502,7 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
         await fresh()
         // As removeWorktrees: with the app detached, what it runs is invisible to this Host, so nothing is removed
         if (await stillDetached()) throw new Error(DETACHED_APP)
-        return removeWorktree({ id, force, registry, isPathInUse, ...(originCopy ? { deleteRemoteBranch: true } : {}) })
+        return removeWorktree({ id, force, registry, isPathInUse, stopProcessesIn: stopIn, ...(originCopy ? { deleteRemoteBranch: true } : {}) })
       }
     },
     call: async (cmd, args, from) => {

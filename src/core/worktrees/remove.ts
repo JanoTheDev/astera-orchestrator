@@ -286,6 +286,13 @@ async function deleteOriginCopy(repo: string, branch: string): Promise<void> {
  *  "not known", and nothing is deleted on it (the registry entry least of all). A refusal (no call was
  *  made) is asked again a few times (askUntilAnswered); one that lasts is "could not check", which
  *  deletes nothing either. */
+/** T22: stops what still runs in the folder, right before it is removed or moved: a process holding it (a server a
+ *  worker left, with the folder as its cwd) left the folder half removed. Its own function, so the removal steps around
+ *  it can change apart from it. The stopper never throws (host/workspace/processesIn.ts). */
+async function stopProcessesBeforeRemoval(folder: string, stop: ((dir: string) => Promise<unknown>) | undefined): Promise<void> {
+  await stop?.(folder)
+}
+
 async function folderState(p: string, check: PresenceCheck): Promise<'present' | 'missing'> {
   const r = await askUntilAnswered(check, p)
   if (r === 'present' || r === 'missing') return r
@@ -312,6 +319,9 @@ export async function removeWorktree(args: {
   fs?: TrashFs
   /** Where the background delete says it gave up; defaults to console.warn. */
   log?: (m: string) => void
+  /** Stops the processes still running in the folder before it is removed (the Host's processesIn.ts). Left out,
+   *  nothing is stopped. */
+  stopProcessesIn?: (dir: string) => Promise<unknown>
 }): Promise<WorktreeRemoveResult> {
   const info = args.registry.get(args.id)
   if (!info) throw new Error(`NOT_MANAGED: not a worktree created by this app (${args.id})`)
@@ -343,16 +353,15 @@ export async function removeWorktree(args: {
     // git has forgotten it
     await git(['worktree', 'prune'], write(info.repoPath))
     if ((await folderState(info.path, presence)) === 'present') {
-      if (!(await isProvenOrphanDir(info.path, info.repoPath))) {
-        // Without proof there is no telling our worktree from an unrelated directory — but an empty one
-        // has nothing to lose, and demanding proof there left the row undeletable forever
-        if ((await countOrphanEntries(info.path, { countGitDir: true })) > 0)
-          throw new Error(`ORPHAN_UNPROVEN: ownership cannot be proven, so nothing is deleted (${info.path})`)
-      } else if ((await countOrphanEntries(info.path)) > 0) {
-        if (!args.force) throw new Error(`ORPHAN_UNVERIFIABLE: ${info.path}`)
-        // git cannot say whether its files hold uncommitted work, so force moves the folder aside, never deletes it
-        await moveToTrash(info.path, args.registry.getRoot())
-      }
+      const proven = await isProvenOrphanDir(info.path, info.repoPath)
+      const entries = await countOrphanEntries(info.path, proven ? undefined : { countGitDir: true })
+      // Without proof there is no telling our worktree from an unrelated directory — but an empty one
+      // has nothing to lose, and demanding proof there left the row undeletable forever
+      if (entries > 0 && !proven) throw new Error(`ORPHAN_UNPROVEN: ownership cannot be proven, so nothing is deleted (${info.path})`)
+      if (entries > 0 && !args.force) throw new Error(`ORPHAN_UNVERIFIABLE: ${info.path}`)
+      await stopProcessesBeforeRemoval(info.path, args.stopProcessesIn)
+      // git cannot say whether its files hold uncommitted work, so force moves the folder aside, never deletes it
+      if (entries > 0) await moveToTrash(info.path, args.registry.getRoot())
       try {
         await fs.rm(info.path, { recursive: true, force: true })
       } catch (err) {
@@ -378,6 +387,7 @@ export async function removeWorktree(args: {
         throw new Error(`NOT_ON_BRANCH: its commit ${row.head.slice(0, 7)} is on no branch, nothing was removed (${info.path})`)
       await detachBeforeRemove(info.path, args.force === true, args.detach ?? detachLinks)
       // Stopping the processes still using the folder belongs here, before it moves.
+      await stopProcessesBeforeRemoval(info.path, args.stopProcessesIn)
       // Renamed aside, never deleted in place: on Windows git deletes the `.git` link first and then stops at a locked
       // file, which left a whole checkout without its `.git`. A rename moves all of it or nothing.
       const f = args.fs ?? realFs

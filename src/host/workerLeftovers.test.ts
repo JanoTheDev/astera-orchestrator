@@ -624,7 +624,9 @@ describe('queryWindowsProcesses', () => {
     expect(calls[0][0]).toBe('powershell.exe')
     expect(calls[0][1].at(-1)).toMatch(/Get-CimInstance Win32_Process/)
     expect(calls[0][1].at(-1)).toMatch(/CommandLine/)
+    expect(calls[0][1].at(-1)).toMatch(/ExecutablePath/)
     expect(rows).toEqual([row(5, 4, 10, 'node.exe', 'node', 1)])
+    expect(parseWindowsRows(JSON.stringify({ p: 5, pp: 4, c: 10, e: 'C:\\wt\\api.exe' }))[0].exe).toBe('C:\\wt\\api.exe')
   })
 })
 

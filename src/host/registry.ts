@@ -142,8 +142,6 @@ interface Entry {
   killSent: boolean
   /** Why Astera asked for this kill, when the kill said (`kill`'s `reason`); rides the exit to the app. */
   closeReason?: CloseReason
-  /** Whether a repeat kill has already ended this pty's process tree (`kill`): once per pty. */
-  treeKillSent: boolean
   /** Which side the size follows (tmux's `window-size latest`): `local` for this machine's apps,
    *  `controller:<clientId>` for a paired controller, null until a controller ever resized or typed (the app's
    *  resizes are then applied as they always were). The side that typed last owns it (`write`). */
@@ -160,8 +158,8 @@ export interface PtyRegistryDeps {
   /** Test injection; the wiring leaves it out and gets Date.now. */
   now?: () => number
   /** Ends a process and everything it started without touching its pty (`workspace/native`'s
-   *  `killTree`: taskkill /T /F on win32, the process group elsewhere). What a repeat kill escalates
-   *  to. Left out, a repeat is only logged. */
+   *  `killTree`: taskkill /T /F on win32, the process group elsewhere). A kill ends the tree with it
+   *  before the pty's own kill. Left out, a kill ends the pty only. */
   killTree?: (pid: number) => Promise<void>
   /** This Host process's boot id (hello's `bootId`): a replay asked with another one starts from a checkpoint. */
   bootId?: string
@@ -327,7 +325,6 @@ export class PtyRegistry {
       lastTypedAt: null,
       exitCode: null,
       killSent: false,
-      treeKillSent: false,
       sizeOwner: null,
       wanted: new Map()
     }
@@ -630,26 +627,37 @@ export class PtyRegistry {
   }
 
   /** Sends a live pty its one kill (`Entry.killSent`). Marked before the call, so a kill that threw is
-   *  not sent again either: whether it freed the handle is not known. **A repeat escalates, once**: the
-   *  pty is still alive after its kill, so its process tree is ended (`deps.killTree`), which never
-   *  touches the ConPTY handle. Any repeat after that is only logged. */
+   *  not sent again either: whether it freed the handle is not known; a repeat is only logged. With
+   *  `deps.killTree` the process tree is ended first (T22), then the pty. */
   kill(id: string, reason?: CloseReason): void {
     const e = this.live(id)
     if (!e) return
     if (reason) e.closeReason = reason
     if (e.killSent) {
-      const killTree = this.deps.killTree
-      if (e.treeKillSent || !killTree) {
-        this.deps.log(`pty ${id} was already sent its kill and has not exited yet; not sending another`)
-        return
-      }
-      e.treeKillSent = true
-      this.deps.log(`pty ${id} was already sent its kill and has not exited yet; ending its process tree (pid ${e.pid}) instead`)
-      killTree(e.pid).catch((err) => this.deps.log(`pty ${id}: its process tree (pid ${e.pid}) could not be ended: ${String(err)}`))
+      this.deps.log(`pty ${id} was already sent its kill and has not exited yet; not sending another`)
       return
     }
     e.killSent = true
-    e.pty.kill()
+    const killTree = this.deps.killTree
+    if (!killTree) {
+      e.pty.kill()
+      return
+    }
+    // The tree first, while its root still links it: node-pty's kill ends the shell or agent only, and what its
+    // tools started (a `go run` server, Storybook) outlived it as orphans `taskkill /T` can no longer find. Then the
+    // pty's one kill, unless the tree kill already ended it. No job object: node-pty gives no hook to put the process
+    // in one, so what escaped the tree earlier is the leftover tracker's (workerLeftovers.ts) and the worktree
+    // removal's (workspace/processesIn.ts) to find.
+    void killTree(e.pid)
+      .catch((err) => this.deps.log(`pty ${id}: its process tree (pid ${e.pid}) could not be ended: ${String(err)}`))
+      .finally(() => {
+        if (!e.alive) return
+        try {
+          e.pty.kill()
+        } catch (err) {
+          this.deps.log(`pty ${id} could not be killed: ${String(err)}`)
+        }
+      })
   }
 
   pause(id: string): void {
