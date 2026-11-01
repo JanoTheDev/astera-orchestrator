@@ -1,4 +1,4 @@
-import { classifyGhFailure, defaultGhRunner, type GhRunner } from './gh'
+import { classifyGhFailure, defaultGhRunner, withTempFile, type GhRunner } from './gh'
 import { git, type GitResult } from '../worktrees/git'
 import { normalizeBaseForGh } from '../worktrees/push'
 import type { CommitSummary } from './fill'
@@ -111,10 +111,12 @@ export async function createPullRequest(
   }
 
   const base = await normalize(req.repoPath, req.base)
-  const args = ['pr', 'create', '--base', base, '--title', req.title, '--body', req.body]
-  if (req.draft) args.push('--draft')
-
-  const created = await runGh(args, req.worktreePath)
+  // The body goes in a file: a plan's PR body (every Task and its report) outgrows a Windows command line
+  const created = await withTempFile('pr-body.md', req.body, (file) => {
+    const args = ['pr', 'create', '--base', base, '--title', req.title, '--body-file', file]
+    if (req.draft) args.push('--draft')
+    return runGh(args, req.worktreePath)
+  })
   if (created.ok) return { ok: true, url: created.stdout.trim() }
 
   // gh says "already exists" on stderr with the URL; that is a different next step (open it)
