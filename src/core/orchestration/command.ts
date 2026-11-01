@@ -260,6 +260,9 @@ import {
   // T3: delivery that finishes by itself
   afterAttempt,
   deliveryDue,
+  beginAttempt,
+  headMoved,
+  type DeliveryHeads,
   OWNER_PUSH_CHECK_MS,
   raiseDeliveryQuestion,
   // T1: delivery state machine
@@ -7197,7 +7200,12 @@ export async function handleCommand(
       const push = route === 'push' || local
       // T3: the driving loop's own steps (persisted delivery state, retries, the owner's answer) are Astera's
       const loopStep =
-        args.pending === true || args.auto === true || args.awaitReview === true || args.ownerPushed === true || typeof args.stopped === 'string'
+        args.pending === true ||
+        args.auto === true ||
+        args.awaitReview === true ||
+        args.ownerPushed === true ||
+        typeof args.stopped === 'string' ||
+        typeof args.originSeen === 'string'
       if ((push || loopStep) && (fromAgentSession || caller.role === 'mcp'))
         return denied('a delivery is made by Astera itself, or by the person')
       const progressOf = (st: OrchState): DeliveryProgress | undefined => st.runs.find((r) => r.id === id)?.deliveryState
@@ -7205,6 +7213,21 @@ export async function handleCommand(
         ...st,
         runs: st.runs.map((r) => (r.id === id ? { ...r, deliveryState: p } : r))
       })
+      // The plan branch head and origin's tip the loop read for this attempt (`head`, `origin`): a failed delivery is due
+      // again at once when they moved (delivery.ts deliveryDue), and the attempt records them
+      const heads: DeliveryHeads = {
+        ...(typeof args.head === 'string' && args.head !== '' ? { head: args.head } : {}),
+        ...(typeof args.origin === 'string' && args.origin !== '' ? { origin: args.origin } : {})
+      }
+      // The loop, after a failed attempt: origin's tip as that attempt left it (its fetch moved the ref), so the attempt's
+      // own fetch does not read as a move
+      if (typeof args.originSeen === 'string') {
+        const p = deps.getState().runs.find((r) => r.id === id)?.deliveryState
+        if (p?.state !== 'retrying' && p?.state !== 'needs-owner') return okBody({ deliveryState: p })
+        const seen: DeliveryProgress = { ...p, originAtAttempt: args.originSeen }
+        await deps.setState(withProgress(deps.getState(), seen))
+        return okBody({ deliveryState: seen })
+      }
       // A manual plan that finished waits for the owner: no attempt is due, nothing retries
       if (args.awaitReview === true) {
         if (mode !== 'manual') return conflict('Only a manual plan waits for its owner to review it')
@@ -7261,8 +7284,10 @@ export async function handleCommand(
       }
       const force = args.force === true
       // T3: the loop's attempt is made only when it is due (pending, or a failure's retry time came)
-      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now)))
+      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now), heads))
         return conflict('No delivery attempt is due for this Run yet')
+      // The plan branch moved since the last attempt: this one counts afresh, as the owner's "Retry now" does
+      const moved = headMoved(run.deliveryState, heads)
       /** One attempt's end, recorded: delivered, or one more failure with its retry time; the fifth asks the owner once.
        *  A person's --force starts the count again. */
       const settle = async (
@@ -7273,7 +7298,8 @@ export async function handleCommand(
         fix?: 'fix' | 'owner' | null
       ): Promise<DeliveryProgress> => {
         const at = deps.now?.() ?? now
-        let next = afterAttempt(force ? undefined : progressOf(s), at, error, {
+        let next = afterAttempt(force || moved ? undefined : progressOf(s), at, error, {
+          heads,
           ...(code !== undefined ? { code } : {}),
           ...(fix === 'fix' ? { ask: false } : {})
         })
@@ -7291,6 +7317,7 @@ export async function handleCommand(
       // T3: the loop stopped this attempt itself (a refresh onto another plan's delivery needs a person): one failure
       if (typeof args.stopped === 'string') return { status: 409, body: { error: args.stopped, deliveryState: await settle(args.stopped) } }
       if (!push) {
+        if (force || args.auto === true) await deps.setState(beginAttempt(deps.getState(), id, heads, deps.now?.() ?? now))
         const opened = await handleCommand(deps, caller, 'run-open-pr', { run: id, ...(force || args.auto === true ? { force: true } : {}) })
         // T1: merged or closed on GitHub: run-open-pr recorded it delivered, and no attempt is counted
         if ((opened.body as { landed?: unknown } | null)?.landed !== undefined) return { ...opened, body: { ...(opened.body as object), deliveryState: progressOf(deps.getState()) } }
@@ -7302,7 +7329,7 @@ export async function handleCommand(
       }
       const done = run.delivery
       if (done?.sha !== undefined) return okBody({ delivery: route, branch: done.branch ?? null, sha: done.sha, pushed: false })
-      if (done?.error !== undefined && !force && args.auto !== true)
+      if (done?.error !== undefined && !force && args.auto !== true && !moved)
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
       if (taskOutcomeOf(s, run) !== 'completed') {
         // T5: the only failed Tasks are delivery fix Tasks: the fix attempts ran out, so the owner is asked as after FAILURE_LIMIT of them
@@ -7333,9 +7360,7 @@ export async function handleCommand(
         if (w.waitingFor)
           return { status: 409, body: { error: `waiting for ${jobNameOf(w.waitingFor)} to land first`, code: 'waiting', deliveryState: progressOf(w.state) } }
       }
-      await deps.setState(
-        withProgress(deps.getState(), { ...(progressOf(deps.getState()) ?? { attempts: 0 }), state: 'delivering', lastAttemptAt: deps.now?.() ?? now })
-      )
+      await deps.setState(beginAttempt(deps.getState(), id, heads, deps.now?.() ?? now))
       const r = await deps.deliverPush({
         ...pushTarget,
         message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)),

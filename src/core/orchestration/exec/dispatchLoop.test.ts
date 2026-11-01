@@ -25,7 +25,7 @@ import { DELIVERY_FIX_MARK, DELIVERY_OWNER_PUSHES, DELIVERY_RETRY_NOW } from '..
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
 import { needsInput } from '../sessionIndex'
-import { outcomeOf } from '../running'
+import { deliveryErrorOf, outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
 import type { Decision, Dispatch, Job, Message, Task } from '../types'
 import { FAILURE_LIMIT } from '../types'
@@ -259,6 +259,7 @@ function rig(o: RigOpts = {}) {
       typed.push(text)
     },
     mayStart: () => true,
+    deliveryHeads: async () => ({}), // no git in the rig; a delivery test sets the heads it needs
     log: (m) => {
       logs.push(m)
     },
@@ -2902,6 +2903,130 @@ describe('a delivery that finishes by itself (T3)', () => {
     await pass(h)
     expect(fixes(h)).toEqual([])
     expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 1 })
+  })
+
+  // A delivery that failed is due again at once when the plan branch head moves, whatever its backoff
+  describe('retried when the plan branch head moves', () => {
+    const refused: Push = async () => ({
+      ok: false,
+      reason: 'git push origin main was refused, and origin/main has not moved, so pushing again would not help:\ntypecheck: error TS2345',
+      branch: 'main',
+      code: 'push-refused'
+    })
+    const withHead = (h: ReturnType<typeof rig>, head: string): void => {
+      h.ctx.deliveryHeads = async () => ({ head })
+    }
+    const run0 = (h: ReturnType<typeof rig>) => h.state().runs[0]
+
+    it('a hook-refused push, then a fix commit on the plan branch: delivered on the next pass with no owner action, no backoff', async () => {
+      let calls = 0
+      let during: { error?: string; state?: string; previous?: string } | undefined
+      const h: ReturnType<typeof rig> = pushPlan(async (a) => {
+        if (++calls === 1) return refused(a)
+        const r = run0(h)
+        during = { error: deliveryErrorOf(r), state: r.deliveryState?.state, previous: r.deliveryState?.previousError }
+        return ok(a)
+      })
+      withHead(h, 'aaa')
+      await pass(h)
+      finishAll(h)
+      await pass(h)
+      expect(calls).toBe(1)
+      expect(run0(h).deliveryState).toMatchObject({ state: 'retrying', attempts: 1, headAtAttempt: 'aaa' })
+      expect(deliveryErrorOf(run0(h))).toContain('TS2345')
+      expect(outcomeOf(h.state(), 'run_1')).toBe('failed')
+      // no head move: the backoff holds
+      await pass(h)
+      expect(calls).toBe(1)
+      // an agent commits the fix on the plan branch
+      withHead(h, 'bbb')
+      await pass(h)
+      expect(calls).toBe(2)
+      // while the second attempt ran, the old error was not the plan's
+      expect(during).toMatchObject({ error: undefined, state: 'delivering', previous: expect.stringContaining('TS2345') })
+      expect(run0(h).deliveryState).toMatchObject({ state: 'delivered', attempts: 1 })
+      expect(deliveryErrorOf(run0(h))).toBeUndefined()
+      expect(outcomeOf(h.state(), 'run_1')).not.toBe('failed')
+      expect(questions(h)).toEqual([])
+    })
+
+    it('a failed second attempt stores its own error, not the old one', async () => {
+      let calls = 0
+      const h = pushPlan(async () => ({ ok: false, reason: `refused ${++calls}`, branch: 'main', code: 'push-refused' }) as const)
+      withHead(h, 'aaa')
+      await pass(h)
+      finishAll(h)
+      await pass(h)
+      withHead(h, 'bbb')
+      await pass(h)
+      expect(calls).toBe(2)
+      expect(run0(h).deliveryState).toMatchObject({ state: 'retrying', attempts: 1, lastError: 'refused 2', headAtAttempt: 'bbb' })
+      expect(run0(h).deliveryState?.previousError).toBeUndefined()
+      expect(deliveryErrorOf(run0(h))).toBe('refused 2')
+    })
+
+    it('a needs-owner delivery with a moved head is retried too, counting afresh, and its owner question is closed', async () => {
+      let calls = 0
+      let fixed = false
+      const h = pushPlan(async (a) => (fixed ? (++calls, ok(a)) : (++calls, refused(a))))
+      withHead(h, 'aaa')
+      await pass(h)
+      finishAll(h)
+      for (let i = 0; i < 6; i++) {
+        await pass(h)
+        h.clock += 61 * 60_000
+      }
+      expect(run0(h).deliveryState).toMatchObject({ state: 'needs-owner' })
+      const stuck = calls
+      const [q] = questions(h)
+      expect(q).toBeDefined()
+      // the owner waits; the fix lands
+      fixed = true
+      withHead(h, 'bbb')
+      await pass(h)
+      expect(calls).toBe(stuck + 1)
+      expect(run0(h).deliveryState).toMatchObject({ state: 'delivered', attempts: 1 })
+      expect(h.state().messages.find((m) => m.id === q.id)?.answered).toBe(true)
+    })
+
+    it('a dismissed delivery is not retried, whatever the head does', async () => {
+      let calls = 0
+      const h = pushPlan(async (a) => (++calls, refused(a)))
+      withHead(h, 'aaa')
+      await pass(h)
+      finishAll(h)
+      await pass(h)
+      expect(calls).toBe(1)
+      const d = await h.real('run-delivery-dismiss', { run: 'run_1' })
+      expect(d.status).toBe(200)
+      withHead(h, 'bbb')
+      h.clock += 2 * 60 * 60_000
+      await pass(h)
+      expect(calls).toBe(1)
+      expect(run0(h).deliveryState?.state).toBe('dismissed')
+    })
+
+    it("origin moving also retries at once, and the tip an attempt left is not a move", async () => {
+      let calls = 0
+      let origin = 'o1'
+      const h = pushPlan(async (a) => {
+        ++calls
+        origin = `fetched-${calls}` // the attempt's own fetch moves the ref
+        return refused(a)
+      })
+      h.ctx.deliveryHeads = async () => ({ head: 'aaa', origin })
+      await pass(h)
+      finishAll(h)
+      await pass(h)
+      expect(calls).toBe(1)
+      // nothing moved since the attempt left origin at its tip: the backoff holds
+      await pass(h)
+      expect(calls).toBe(1)
+      expect(run0(h).deliveryState?.originAtAttempt).toBe('fetched-1')
+      origin = 'pushed-by-someone'
+      await pass(h)
+      expect(calls).toBe(2)
+    })
   })
 })
 
