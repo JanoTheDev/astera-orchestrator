@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { readFolderSetup } from './deliverySetup'
+import { readDeliverySetup, readFolderSetup } from './deliverySetup'
 import { deliveryChoicesOf, effectiveDelivery } from '../deliveryChoices'
 
 const dirs: string[] = []
@@ -42,5 +42,21 @@ describe('readFolderSetup', () => {
     expect(on.remoteUrl).toBe('https://github.com/o/r.git')
     expect(effectiveDelivery('pr', deliveryChoicesOf(on))).toEqual({ mode: 'pr' })
     expect(effectiveDelivery('pr', deliveryChoicesOf(await readFolderSetup(d, false)))).toEqual({ mode: 'merge', reason: 'ghSignedOut' })
+  })
+})
+
+// T7: the loop asks for every plan's folder on each pass, every 15 s; each read is a gh and a git spawn (about a second on
+// Windows), so a folder is read once a minute at most
+describe('readDeliverySetup', () => {
+  it('reads a folder at most once a minute', async () => {
+    const d = tmp()
+    const t0 = 1_000_000
+    const first = readDeliverySetup(d, t0)
+    expect(readDeliverySetup(d, t0 + 15_000)).toBe(first)
+    expect(readDeliverySetup(d, t0 + 59_999)).toBe(first)
+    expect(await first).toMatchObject({ isGitRepo: false })
+    const next = readDeliverySetup(d, t0 + 60_000)
+    expect(next).not.toBe(first)
+    await next
   })
 })
