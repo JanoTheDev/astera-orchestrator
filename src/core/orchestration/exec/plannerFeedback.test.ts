@@ -524,7 +524,7 @@ describe('T1 feedback is never dropped', () => {
     expect(brief).toContain('add a dark mode')
     expect(brief).toContain('finished')
     const sid = (reply.body as { sessionId: string }).sessionId
-    expect((await r.as(sid)('task-create', { run: runId, ...plan('dark', { kind: 'feature' }) })).status).toBe(200)
+    expect((await r.as(sid)('task-create', { run: runId, ...plan('dark', { kind: 'feature', why: 'the owner asked for dark mode' }) })).status).toBe(200)
     const coordinators = r.starts.filter((x) => x.role !== 'planner').length
     expect((await r.as(sid)('jobs-replan-done', { id: jobId, summary: 'dark mode Task' })).status).toBe(200)
     const job = r.state().jobs[0]
@@ -629,7 +629,7 @@ describe('T2 jobs-chat: a planner chat on a finished plan', () => {
     const s = r.state()
     r.set({ ...s, runs: s.runs.map((x) => ({ ...x, delivery: { at: NOW, branch: 'main', sha: 'abc1234' }, pr: { at: NOW, url: 'https://github.com/o/r/pull/1', landed: 'merged' as const } })) })
     const sid = ((await r.person('jobs-chat', { id: jobId })).body as { sessionId: string }).sessionId
-    expect((await r.as(sid)('task-create', { run: runId, ...plan('dark', { kind: 'feature' }) })).status).toBe(200)
+    expect((await r.as(sid)('task-create', { run: runId, ...plan('dark', { kind: 'feature', why: 'the owner asked for dark mode' }) })).status).toBe(200)
     expect((await r.as(sid)('jobs-replan-done', { id: jobId, summary: 'dark mode Task' })).status).toBe(200)
     const job = r.state().jobs[0]
     expect(job.dispatchHold).toBeUndefined()

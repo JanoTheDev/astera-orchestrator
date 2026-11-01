@@ -17,7 +17,10 @@ let dir: string
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-hostorch-reads-'))
 })
+const made: Array<{ flush(): Promise<void> }> = []
 afterEach(async () => {
+  // Commits no longer wait for the disk: let the last write land before its folder goes.
+  await Promise.all(made.splice(0).map((o) => o.flush().catch(() => {})))
   await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
@@ -75,8 +78,8 @@ class SlowStore extends OrchestrationStore {
 const sessions = (n: number): HostSession[] =>
   Array.from({ length: n }, (_, i) => ({ id: `ses${i}`, kind: 'terminal' as const, title: `s${i}`, accountId: null, cwd: 'D:/p', alive: true, state: 'idle' as const }))
 
-const orchOver = (over: Partial<Parameters<typeof createHostOrch>[0]> = {}): ReturnType<typeof createHostOrch> =>
-  createHostOrch({
+const orchOver = (over: Partial<Parameters<typeof createHostOrch>[0]> = {}): ReturnType<typeof createHostOrch> => {
+  const o = createHostOrch({
     profileDir: dir,
     version: '9.9.9',
     now: () => NOW,
@@ -98,6 +101,9 @@ const orchOver = (over: Partial<Parameters<typeof createHostOrch>[0]> = {}): Ret
     readSummaries: async () => [],
     ...over
   })
+  made.push(o)
+  return o
+}
 
 const rename = (orch: ReturnType<typeof createHostOrch>, id: string, title: string) =>
   orch.call({ cmd: 'jobs-rename', args: { id, title }, sessionId: '' })
@@ -190,13 +196,19 @@ describe('read commands answer outside the command chain', () => {
 describe('the slow-command log', () => {
   it('names a slow command, its wait, its run time and the command it waited behind', async () => {
     const { jobIds } = await seed(2)
-    const store = new SlowStore(path.join(dir, 'orchestration.json'))
     const lines: string[] = []
-    const orch = orchOver({ store, slowCommandMs: 100, log: (l) => lines.push(l) })
+    // A commit no longer waits for the disk, so the first command holds the chain here, in the breadcrumb that wraps it.
+    const orch = orchOver({
+      slowCommandMs: 100,
+      log: (l) => lines.push(l),
+      track: async (cmd, run) => {
+        if (cmd === 'jobs-rename') await tick(300)
+        return run()
+      }
+    })
     await orch.ready()
-    store.holdMs = 300
     const first = rename(orch, jobIds[0], 'one')
-    await store.saving
+    await tick(20)
     const second = orch.call({ cmd: 'jobs-archive', args: { id: jobIds[1] }, sessionId: '' })
     await Promise.all([first, second])
     const slow = lines.filter((l) => l.startsWith('host: slow command'))

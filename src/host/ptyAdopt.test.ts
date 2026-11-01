@@ -7,7 +7,7 @@ import type { Dispatch } from '../core/orchestration/types'
 import { PtyRegistry, type RegistryPty } from './registry'
 import { adoptSurvivors, listSurvivors } from './ptyAdopt'
 import { createPtySupervisorClient, type PtySupervisorClient, type SupervisorLink } from './ptySupervisor/client'
-import type { FromSupervisor } from './ptySupervisor/protocol'
+import { helloProof, type FromSupervisor } from './ptySupervisor/protocol'
 import { createSupervisor } from './ptySupervisor/supervisor'
 
 let nextPid = 9000
@@ -42,6 +42,7 @@ const OPTS: PtyOpenOptions = { cwd: '/wt/a', cols: 80, rows: 24, env: {} }
 const session = (id: string): PtyMeta => ({ kind: 'session', id, restore: { cwd: `/wt/${id}`, accountId: 'acc_1' } })
 const wire = <T>(m: T): T => JSON.parse(JSON.stringify(m)) as T
 const settle = (): Promise<void> => new Promise((r) => setImmediate(r))
+const KEY = 'ab'.repeat(32)
 const NOW = '2026-11-01T10:00:00.000Z'
 const dispatch = (over: Partial<Dispatch>): Dispatch => ({
   id: 'dsp_x', taskId: 'tsk_x', provider: 'claude', accountId: 'acc_1', sessionId: 'sess-x',
@@ -60,6 +61,7 @@ function rig() {
     },
     killTree: async (pid) => void treeKills.push(pid),
     log: () => {},
+    key: () => KEY,
     onIdle: () => {},
     after: () => () => {}
   })
@@ -72,10 +74,13 @@ function rig() {
       request: (m) => {
         let answer: FromSupervisor | undefined
         const rc = sup.connect((r) => (answer = wire(r)))
+        const nonce = 'n'.repeat(32)
+        rc.receive({ t: 'hello', nonce, proof: helloProof(KEY, nonce) })
         rc.receive(wire(m))
         rc.close()
         return answer ?? 'no-answer'
       },
+      key: Promise.resolve(KEY),
       fallback: () => new FakePty(),
       log: () => {}
     })
@@ -89,6 +94,7 @@ describe('adoptSurvivors (the next Host after a crash)', () => {
     const r = rig()
     // The Host that crashes: a worker with an open Dispatch, a tab in the saved list, and a stray session.
     const old = r.host()
+    await settle() // the hello is answered
     for (const id of ['sess-w', 'sess-tab', 'sess-stray']) old.c.spawn('claude', [], OPTS, session(id)).onData(() => {})
     await settle()
     const [worker, tab, stray] = r.ptys
@@ -97,6 +103,7 @@ describe('adoptSurvivors (the next Host after a crash)', () => {
     worker.emit('still working')
 
     const next = r.host()
+    await settle()
     const logs: string[] = []
     const registry = new PtyRegistry({ spawn: () => new FakePty(), log: () => {} })
     const survivors = await listSurvivors(next.c, (m) => logs.push(m))

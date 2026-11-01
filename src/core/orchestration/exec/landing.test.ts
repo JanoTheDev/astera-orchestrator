@@ -221,6 +221,7 @@ describe('a Task completes only once merged into the plan branch', () => {
 })
 
 describe('a merged Task never stays merging', () => {
+  const dependent = task({ id: 'tsk_Z', status: 'pending', deps: ['tsk_A'] }) // T10: merged now only while an open Task depends on it
   afterEach(() => {
     vi.useRealTimers()
   })
@@ -248,7 +249,7 @@ describe('a merged Task never stays merging', () => {
 
   it('wave merge: the record is written in the same step as the merge, though the command chain never answers', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent])
     const a = await fork('a')
     h.start('tsk_A', a)
     const sha = await write(a, 'a.txt', 'a')
@@ -264,7 +265,7 @@ describe('a merged Task never stays merging', () => {
 
   it('merged with uncommitted work left: the Task keeps a merge Task for the rest', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent])
     const a = await fork('a')
     h.start('tsk_A', a)
     await h.done('tsk_A')
@@ -277,7 +278,7 @@ describe('a merged Task never stays merging', () => {
 
   it('merged with uncommitted work left and no merge Task can be made: the owner gets a Gate, never neither', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent])
     const a = await fork('a')
     h.start('tsk_A', a)
     await h.done('tsk_A')
@@ -312,7 +313,7 @@ describe('a merged Task never stays merging', () => {
 
   it('a merge pass whose await never resolves holds later passes back 5 minutes at most', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent])
     const a = await fork('a')
     h.start('tsk_A', a)
     await write(a, 'a.txt', 'a')
@@ -343,7 +344,7 @@ describe('a merged Task never stays merging', () => {
 
   it('the merging watch records a Task whose branch is already in the plan branch after 5 minutes, with its line', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' }), task({ id: 'tsk_W' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), task({ id: 'tsk_W' }), dependent])
     const a = await fork('a')
     h.start('tsk_A', a)
     await write(a, 'a.txt', 'a')
