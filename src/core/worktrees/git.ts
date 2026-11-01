@@ -6,6 +6,7 @@ import { killProcessTree } from '../run/kill'
 import { cancelledError } from './cancel'
 import { defaultCwdProbe, type Probe } from '../sessions/pathProbe'
 import { windowsExecutable } from '../sessions/windowsExecutable'
+import { ARGV_TOO_LONG_CODES, warnLongArgv } from '../git/argvBudget'
 
 export interface GitResult {
   ok: boolean
@@ -20,7 +21,8 @@ export interface GitResult {
   /** Set only when git ran past its deadline and was killed (no exitCode then: git did not answer). */
   timedOut?: true
   /** Set only when git could not be started at all: the spawn's own error code (ENOENT when git is
-   *  not on PATH — or when the cwd does not exist, which Node reports the same way). No exitCode then. */
+   *  not on PATH — or when the cwd does not exist, which Node reports the same way; ENAMETOOLONG / E2BIG when
+   *  the command line was too long). No exitCode then. */
   errorCode?: string
 }
 
@@ -81,6 +83,7 @@ export function git(
   opts?: { cwd?: string; timeoutMs?: number; trim?: boolean; signal?: AbortSignal }
 ): Promise<GitResult> {
   const signal = opts?.signal
+  warnLongArgv('git', args)
   const cancelledResult = (): GitResult => ({ ok: false, stdout: '', stderr: 'cancelled', cancelled: true })
   type Raw = { err: unknown; stdout: string; stderr: string; cancelled?: true; timedOut?: true }
   const once = (): Promise<Raw> =>
@@ -149,7 +152,11 @@ export function git(
     }
     const e = r.err as { code?: unknown; killed?: unknown } | null
     if (e && typeof e.code === 'number' && e.killed !== true) out.exitCode = e.code
-    else if (e && typeof e.code === 'string') out.errorCode = e.code
+    else if (e && typeof e.code === 'string') {
+      out.errorCode = e.code
+      // A command line too long to start leaves stderr empty: the error's own words are the only explanation
+      if (out.stderr === '' && ARGV_TOO_LONG_CODES.has(e.code)) out.stderr = String((r.err as Error).message)
+    }
     return out
   }
   return once().then(async (first) => {

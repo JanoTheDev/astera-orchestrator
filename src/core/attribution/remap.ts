@@ -45,14 +45,26 @@ async function pathsOf(cwd: string, sha: string, run: GitRun): Promise<string[] 
   return r.ok ? r.stdout.split('\n').filter(Boolean) : null
 }
 
-/** author, author date and subject per commit, for matching a rebased commit to its old one. */
-async function keysOf(cwd: string, args: string[], run: GitRun): Promise<Map<string, string> | null> {
-  const r = await run(['log', '--format=%H%x00%an%x00%ae%x00%at%x00%s', ...args], o(cwd))
-  if (!r.ok) return null
+/** The most characters of commit ids one `git log` gets on its command line: a plan's commits can number in the
+ *  hundreds, and Windows caps a whole command line at ~32k characters. */
+const IDS_PER_CALL_CHARS = 6000
+
+/** author, author date and subject per commit, for matching a rebased commit to its old one. `shas` go to git in
+ *  batches (kept in order), `rest` is the fixed part of the arguments. */
+async function keysOf(cwd: string, shas: readonly string[], rest: string[], run: GitRun): Promise<Map<string, string> | null> {
   const out = new Map<string, string>()
-  for (const line of r.stdout.split('\n')) {
-    const i = line.indexOf('\0')
-    if (i > 0) out.set(line.slice(0, i), line.slice(i + 1))
+  for (let i = 0; i < shas.length; ) {
+    const batch: string[] = []
+    for (let n = 0; i < shas.length && (batch.length === 0 || n + shas[i].length + 1 <= IDS_PER_CALL_CHARS); i++) {
+      batch.push(shas[i])
+      n += shas[i].length + 1
+    }
+    const r = await run(['log', '--format=%H%x00%an%x00%ae%x00%at%x00%s', ...rest, ...batch], o(cwd))
+    if (!r.ok) return null
+    for (const line of r.stdout.split('\n')) {
+      const j = line.indexOf('\0')
+      if (j > 0) out.set(line.slice(0, j), line.slice(j + 1))
+    }
   }
   return out
 }
@@ -116,8 +128,8 @@ export async function remapMerged(a: { cwd: string; mergeCommit: string; origina
     for (const sha of originals) notes.set(sha, await readNote(cwd, sha, run, index))
 
     // A rebase: every old commit matches one of the newest new ones
-    const old = await keysOf(cwd, ['--no-walk=unsorted', ...originals], run)
-    const fresh = await keysOf(cwd, ['--first-parent', '--no-merges', `--max-count=${originals.length}`, mergeCommit], run)
+    const old = await keysOf(cwd, originals, ['--no-walk=unsorted'], run)
+    const fresh = await keysOf(cwd, [mergeCommit], ['--first-parent', '--no-merges', `--max-count=${originals.length}`], run)
     if (old && fresh && old.size === originals.length) {
       const pairs: [string, string][] = []
       const taken = new Set<string>()

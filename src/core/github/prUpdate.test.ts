@@ -1,4 +1,6 @@
+import { promises as fs } from 'node:fs'
 import { describe, it, expect } from 'vitest'
+import { ARGV_BUDGET, argvLength } from '../git/argvBudget'
 import { markPrReady, prBodyArgs, prStateOf, pullPathOf, READY_MUTATION, setPrBody } from './prUpdate'
 import type { GhResult } from './gh'
 
@@ -18,14 +20,45 @@ describe('prUpdate', () => {
     expect(pullPathOf('https://github.com/o/r/issues/7')).toBeNull()
   })
 
-  it('sets the body with -f, so a body starting with @ is sent as text', () => {
-    expect(prBodyArgs(PR, '@file')).toEqual(['api', '-X', 'PATCH', 'repos/o/r/pulls/7', '-f', 'body=@file'])
+  it('reads the body from a file with --input, never from the command line', () => {
+    expect(prBodyArgs(PR, '/tmp/b.json')).toEqual(['api', '-X', 'PATCH', 'repos/o/r/pulls/7', '--input', '/tmp/b.json'])
+    expect(prBodyArgs('https://github.com/o/r', '/tmp/b.json')).toBeNull()
   })
 
   it('updates the body over REST while gh pr edit is refused for classic projects', async () => {
+    const sent: string[] = []
     const gh = fake((a) => (a[0] === 'pr' && a[1] === 'edit' ? { ok: false, stderr: CLASSIC } : {}))
-    expect((await setPrBody(gh.run, PR, 'new body', '/r')).ok).toBe(true)
-    expect(gh.calls).toEqual([['api', '-X', 'PATCH', 'repos/o/r/pulls/7', '-f', 'body=new body']])
+    const run = async (a: string[]): Promise<GhResult> => (sent.push(await fs.readFile(a[a.indexOf('--input') + 1], 'utf8')), gh.run(a))
+    expect((await setPrBody(run, PR, 'new body', '/r')).ok).toBe(true)
+    expect(gh.calls).toHaveLength(1)
+    expect(gh.calls[0].slice(0, 5)).toEqual(['api', '-X', 'PATCH', 'repos/o/r/pulls/7', '--input'])
+    expect(JSON.parse(sent[0])).toEqual({ body: 'new body' })
+  })
+
+  // The body of a 60-Task plan: more than a Windows command line holds, starting with @ and with non-ASCII text
+  it('sends a 60-Task body as JSON in a temp file: short command line, body intact, file removed afterwards', async () => {
+    const body = '@' + Array.from({ length: 60 }, (_, i) => `## Task ${i}: ${'a long title '.repeat(40)}\nC:\\Users\\someone\\astera-worktrees\\Gameful-Monorepo\\${'x'.repeat(60)}\n한글 "quoted"\n`).join('\n')
+    expect(body.length).toBeGreaterThan(32_000)
+    let file = ''
+    let argv: string[] = []
+    let sent = ''
+    const run = async (a: string[]): Promise<GhResult> => {
+      argv = a
+      file = a[a.indexOf('--input') + 1]
+      sent = await fs.readFile(file, 'utf8')
+      return { ok: true, stdout: '', stderr: '' }
+    }
+    expect((await setPrBody(run, PR, body, '/r')).ok).toBe(true)
+    expect(argvLength('gh', argv)).toBeLessThan(ARGV_BUDGET)
+    expect(JSON.parse(sent)).toEqual({ body })
+    await expect(fs.access(file)).rejects.toThrow()
+  })
+
+  it('removes the temp file when gh fails, and returns the failure', async () => {
+    let file = ''
+    const run = async (a: string[]): Promise<GhResult> => ((file = a[a.indexOf('--input') + 1]), { ok: false, stdout: '', stderr: 'spawn E2BIG', spawnError: 'E2BIG' })
+    expect(await setPrBody(run, PR, 'b', '/r')).toMatchObject({ ok: false, spawnError: 'E2BIG' })
+    await expect(fs.access(file)).rejects.toThrow()
   })
 
   it('refuses a URL that is not a pull request without calling gh', async () => {

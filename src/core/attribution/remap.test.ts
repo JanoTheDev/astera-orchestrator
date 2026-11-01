@@ -3,6 +3,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { ARGV_BUDGET, argvLength } from '../git/argvBudget'
 import { gitSync, makeRepo } from '../worktrees/testRepo'
 import { readNote, writeNote, type AttributionNote } from './note'
 import { addedRanges, remapMerged, squashNote } from './remap'
@@ -28,6 +29,33 @@ async function branch(): Promise<{ repo: string; ai: string; human: string }> {
   gitSync(repo, ['checkout', 'main'])
   return { repo, ai, human }
 }
+
+describe('remapMerged command lines', () => {
+  // A plan's commits can number in the hundreds; every one on one `git log` is a Windows command line past 32k
+  it('stays under the budget with 200 original commits, and still asks about every one', async () => {
+    const originals = Array.from({ length: 200 }, (_, i) => i.toString(16).padStart(40, '0'))
+    const calls: string[][] = []
+    const logged: string[] = []
+    const r = await remapMerged({
+      cwd: 'C:/repo',
+      mergeCommit: 'c'.repeat(40),
+      originals,
+      run: async (a) => {
+        calls.push(a)
+        if (a[0] === 'log' && a.includes('--no-walk=unsorted')) {
+          const shas = a.filter((x) => originals.includes(x))
+          logged.push(...shas)
+          return { ok: true, stdout: shas.map((x) => `${x}\0a\0a@x\0 1\0s`).join('\n'), stderr: '' }
+        }
+        return { ok: a[0] !== 'merge-base', stdout: '', stderr: '' }
+      }
+    })
+    expect(r.kind).toBe('none')
+    expect(Math.max(...calls.map((a) => argvLength('git', a)))).toBeLessThan(ARGV_BUDGET)
+    expect(calls.filter((a) => a[0] === 'log' && a.includes('--no-walk=unsorted')).length).toBeGreaterThan(1)
+    expect(logged).toEqual(originals)
+  })
+})
 
 describe('addedRanges', () => {
   it('reads the added ranges per path from git diff -U0', () => {

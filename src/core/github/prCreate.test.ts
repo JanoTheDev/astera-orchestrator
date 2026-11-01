@@ -1,4 +1,6 @@
+import { promises as fs } from 'node:fs'
 import { describe, it, expect } from 'vitest'
+import { ARGV_BUDGET, argvLength } from '../git/argvBudget'
 import { createPullRequest, pushBranch, readCommits, type PrCreateRequest } from './prCreate'
 
 const req = (over: Partial<PrCreateRequest> = {}): PrCreateRequest => ({
@@ -17,6 +19,45 @@ const okGh = { ok: true, stdout: 'https://github.com/o/r/pull/7', stderr: '' }
 const okGit = { ok: true, stdout: '', stderr: '' }
 
 describe('createPullRequest', () => {
+  // A 27-Task plan's body passed 32k characters as one argument and gh never started (spawn ENAMETOOLONG)
+  it('sends a 60-Task body through --body-file: short command line, body intact, temp file removed', async () => {
+    const body = Array.from({ length: 60 }, (_, i) => `## Task ${i}: ${'a long title '.repeat(40)}\nC:\\Users\\someone\\astera-worktrees\\Gameful-Monorepo\\${'x'.repeat(60)}\nünïcode 한글 report\n`).join('\n')
+    expect(body.length).toBeGreaterThan(32_000)
+    let argv: string[] = []
+    let sent = ''
+    let file = ''
+    const r = await createPullRequest(req({ body, draft: true }), {
+      runGit: async () => okGit,
+      runGh: async (a) => {
+        argv = a
+        file = a[a.indexOf('--body-file') + 1]
+        sent = await fs.readFile(file, 'utf8')
+        return okGh
+      },
+      normalizeBase: async (_r, b) => b
+    })
+    expect(r.ok).toBe(true)
+    expect(argv).not.toContain('--body')
+    expect(argv).toContain('--draft')
+    expect(argvLength('gh', argv)).toBeLessThan(ARGV_BUDGET)
+    expect(sent).toBe(body)
+    await expect(fs.access(file)).rejects.toThrow()
+  })
+
+  it('removes the temp file when gh fails too, and keeps the spawn error', async () => {
+    let file = ''
+    const r = await createPullRequest(req(), {
+      runGit: async () => okGit,
+      runGh: async (a) => {
+        file = a[a.indexOf('--body-file') + 1]
+        return { ok: false, stdout: '', stderr: 'spawn ENAMETOOLONG', spawnError: 'ENAMETOOLONG' }
+      },
+      normalizeBase: async (_r, b) => b
+    })
+    expect(r).toMatchObject({ ok: false, stage: 'create', spawnError: 'ENAMETOOLONG' })
+    await expect(fs.access(file)).rejects.toThrow()
+  })
+
   it('creates without pushing when the branch is already on the remote', async () => {
     const gitCalls: string[][] = []
     const r = await createPullRequest(req(), {
