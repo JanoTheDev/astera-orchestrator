@@ -11,6 +11,7 @@ astera accounts list --json
 astera skills list --json
 astera skills install --json                           # put back a missing Astera skill
 astera main-plan --json                                # the project plans, their open Tasks
+astera plan-state --job <jobId> --json                 # one Job: its Run, every Task with report, review, changed files
 astera requests show --request-id <id> --json          # did my lost call take effect?
 ```
 

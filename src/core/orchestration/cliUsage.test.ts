@@ -23,7 +23,8 @@ describe('cliUsage — 표는 공개 표면과 정확히 같다', () => {
       'status',
       'help',
       'agent-context',
-      'main-plan'
+      'main-plan',
+      'plan-state'
     ].sort()
     expect(Object.keys(USAGE).sort()).toEqual(expected)
   })

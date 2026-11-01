@@ -241,7 +241,7 @@ export function buildReplanBrief(a: {
       ? [
           'OWNER CHAT',
           "The person opened this tab to ask about this finished plan. Answer their questions from the Tasks' reports, reviews and",
-          `changed files: \`astera tasks-list --job ${a.job.id}\`, \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`,`,
+          `changed files: \`astera plan-state --job ${a.job.id} --json\` (all of it in one call), \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`,`,
           '`astera dispatch-show --task <taskId>`, and git log and diff of the plan branch. Do not change files.',
           'Only when they ask for more work, add follow-up Tasks as WHAT YOU MAY DO says. A completed Task is not changed: a',
           'follow-up Task does the new work. When they are done, end as WHEN YOU ARE DONE says, with or without new Tasks.',
@@ -256,6 +256,7 @@ export function buildReplanBrief(a: {
     '  Each drop is listed with its reason in the replan summary; a drop without --reason is refused.',
     '',
     'BEFORE YOU DECIDE',
+    `- Run \`astera plan-state --job ${a.job.id} --json\` first: the Run and every Task with report, review and changed files in one call.`,
     '- Read `$ASTERA_SKILLS/planner-guide.md`, section "Replanning". Read the code the done Tasks changed:',
     ...(a.focused ? ['  Read only the Tasks listed here, not the whole plan; the rest is unchanged.'] : []),
     `  \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`, and the files themselves.`,
