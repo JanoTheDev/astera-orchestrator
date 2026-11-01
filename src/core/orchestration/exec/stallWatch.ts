@@ -40,6 +40,7 @@ import { latestImplDispatch } from '../convergence'
 import { providerOf } from '../../providers/meta'
 import { startPauseOf } from '../usageGuard'
 import type { Account } from '../../types'
+import { WORKER_SILENT_DEFAULT_MINUTES } from '../../settings/workerSilentMinutes'
 
 /** How often the watchdog looks. */
 export const STALL_WATCH_MS = 30_000
@@ -58,8 +59,9 @@ export const DEAD_COORDINATOR_MS = 2 * 60_000
 /** A Task left `dispatched` this long after its worker's session ended unreported, or with no Dispatch at all and no
  *  live worker to adopt: it is started again (`--retry-of` when there was one). */
 export const LOST_STALL_MS = 2 * 60_000
-/** A worker idle at its prompt this long with its Dispatch open (no `worker-done`): it is nudged. */
-export const IDLE_STALL_MS = 10 * 60_000
+/** T12: a worker with no activity this long with its Dispatch open (no `worker-done`): it is nudged, and this long after
+ *  that its last turn is read. The default of the `workerSilentMinutes` setting (StallProbe.silentMs). */
+export const IDLE_STALL_MS = WORKER_SILENT_DEFAULT_MINUTES * 60_000
 /** A Task `validating` this long with no check of it running (its run's exit lost, or its start never reached a
  *  validator): its validation is started again, as the resume sweep restarts one. */
 export const VALIDATE_STALL_MS = 5 * 60_000
@@ -137,6 +139,11 @@ export interface StallProbe {
    *  Task is retried nor a planner restarted. `worker-start` and `jobs-plan` would refuse each, and each refusal would
    *  spend a try toward the owner's escalation. A ready Task's stall counts from the lift. Absent: not held. */
   startHeld?: boolean
+  /** T12: when this open Dispatch's worker last showed activity (epoch ms): the newer of its transcript's mtime and its
+   *  pty's last output. null or absent: not known, so its busy flag alone decides, as before. */
+  lastActivityAt?(d: Dispatch): number | null
+  /** T12: the `workerSilentMinutes` setting in ms. Absent: IDLE_STALL_MS. */
+  silentMs?: number
 }
 
 export type StallRemedy = { key: string; runId: string } & (
@@ -153,6 +160,8 @@ export type StallRemedy = { key: string; runId: string } & (
   /** A Task `validating` with no check of it running: its validation started again in its implementation's folder */
   | { kind: 'revalidate'; task: Task; cwd: string; since: number; try: number }
   | { kind: 'tell-idle'; task: Task; dispatch: Dispatch; since: number }
+  /** T12, a hands-off plan: silent again after its nudge. Its last turn is recorded as its report, or the Task retried */
+  | { kind: 'capture-worker'; task: Task; dispatch: Dispatch; since: number }
   | { kind: 'escalate'; taskId: string; dispatchId?: string; subject: string; body: string }
   /** T11: a Task held by another plan's lease for `LEASE_TELL_MS`: its coordinator is told */
   | { kind: 'tell-lease'; task: Task; plan: string; since: number }
@@ -174,6 +183,7 @@ export const APPLIED_HERE: ReadonlySet<StallRemedy['kind']> = new Set([
   'revalidate',
   'nudge-worker',
   'tell-idle',
+  'capture-worker',
   'escalate',
   'tell-lease',
   'ask',
@@ -183,10 +193,41 @@ export const APPLIED_HERE: ReadonlySet<StallRemedy['kind']> = new Set([
   'raise-planner'
 ])
 
-/** What a worker idle at its prompt without a report is typed. English: workers read English (spec files). */
-export const IDLE_NUDGE =
-  'You stopped without reporting. Finish the Task, or report with `astera send --type worker_done` (see your spec), ' +
-  'or ask a question with `astera ask` if you are stuck.'
+/** What a worker silent `minutes` without a report is typed, once. English: workers read English (spec files). */
+export const idleNudge = (minutes: number): string =>
+  `Astera has not seen activity from you for ${minutes} minutes. Report your result now with the astera CLI ` +
+  '(`astera send --type worker_done …`), or say what blocks you (`astera ask …`).'
+
+/** T12: the subject of a report Astera recorded from a silent worker's last turn. */
+export const CAPTURED_SUBJECT = 'Recorded from its last turn'
+/** T12: the most of a last turn a report or a retry's spec carries (its end: a turn closes on its conclusion). */
+export const LAST_TURN_MAX = 4_000
+const capTurn = (turn: string): string => (turn.length > LAST_TURN_MAX ? `…${turn.slice(-LAST_TURN_MAX)}` : turn)
+
+/** T12: whether a last turn reads as a finished report: it says the work is done, and asks nothing and names no block.
+ *  shortcut: English keywords only; upgrade to asking a model if workers report in other languages. */
+export function isFinishedReport(turn: string): boolean {
+  const t = turn.trim()
+  if (t === '' || t.endsWith('?')) return false
+  if (/\bnot (?:yet )?(?:done|finished|complete)|\b(?:blocked|stuck|unable to|could not|cannot|can't)\b/i.test(t)) return false
+  return /\b(?:done|finished|complete[ds]?|implemented|committed)\b/i.test(t)
+}
+
+/** T12: a Dispatch's last turn: the transcript's last assistant turn first, the pty tail second. null: neither says. */
+export async function lastTurnOf(
+  d: Dispatch,
+  from: { transcript?(d: Dispatch): Promise<string | null>; tail?(d: Dispatch): Promise<string | null> }
+): Promise<string | null> {
+  for (const read of [from.transcript, from.tail]) {
+    const text = read ? (await read(d).catch(() => null))?.trim() : undefined
+    if (text) return text
+  }
+  return null
+}
+
+/** T12: the status a coordinator is told when its worker stays silent after the nudge; once per Dispatch, so it is
+ *  also the mark a Host restart reads. */
+const silentSubject = (d: Dispatch): string => `watchdog: worker ${d.id} silent after a nudge`
 
 /** T11: what a planner gone quiet without handing its plan over is typed. English, as `IDLE_NUDGE`. */
 export const PLANNER_NUDGE =
@@ -580,10 +621,12 @@ export function stallRemedies(
       })
   }
 
-  // Idle: a worker at its prompt with its Dispatch open, so it never reported. Nudged, then its coordinator is told,
-  // then the owner. Working again (or unreadable) drops the stall.
+  // T12 silent: a worker with its Dispatch open and no activity (transcript or pty) for N minutes, so it never reported.
+  // Nudged once (recorded on the Dispatch), then N minutes later its last turn is read in a hands-off plan, or its
+  // coordinator told and then the owner. Activity starts the silence over; the nudge is never sent twice.
+  const silentMs = probe.silentMs ?? IDLE_STALL_MS
   for (const d of s.dispatches) {
-    if (d.outcome || d.endedAt || probe.busy(d.sessionId) !== false) continue
+    if (d.outcome || d.endedAt) continue
     // A start waiting on its install has no session yet, so no prompt to be idle at
     if (isInstallingStart(d.sessionId)) continue
     // A rolled Dispatch waits for its account (Dispatch.resumes): not idle, held
@@ -593,19 +636,34 @@ export function stallRemedies(
     const run = task?.runId === undefined ? undefined : s.runs.find((r) => r.id === task.runId)
     const job = run && jobOf(s, run)
     if (!task || !run || !job || !isJobActive(job) || job.paused || run.paused) continue
+    const active = probe.lastActivityAt?.(d) ?? null
+    // No activity reading: idle at its prompt is the signal, as before; working (or unreadable) drops the stall
+    if (active === null && probe.busy(d.sessionId) !== false) continue
     const key = `idle:${d.id}`
-    const e = seen(key, nowMs)
-    if (!due_(e, e.since + IDLE_STALL_MS)) continue
-    if (e.step === 0) due.push({ key, runId: run.id, kind: 'nudge-worker', task, dispatch: d, since: e.since })
-    else if (e.step === 1) due.push({ key, runId: run.id, kind: 'tell-idle', task, dispatch: d, since: e.since })
-    else if (e.step === 2) {
+    const nudged = d.nudgedAt === undefined ? undefined : Date.parse(d.nudgedAt)
+    // After a Host restart the ladder goes on from the Dispatch's record and the coordinator's inbox
+    const told = nudged === undefined ? undefined : s.messages.find((m) => m.runId === run.id && m.subject === silentSubject(d))
+    let e =
+      memo.get(key) ??
+      (nudged !== undefined
+        ? { since: Date.parse(d.silentSince ?? d.nudgedAt!), step: told ? 2 : 1, at: told ? Date.parse(told.createdAt) : nudged }
+        : { since: active ?? nowMs, step: 0, at: 0 })
+    if (active !== null && active > e.since) e = { ...e, since: active }
+    next.set(key, e)
+    const quiet = nowMs - Math.max(e.since, e.at)
+    const handsOff = handsOffOf(s, job)
+    if (e.step === 0 && quiet >= silentMs) due.push({ key, runId: run.id, kind: 'nudge-worker', task, dispatch: d, since: e.since })
+    else if (e.step === 1 && quiet >= silentMs)
+      due.push({ key, runId: run.id, kind: handsOff ? 'capture-worker' : 'tell-idle', task, dispatch: d, since: e.since })
+    else if (e.step === 2 && quiet >= backoffOf(2)) {
+      // Hands-off too, when its capture could not close the Dispatch: never left in silence
       escalate(key, e, run.id, {
         taskId: task.id,
         dispatchId: d.id,
-        subject: `watchdog: worker ${d.id} idle since ${new Date(e.since).toISOString()}`,
+        subject: `watchdog: worker ${d.id} went silent without reporting`,
         body:
-          `${task.id} (${task.title})'s worker has been idle at its prompt since ${new Date(e.since).toISOString()} without ` +
-          'reporting, after a nudge and a message to the coordinator. Look at its terminal: answer it, or stop it.'
+          `${task.id} (${task.title})'s worker has shown no activity since ${new Date(e.since).toISOString()} without ` +
+          `reporting, after a nudge and ${handsOff ? 'a try to record or retry it' : 'a message to the coordinator'}. Look at its terminal: answer it, or stop it.`
       })
       continue
     } else continue
@@ -684,6 +742,17 @@ export interface StallWatchDeps {
   autoAccounts?(): boolean
   loginStatus?(accountId: string): Promise<boolean>
   typeInto(sessionId: string, text: string): void
+  /** T12: the `workerSilentMinutes` setting, read once per look. Absent: its default. */
+  silentMinutes?(): number | Promise<number>
+  /** T12: when an open Dispatch's worker last showed activity (StallProbe.lastActivityAt). Absent: the busy flag alone. */
+  lastActivityAt?(d: Dispatch): Promise<number | null>
+  /** T12: the worker's last assistant turn from its transcript, and the tail of its pty output (lastTurnOf). */
+  transcriptTurn?(d: Dispatch): Promise<string | null>
+  tailTurn?(d: Dispatch): Promise<string | null>
+  /** T12: whether the attempt added commits over its fork point (Dispatch.git.base). Absent: never, so nothing is recorded. */
+  commitsAhead?(d: Dispatch): Promise<boolean>
+  /** T12: records the nudge on the Dispatch (silentSince, nudgedAt) so it survives a Host restart. */
+  markNudged?(dispatchId: string, at: { silentSince: string; nudgedAt: string }): void | Promise<void>
   /** DispatchLoop.tell: a `status` message into a coordinator's Run inbox. */
   tell(n: CoordinatorNotice): Promise<boolean>
   activity?(d: ActivityDraft): void
@@ -770,29 +839,79 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
         return
       }
       case 'nudge-worker': {
-        d.typeInto(r.dispatch.sessionId, IDLE_NUDGE)
+        const quiet = mins(d.nowMs() - r.since)
+        d.typeInto(r.dispatch.sessionId, idleNudge(quiet))
         // Enter in the same burst as the text only adds a line (dispatchLoop.ts nudgePass)
         await wait(ENTER_DELAY_MS)
         d.typeInto(r.dispatch.sessionId, '\r')
-        line(r.runId, `nudged the worker of ${r.task.title}: idle ${mins(d.nowMs() - r.since)} min without reporting`, r.task.id)
+        await d.markNudged?.(r.dispatch.id, { silentSince: new Date(r.since).toISOString(), nudgedAt: new Date(d.nowMs()).toISOString() })
+        line(r.runId, `nudged the worker of ${r.task.title}: no activity for ${quiet} min without reporting`, r.task.id)
         return
       }
       case 'tell-idle': {
+        const quiet = mins(d.nowMs() - r.since)
         const ok = await d.tell({
           runId: r.runId,
           taskId: r.task.id,
-          subject: `watchdog: worker ${r.dispatch.id} idle since ${new Date(r.since).toISOString()}`,
+          subject: silentSubject(r.dispatch),
           body:
-            `${r.task.id} (${r.task.title})'s worker (session ${r.dispatch.sessionId}) has been idle at its prompt for ` +
-            `${mins(d.nowMs() - r.since)} minutes without reporting, and a nudge did not move it. Look at it: answer it, ` +
+            `${r.task.id} (${r.task.title})'s worker (session ${r.dispatch.sessionId}) has shown no activity since ` +
+            `${new Date(r.since).toISOString()} without reporting, and a nudge did not move it. Look at it: answer it, ` +
             'tell it what to do, or stop it and start the Task again.'
         })
         line(
           r.runId,
           ok
-            ? `told the coordinator the worker of ${r.task.title} is idle ${mins(d.nowMs() - r.since)} min without reporting`
-            : `the worker of ${r.task.title} is idle ${mins(d.nowMs() - r.since)} min without reporting, and the coordinator could not be told`,
+            ? `told the coordinator the worker of ${r.task.title} has been silent ${quiet} min, and a nudge did not move it`
+            : `the worker of ${r.task.title} has been silent ${quiet} min after a nudge, and the coordinator could not be told`,
           r.task.id
+        )
+        return
+      }
+      case 'capture-worker': {
+        const { task, dispatch } = r
+        const turn = await lastTurnOf(dispatch, {
+          ...(d.transcriptTurn ? { transcript: d.transcriptTurn } : {}),
+          ...(d.tailTurn ? { tail: d.tailTurn } : {})
+        })
+        const committed = turn !== null && isFinishedReport(turn) && (await d.commitsAhead?.(dispatch).catch(() => false)) === true
+        const report = (outcome: 'succeeded' | 'failed', subject: string, body: string) =>
+          d.handle('send', { type: 'worker_done', taskId: task.id, dispatchId: dispatch.id, outcome, subject, body })
+        if (committed) {
+          // As if the worker had sent it: review and merge go on as usual
+          const reply = await report('succeeded', CAPTURED_SUBJECT, capTurn(turn))
+          line(
+            r.runId,
+            reply.status < 400
+              ? `recorded the report of ${task.title} from its last turn: silent after a nudge, its work committed`
+              : `could not record the report of ${task.title} from its last turn: ${why(reply.body)}`,
+            task.id
+          )
+          return
+        }
+        // Not a report: one failure toward its limit, its last words carried into the retry's spec (worker-start)
+        const said = turn === null ? '(nothing could be read)' : capTurn(turn).split('\n').map((l) => `> ${l}`).join('\n')
+        const failed = await report(
+          'failed',
+          'its worker went silent after a nudge without reporting; ended by Astera',
+          `### What the previous attempt said last\n\n${said}`
+        )
+        if (failed.status >= 400) {
+          line(r.runId, `the worker of ${task.title} is silent after a nudge and could not be ended: ${why(failed.body)}`, task.id)
+          return
+        }
+        const released = await d.handle('worker-release', { dispatch: dispatch.id })
+        if (released.status >= 400) d.log(`run=${r.runId}: watchdog: the session of ${dispatch.id} could not be ended: ${why(released.body)}`)
+        const start = (on?: string) => d.handle('worker-start', { task: task.id, agent: dispatch.provider, ...(on ? { account: on } : {}), retryOf: dispatch.id })
+        let reply = await start(dispatch.accountId)
+        // Its account out of usage: any other with room, as retry-lost does
+        if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined) reply = await start()
+        line(
+          r.runId,
+          reply.status < 400
+            ? `ended the silent worker of ${task.title} and started it again with its last turn in the spec`
+            : `ended the silent worker of ${task.title}, and could not start it again: ${why(reply.body)}`,
+          task.id
         )
         return
       }
@@ -934,6 +1053,14 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           return
         }
         const cap = await d.cap()
+        const silentMs = (await Promise.resolve(d.silentMinutes?.() ?? WORKER_SILENT_DEFAULT_MINUTES)) * 60_000
+        // T12: the activity of each open Dispatch, read before the pure check (a file's mtime is async)
+        const activity = new Map<string, number>()
+        if (d.lastActivityAt) {
+          const open = d.getState().dispatches.filter((x) => !x.outcome && !x.endedAt)
+          const read = await Promise.all(open.map((x) => d.lastActivityAt!(x).catch(() => null)))
+          open.forEach((x, i) => read[i] !== null && activity.set(x.id, read[i]!))
+        }
         const usage = await stallPauseProbe({
           auto: d.autoAccounts?.() === true && d.loginStatus !== undefined,
           ...(d.paused ? { paused: (id: string) => d.paused!(id) } : {}),
@@ -947,7 +1074,9 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           cap,
           alive: (id) => d.alive(id),
           ...(d.checking && d.startValidation ? { checking: (id: string) => d.checking!(id) } : {}),
-          ...(d.startHeld?.() === true ? { startHeld: true } : {})
+          ...(d.startHeld?.() === true ? { startHeld: true } : {}),
+          ...(d.lastActivityAt ? { lastActivityAt: (x: Dispatch) => activity.get(x.id) ?? null } : {}),
+          silentMs
         })
         memo = planned.memo
         for (const r of planned.due) {
