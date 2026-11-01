@@ -114,6 +114,10 @@ async function main() {
   if (!existsSync(join(built, 'plugin-host.js'))) {
     throw new Error('out/main/plugin-host.js is missing — run `electron-vite build` before this script')
   }
+  // The pty supervisor (src/host/ptySupervisor): the Host starts it from beside host.js too.
+  if (!existsSync(join(built, 'pty-supervisor.js'))) {
+    throw new Error('out/main/pty-supervisor.js is missing — run `electron-vite build` before this script')
+  }
 
   // node-pty ships its native binaries as prebuilds keyed by platform and architecture alone, with no
   // Node-ABI directory, because it is built on node-addon-api (N-API). That is what makes this whole
@@ -172,6 +176,7 @@ async function main() {
   mkdirSync(buildOut, { recursive: true })
   cpSync(join(built, 'host.js'), join(buildOut, 'host.js'))
   cpSync(join(built, 'plugin-host.js'), join(buildOut, 'plugin-host.js'))
+  cpSync(join(built, 'pty-supervisor.js'), join(buildOut, 'pty-supervisor.js'))
   if (existsSync(join(built, 'chunks'))) {
     cpSync(join(built, 'chunks'), join(buildOut, 'chunks'), { recursive: true })
   }

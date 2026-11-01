@@ -44,7 +44,9 @@ export default defineConfig({
           index: 'src/main/index.ts',
           cli: 'src/cli/index.ts',
           host: 'src/host/index.ts',
-          'plugin-host': 'src/pluginHost/index.ts'
+          'plugin-host': 'src/pluginHost/index.ts',
+          // The pty supervisor the Host starts beside itself (src/host/ptySupervisor/protocol.ts)
+          'pty-supervisor': 'src/host/ptySupervisor/entry.ts'
         }
       }
     }

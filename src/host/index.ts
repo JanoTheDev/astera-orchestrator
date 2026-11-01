@@ -34,7 +34,8 @@ import { openSecretStore } from '../core/secrets/secretStore'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { ensureHostKey } from '../core/publicContract'
 import { completeWindowsPath } from '../core/sessions/windowsPath'
-import { PtyRegistry } from './registry'
+import { PtyRegistry, type RegistrySpawn } from './registry'
+import { startPtySupervisor } from './ptySupervisor/client'
 import { createConhostReaper, reapWindowsConsoleHosts } from './conhostReaper'
 import { createRemoteSessions, type RemoteSessions } from './remoteSessions'
 import { attachPtyHost } from './ptyHost'
@@ -236,24 +237,37 @@ async function main(): Promise<void> {
   // Made once for this process (remote runtime design §3.2, N11): a client comparing it learns the Host restarted. The
   // local hello, the Gateway's hello and the pty registry's replays (§3.7) carry the same value.
   const bootId = randomBytes(16).toString('hex')
+  /** The Host's own pty spawn: everything but agent sessions, and those too while the pty supervisor cannot be reached. */
+  const spawnHere: RegistrySpawn = (file, args, opts) => {
+    // **Checked here, before every spawn, and not once at startup.** The file can go missing while
+    // this Host is running — that is exactly what happened on 2026-09-22 — and the Host would not
+    // notice, because it never reads it again until a spawn needs it. Which is the moment it stops
+    // being able to tell anyone anything (see nodePtyCheck.ts for the mechanism). Two `existsSync`
+    // calls per session is nothing beside what a spawn already costs.
+    const missing = nodePtyMissing({ platform: process.platform, libDir: ptyLibDir, exists: existsSync })
+    // Thrown rather than returned: `PtyRegistry.open` already catches a spawn that throws and
+    // answers `pty-failed` with the message, which is the path this wants — the app shows the
+    // sentence on the terminal (ptyFactory.ts) instead of a session that never appears.
+    if (missing) throw new Error(`node-pty is incomplete: ${missing} is missing — the app repairs this at the next Host start`)
+    const spawned = pty.spawn(file, args, { name: 'xterm-256color', ...opts })
+    // After it returns: the console host of this pty exists by now, and is made before this mark.
+    conhostReaper.spawned()
+    return spawned
+  }
+  // T35: an agent session's pty lives in the pty supervisor, a hidden process that outlives this Host
+  // (src/host/ptySupervisor/protocol.ts), so a Host that dies does not end the agents with it.
+  const ptySupervisor = startPtySupervisor({
+    profileDir,
+    execPath: process.execPath,
+    entryPath: path.join(__dirname, 'pty-supervisor.js'),
+    env: process.env,
+    platform: process.platform,
+    log: (m) => log.write(m),
+    fallback: spawnHere
+  })
   const registry = new PtyRegistry({
     bootId,
-    spawn: (file, args, opts) => {
-      // **Checked here, before every spawn, and not once at startup.** The file can go missing while
-      // this Host is running — that is exactly what happened on 2026-09-22 — and the Host would not
-      // notice, because it never reads it again until a spawn needs it. Which is the moment it stops
-      // being able to tell anyone anything (see nodePtyCheck.ts for the mechanism). Two `existsSync`
-      // calls per session is nothing beside what a spawn already costs.
-      const missing = nodePtyMissing({ platform: process.platform, libDir: ptyLibDir, exists: existsSync })
-      // Thrown rather than returned: `PtyRegistry.open` already catches a spawn that throws and
-      // answers `pty-failed` with the message, which is the path this wants — the app shows the
-      // sentence on the terminal (ptyFactory.ts) instead of a session that never appears.
-      if (missing) throw new Error(`node-pty is incomplete: ${missing} is missing — the app repairs this at the next Host start`)
-      const spawned = pty.spawn(file, args, { name: 'xterm-256color', ...opts })
-      // After it returns: the console host of this pty exists by now, and is made before this mark.
-      conhostReaper.spawned()
-      return spawned
-    },
+    spawn: ptySupervisor.spawn,
     log: (m) => log.write(m),
     // A repeat kill's escalation (registry.ts `kill`): never a second ConPTY kill.
     killTree: (pid) => killTree(pid)

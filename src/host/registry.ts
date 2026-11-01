@@ -64,7 +64,8 @@ export interface RegistryPty {
   resume(): void
 }
 
-export type RegistrySpawn = (file: string, args: string[] | string, opts: PtyOpenOptions) => RegistryPty
+/** `meta`: the pty's note; an agent session's (`kind: 'session'`) goes to the pty supervisor (src/host/ptySupervisor). */
+export type RegistrySpawn = (file: string, args: string[] | string, opts: PtyOpenOptions, meta?: PtyMeta) => RegistryPty
 
 /** Characters of scrollback kept per session, counted in UTF-16 code units — the unit
  *  `core/orchestration/exec/tail.ts` counts, and for the reason its comment gives: a Hangul character is
@@ -301,7 +302,7 @@ export class PtyRegistry {
     if (this.entries.has(a.id)) return { ok: false, error: `a session with id ${a.id} is already open` }
     let pty: RegistryPty
     try {
-      pty = this.deps.spawn(a.file, a.args, a.opts)
+      pty = this.deps.spawn(a.file, a.args, a.opts, a.meta)
     } catch (err) {
       this.deps.log(`pty ${a.id} could not be started: ${String(err)}`)
       return { ok: false, error: String(err) }
