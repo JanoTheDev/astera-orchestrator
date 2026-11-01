@@ -12,6 +12,7 @@
 import {
   blockForReview,
   isAlreadyOpenError,
+  REVIEW_PAUSED_REASON,
   runGatedForTask,
   type OrchState
 } from '../state'
@@ -19,7 +20,7 @@ import {
 export interface ReviewGate {
   /** Every way `startReview` can fail ends here: the Task becomes `blocked` with `reason` as its
    *  question, and any review Dispatch already committed for it is dropped first. */
-  gate(a: { taskId: string; reason: string }): Promise<void>
+  gate(a: { taskId: string; reason: string; cause?: 'run-paused' }): Promise<void>
   /** The one caller that does not always gate — `openReviewDispatch`'s refusal. See below. */
   onOpenRefused(a: { taskId: string; error: string }): Promise<void>
   /** The Run gates, asked before a reviewer is started, with the refusal already routed through
@@ -47,7 +48,7 @@ export function createReviewGate(deps: {
    *  조건을 id 가 아니라 "이 Task 의 열려 있는 검토 Dispatch"로 쓴 것도 그래서다 — 아직 아무것도 열지
    *  않은 경로는 지울 것이 없어 그대로 지나가고(그래서 두 번 불러도 같다), 구현 Dispatch 는 정당하게
    *  남아 있는 닫힌 Dispatch 이므로 건드리지 않고, 이미 보고를 마친 검토 Dispatch 도 대상이 아니다. */
-  const gate: ReviewGate['gate'] = async ({ taskId, reason }) => {
+  const gate: ReviewGate['gate'] = async ({ taskId, reason, cause }) => {
     const before = deps.getState()
     const kept = before.dispatches.filter(
       (d) => !(d.taskId === taskId && d.review && !d.outcome && !d.endedAt)
@@ -56,7 +57,7 @@ export function createReviewGate(deps: {
       await deps.setState({ ...before, dispatches: kept })
     // 방금 쓴 것을 다시 읽는다 — 위 커밋이 메모리의 상태를 바꿨으므로 before 로 Gate 를 열면 지운
     // Dispatch 가 되살아난다.
-    const r = blockForReview(deps.getState(), { taskId, reason }, deps.now())
+    const r = blockForReview(deps.getState(), { taskId, reason, ...(cause ? { cause } : {}) }, deps.now())
     if (!r.ok) {
       deps.log(`could not block task=${taskId} for review: ${r.error}`)
       return
@@ -94,9 +95,9 @@ export function createReviewGate(deps: {
         // Only what can be true of a Task that reaches a review (R1): its Run is paused, or its Job is
         // paused or not yet started. A schedule's definition is not one of them; its Tasks have no Run
         // and never reach a review, and a Run a schedule fired runs like any other.
-        reason:
-          "this task's run is not one the app starts work on right now: the run or its job is paused, " +
-          'or the job has not been started yet. Resume or start it to have this task reviewed.'
+        reason: REVIEW_PAUSED_REASON,
+        // Marks the Gate so resuming the run (clearPausedReviewGates) closes it and restarts the review
+        cause: 'run-paused'
       })
       return true
     },

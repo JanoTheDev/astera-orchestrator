@@ -972,6 +972,8 @@ export interface Gate {
   question: string
   options?: string[]
   kind?: GateKind
+  /** A `review-ended` Gate opened because the Task's run was paused: resuming the run closes it and restarts the review. */
+  cause?: 'run-paused'
   // W6-C
   reason?: GateReason
   status: 'open' | 'resolved'
