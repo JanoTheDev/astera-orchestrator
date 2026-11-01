@@ -181,6 +181,16 @@ export const plan = {
   'plan.reason.sameFilesPlan': '{plan} · {task} 을(를) 기다리는 중 (같은 파일: {path})',
   'plan.reason.leasePlan': '{plan} 이(가) {path} 을(를) 전달할 때까지 기다리는 중',
   'plan.reason.next': '다음 배치 때 시작한다',
+  // T8: why the dispatch loop held a ready Task (blocked.ts `hold`)
+  'plan.reason.hold.usage': '계정 사용량이 한도에 가깝다 · 여유가 생기면 시작한다',
+  'plan.reason.hold.detached': '프로젝트 폴더가 브랜치 위에 있지 않다(detached HEAD) · 다시 시도한다',
+  'plan.reason.hold.install': '계획 워크트리가 의존성을 설치하는 중 · 끝나면 시작한다',
+  'plan.reason.hold.origin-sync': 'origin 을 계획 브랜치로 합치는 통합 Task 를 기다린다',
+  'plan.reason.hold.refresh-conflict': '다른 계획의 전달과의 충돌을 푸는 통합 Task 를 기다린다',
+  'plan.reason.hold.integration': '의존 Task 의 작업을 합치는 통합 Task 를 기다린다',
+  'plan.reason.hold.run-root-busy': '계획 폴더에서 아직 워커가 일한다 · 그 뒤에 합치고 시작한다',
+  'plan.reason.hold.cap': '워커 자리가 가득 찼다 · 자리가 나면 시작한다',
+  'plan.reason.hold.held': '새 워커 시작을 멈춰 뒀다',
   // W6-E progress view (components/plan/)
   'plan.view.files': '파일',
   'plan.wave.progress': '{done}/{total} 완료',

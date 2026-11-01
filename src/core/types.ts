@@ -675,8 +675,18 @@ export type TaskBlockedReason =
     }
   /** It has a slot: the dispatch loop starts it on its next pass. */
   | { kind: 'next' }
+  /** T8: the dispatch loop's last pass tried to place it and held it (exec/dispatchLoop.ts placeSlot); in memory only. */
+  | ({ kind: 'hold' } & SlotHold)
   /** W6-G: every account it may start on is at `usagePauseAt` of a usage window (usageGuard.ts). */
   | ({ kind: 'usage-paused' } & UsagePause)
+
+/** T8: why `placeSlot` did not start a ready Task this pass, and since when (ISO). `detail` is the loop's own English line. */
+export type SlotHoldKind = 'usage' | 'detached' | 'install' | 'origin-sync' | 'refresh-conflict' | 'integration' | 'run-root-busy' | 'cap' | 'held'
+export interface SlotHold {
+  hold: SlotHoldKind
+  detail: string
+  since: string
+}
 
 // W6-G usage guards: declared here because the renderer reads them (the plan board, the usage strip).
 /** An account no new worker starts on: a usage window at or over `usagePauseAt`, until it resets. */

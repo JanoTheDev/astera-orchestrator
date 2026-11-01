@@ -240,18 +240,21 @@ export function isIntegrationTask(t: Task): boolean {
  *
  *  Task 를 찾지 못한 Dispatch 는 세지 않는다 — 어느 Run 것인지 말할 수 없는 것을 어느 Run 의
  *  것으로도 세면 안 된다. */
-export function runsWorkingIn(s: OrchState, cwd: string): Set<string> {
+export function runsWorkingIn(s: OrchState, cwd: string, working?: (d: Dispatch) => boolean): Set<string> {
   const runIds = new Set<string>()
   // The first Task under each id, as a search would find it, built once rather than searched per Dispatch (M1)
-  let runOfTask: Map<string, string | undefined> | null = null
+  let taskOf: Map<string, Task> | null = null
   for (const d of s.dispatches) {
-    if (d.outcome || d.endedAt || !isSamePath(d.cwd, cwd)) continue
-    if (runOfTask === null) {
-      runOfTask = new Map()
-      for (const t of s.tasks) if (!runOfTask.has(t.id)) runOfTask.set(t.id, t.runId)
+    // T8: a reviewer does not write, so it never holds the folder
+    if (d.outcome || d.endedAt || d.review || !isSamePath(d.cwd, cwd)) continue
+    if (taskOf === null) {
+      taskOf = new Map()
+      for (const t of s.tasks) if (!taskOf.has(t.id)) taskOf.set(t.id, t)
     }
-    const runId = runOfTask.get(d.taskId)
-    if (runId !== undefined) runIds.add(runId)
+    const t = taskOf.get(d.taskId)
+    // T8: a worker whose Task is finished, or one the caller knows is not working (session gone, idle for long), neither
+    if (t?.runId === undefined || t.status === 'completed' || t.status === 'failed' || (working && !working(d))) continue
+    runIds.add(t.runId)
   }
   return runIds
 }
@@ -267,10 +270,10 @@ export function runsWorkingIn(s: OrchState, cwd: string): Set<string> {
  *  **이름이 `workingInProjectFolder` 였다.** 묻는 자리가 프로젝트 폴더에서 Run 뿌리로 옮겨갔고,
  *  Run 이 워크트리를 갖게 된 뒤 프로젝트 폴더를 묻는 물음은 언제나 false 다 — 이름을 그대로 두면
  *  다음에 읽는 사람이 항상 false 인 판정으로 읽는다. */
-export function workingInRunRoot(s: OrchState, runId: string): boolean {
+export function workingInRunRoot(s: OrchState, runId: string, working?: (d: Dispatch) => boolean): boolean {
   const run = s.runs.find((r) => r.id === runId)
   if (!run) return false
-  return runsWorkingIn(s, runRootOf(run, jobOf(s, run))).size > 0
+  return runsWorkingIn(s, runRootOf(run, jobOf(s, run)), working).size > 0
 }
 
 /** 통합 Task 의 spec 본문. **영어다** — 이것을 읽는 것은 사람이 아니라 에이전트이고, 같은 이유로

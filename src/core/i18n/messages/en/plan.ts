@@ -160,6 +160,16 @@ export const plan: Record<keyof typeof ko, string> = {
   'plan.reason.sameFilesPlan': 'Waits for {plan} · {task} (same files: {path})',
   'plan.reason.leasePlan': 'Waits for {plan} to deliver {path}',
   'plan.reason.next': 'Starts on the next pass',
+  // T8: why the dispatch loop held a ready Task (blocked.ts `hold`)
+  'plan.reason.hold.usage': 'Its accounts are near their usage limit · starts when one has room',
+  'plan.reason.hold.detached': 'The project folder is not on a branch (detached HEAD) · tried again',
+  'plan.reason.hold.install': 'The plan worktree is installing its dependencies · starts when that ends',
+  'plan.reason.hold.origin-sync': 'Waiting for the integration task that merges origin into the plan branch',
+  'plan.reason.hold.refresh-conflict': "Waiting for the integration task that resolves a conflict with another plan's delivery",
+  'plan.reason.hold.integration': 'Waiting for the integration task that merges the work it depends on',
+  'plan.reason.hold.run-root-busy': 'A worker is still working in the plan folder · merges and starts after it',
+  'plan.reason.hold.cap': 'No free worker slot · starts when one frees up',
+  'plan.reason.hold.held': 'New worker starts are paused',
   // W6-E progress view (components/plan/)
   'plan.view.files': 'Files',
   'plan.wave.progress': '{done}/{total} done',

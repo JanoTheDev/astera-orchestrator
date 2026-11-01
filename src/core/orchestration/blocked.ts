@@ -4,7 +4,7 @@
 // owns it: `jobActive` / `isJobActive` (a plan paused, not started, archived), `placedByApp` (who drives the Run),
 // `slotsToFill` and `workersAgainstCap` (the plan's own and the app-wide caps, `Job.priority`), `sameFilesAs` (W6-C: two
 // workers on the same files; T9: a plan not yet delivered leases them), FAILURE_LIMIT (the circuit breaker). If one of those rules changes, the reason changes with it.
-import type { TaskBlockedReason, TaskBoard, TaskCategory, UsagePause } from '../types'
+import type { SlotHold, TaskBlockedReason, TaskBoard, TaskCategory, UsagePause } from '../types'
 import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Gate, type Job, type Task } from './types'
 import { placedByApp, type OrchState } from './state'
 import { isJobActive } from './lifecycle'
@@ -30,6 +30,11 @@ import { externalDepsOf } from './mainPlan'
 import { failedRetryAt } from './replan'
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
+
+/** T8: why the dispatch loop of this process last held each ready Task (exec/dispatchLoop.ts writes it, by Task id). In
+ *  memory, never saved: the loop and the folds that read it (`jobs-view`, the app's snapshot) run in the same process.
+ *  shortcut: the app's own fold does not see the Host loop's holds; carry them over IPC if the Plans page needs them. */
+export const slotHolds = new Map<string, SlotHold>()
 
 /** The bucket a Task counts in. `dispatched` with no open Dispatch is `cancelled` only when a person closed it
  *  (`worker-stop`, `worker-abandon`, `runs stop`): one closed by a schedule's pause, or lost with the app, is waiting
@@ -61,7 +66,8 @@ export function taskBoardsOf(
   s: OrchState,
   limits: ScheduleLimits = {},
   /** W6-G: an account no new worker starts on (usageGuard.ts `UsageGuard.pauseOf`). Absent: no usage pause. */
-  usagePauseOf?: ((accountId: string) => UsagePause | null) & { auto?: true }
+  usagePauseOf?: ((accountId: string) => UsagePause | null) & { auto?: true },
+  holds: ReadonlyMap<string, SlotHold> = slotHolds
 ): Map<string, TaskBoard> {
   const cap = workerCapOf(limits.maxConcurrentWorkers)
   const push = <T>(m: Map<string, T[]>, k: string, v: T): void => {
@@ -207,8 +213,11 @@ export function taskBoardsOf(
       // W8-E (#92): the coordinator's `worker-start` holds a same-file Task too, so the board says why
       return sameFiles(task, job, placed().editing) ?? { kind: 'coordinator' }
     }
+    // T8: the loop tried it and held it: that, never "next", which it would not be
+    const held = holds.get(task.id)
+    const next = (): TaskBlockedReason => (held ? { kind: 'hold', ...held } : { kind: 'next' })
     const p = placed()
-    if (p.slotted.has(task.id)) return { kind: 'next' }
+    if (p.slotted.has(task.id)) return next()
     const clash = sameFiles(task, job, p.editing)
     if (clash) return clash
     const openHere = openByRun.get(run.id) ?? 0
@@ -223,7 +232,7 @@ export function taskBoardsOf(
         limit: cap,
         priority: job.priority ?? 0
       }
-    return { kind: 'next' }
+    return next()
   }
 
   const out = new Map<string, TaskBoard>()
