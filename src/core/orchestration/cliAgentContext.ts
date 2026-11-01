@@ -238,14 +238,14 @@ const SESSION = {
   'run-mark-merged': {
     summary: "mark a run's unmerged work as merged, when the owner merged it where git cannot see it",
     detail:
-      "For a finished run whose plan is Unmerged (a ready pull request not landed, or a manual plan waiting for review): records it as delivered and merged and cleans its worktrees, as run-pr-merge does. Nothing is pushed or merged. Refused for a run that already landed or is still working. The person's: refused from an agent session and an MCP client. Answered by the Host.",
+      "For a finished run whose plan is Unmerged (a ready pull request not landed, or a manual plan waiting for review): records it as delivered and merged and cleans its worktrees, as run-pr-merge does. Also a finished run whose delivery failed (failed, retrying, needs-owner, a merge conflict): the stored error is cleared. Nothing is pushed or merged. Refused for a run that already landed or is still working. The person's: works from the astera CLI run by a person (no ASTERA_SESSION), refused from an agent session and an MCP client. Answered by the Host.",
     flags: [RUN_ARG('<runId>', 'the finished run whose work was merged')]
   },
   // T6: the Unmerged list stays true without the PR poller
   'runs-pr-sync': {
     summary: "ask GitHub whether the runs' ready pull requests are merged or closed, and record it",
     detail:
-      "For every run (of the project, or all) with a ready, not-yet-landed pull request: gh pr view, and a merged or closed one is recorded as landed (the run reads delivered). At most 20 PRs per call, the longest-unchecked first; one checked in the last 2 minutes is skipped; a gh error skips that PR only. A manual plan waiting for review, and a PR left open, are also checked against git: a plan branch already in the delivery branch is recorded merged. Answers { checked, landed: [{ runId, landed }] }. The app's: refused from an agent session and an MCP client. Answered by the Host.",
+      "For every run (of the project, or all) with a ready, not-yet-landed pull request: gh pr view, and a merged or closed one is recorded as landed (the run reads delivered). At most 20 PRs per call, the longest-unchecked first; one checked in the last 2 minutes is skipped; a gh error skips that PR only. A manual plan waiting for review, and a PR left open, are also checked against git: a plan branch already in the delivery branch is recorded merged. A finished run that is Failed, retrying, waiting on the owner or Unmerged, whose plan branch is already in origin/<delivery branch> (one git fetch, at most once per run per 10 minutes), is recorded delivered as 'landed outside Astera'. Answers { checked, landed: [{ runId, landed }] }. The app's: refused from an agent session and an MCP client. Answered by the Host.",
     flags: [{ name: 'projectPath', value: '<folder>', about: 'only the runs of this project (default all)' }]
   },
   // Merge everything and fix conflicts

@@ -134,6 +134,13 @@ export function finishedAtMs(row: JobRow): number | undefined {
 export const isUnmergedPlan = (row: JobRow): boolean =>
   isEndedPlan(row) && row.archivedAt === undefined && ((!!row.pr?.url && row.pr.draft !== true && row.pr.landed === undefined) || row.awaitingReview === true)
 
+/** A plan that ended Failed because its delivery did not go through and has not landed: the owner may have merged it by hand. */
+export const isFailedDeliveryPlan = (row: JobRow): boolean =>
+  row.archivedAt === undefined &&
+  row.pr?.landed === undefined &&
+  row.outcome !== 'running' &&
+  (row.deliveryError !== undefined || row.delivery?.state === 'failed' || row.delivery?.state === 'retrying' || row.delivery?.state === 'needs-owner')
+
 /** The Plans side bar's three panes: the plans not ended (in the snapshot's order) on top, the ended-but-unmerged ones, then the
  *  rest of the ended ones. Both lower panes are newest-finished first. Archived plans are in `finished` only with `showArchived`.
  *  A plan with no known finish time sorts last. */
