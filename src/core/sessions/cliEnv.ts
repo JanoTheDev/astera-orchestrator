@@ -66,6 +66,8 @@ export function cliEnvFor(a: {
   account: Account
   descriptor: ProviderDescriptor
   homeDir: string
+  /** Test seam; defaults to process.platform. */
+  platform?: NodeJS.Platform
 }): Record<string, string | undefined> {
   // The default account (configDir is the home default dir) gets no isolation environment variable.
   // claude's main state (onboarding, oauthAccount, folder trust) lives in the home-root
@@ -88,5 +90,10 @@ export function cliEnvFor(a: {
   // ...and the same for the marks a Claude Code session leaves on its own environment, whose
   // consequence is a session that writes no transcript. See that list's own note.
   for (const k of INHERITED_AGENT_ENV_KEYS) delete env[k]
+  // Windows: Claude Code's update check runs `npm view` detached, and a detached child has no console, so its
+  // node.exe opens a console window of its own on the desktop, once per session Astera starts. Astera's sessions skip
+  // that check (the person's own `claude` outside Astera still updates). A value the person set is kept.
+  if ((a.platform ?? process.platform) === 'win32' && a.descriptor.configDirEnv === 'CLAUDE_CONFIG_DIR' && env.DISABLE_AUTOUPDATER === undefined)
+    env.DISABLE_AUTOUPDATER = '1'
   return env
 }
