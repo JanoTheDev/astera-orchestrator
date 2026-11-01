@@ -176,14 +176,13 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
   })
   // Owner spec 2026-10-18, part 2: a worker committed its node_modules link (a `node_modules/` rule does not match a
   // symlink), and the folder merged into has its own untracked one. git refuses that merge; it must go through.
-  // skipIf(win32): creating a symlink there needs the symlink privilege (EPERM without Developer Mode or admin)
-  it.skipIf(process.platform === 'win32')('an untracked node_modules symlink in the folder does not block the merge', async () => {
+  it('an untracked node_modules symlink in the folder does not block the merge', async () => {
     const target = await tempDir('astera-integrate-nm-')
     const a = await forkWorktree({ repoPath: repo, name: 'a' }, { registry, log: logTo() })
-    await fs.symlink(target, path.join(a, 'node_modules'))
+    await fs.symlink(target, path.join(a, 'node_modules'), 'junction') // a junction needs no symlink privilege on Windows; 'junction' is ignored elsewhere
     await fs.writeFile(path.join(a, 'a.txt'), 'a')
     gitSync(a, ['add', 'a.txt', 'node_modules']); gitSync(a, ['commit', '-m', 'a with its link'])
-    await fs.symlink(target, path.join(repo, 'node_modules'))
+    await fs.symlink(target, path.join(repo, 'node_modules'), 'junction')
     const r = await integrateWorktrees(repo, [a], {}, ctx())
     expect(r.kind).toBe('merged')
     await expect(fs.stat(path.join(repo, 'a.txt'))).resolves.toBeTruthy()
