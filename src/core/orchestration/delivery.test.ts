@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { buildDeliveryFixSpec, deliveryBranchOf, deliveryFixOf, deliveryOf, parseDelivery, setJobDelivery, setJobDeliveryBranch, setProjectDelivery } from './delivery'
+import { afterAttempt, beginAttempt, buildDeliveryFixSpec, deliveryBranchOf, deliveryDue, deliveryFixOf, deliveryOf, parseDelivery, setJobDelivery, setJobDeliveryBranch, setProjectDelivery } from './delivery'
 import { emptyState, type OrchState } from './state'
-import type { Job } from './types'
+import type { DeliveryProgress, Job } from './types'
 
 const NOW = '2026-10-23T00:00:00.000Z'
 const state = (): OrchState => ({
@@ -82,5 +82,46 @@ describe('T15: the fix Task of a refused push', () => {
       runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW }]
     }
     expect(deliveryFixOf(s, s.runs[0])).toBe('fix')
+  })
+})
+
+describe('a delivery retried when the plan branch moves', () => {
+  const at = '2026-10-23T00:00:00.000Z'
+  const nowMs = Date.parse(at)
+  const failed = (over: Partial<DeliveryProgress> = {}): DeliveryProgress => ({
+    ...afterAttempt(undefined, at, 'push refused', { heads: { head: 'h1', origin: 'o1' } }),
+    ...over
+  })
+
+  it('afterAttempt records the heads of a failure only', () => {
+    expect(failed()).toMatchObject({ state: 'retrying', headAtAttempt: 'h1', originAtAttempt: 'o1' })
+    expect(afterAttempt(undefined, at, undefined, { heads: { head: 'h1' } })).not.toHaveProperty('headAtAttempt')
+  })
+
+  it('is due at once when the head or origin moved, whatever the backoff', () => {
+    const p = failed()
+    expect(deliveryDue(p, nowMs)).toBe(false)
+    expect(deliveryDue(p, nowMs, { head: 'h1', origin: 'o1' })).toBe(false)
+    expect(deliveryDue(p, nowMs, { head: 'h2', origin: 'o1' })).toBe(true)
+    expect(deliveryDue(p, nowMs, { head: 'h1', origin: 'o2' })).toBe(true)
+    expect(deliveryDue({ ...p, state: 'needs-owner' }, nowMs, { head: 'h2' })).toBe(true)
+  })
+
+  it('an unknown head on either side is no move, and a dismissed or owner-pushed delivery never retries', () => {
+    expect(deliveryDue(failed({ headAtAttempt: undefined }), nowMs, { head: 'h2' })).toBe(false)
+    expect(deliveryDue(failed(), nowMs, {})).toBe(false)
+    expect(deliveryDue({ ...failed(), state: 'dismissed' }, nowMs, { head: 'h2' })).toBe(false)
+    expect(deliveryDue({ ...failed(), state: 'needs-owner', ownerPushes: true }, nowMs, { head: 'h2' })).toBe(false)
+  })
+
+  it('beginAttempt moves the error to previousError, clears the stored ones, and restarts the count on a moved head', () => {
+    const base = state()
+    const run = { id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: at, delivery: { at, error: 'push refused' }, deliveryState: failed({ attempts: 4 }) }
+    const s = { ...base, runs: [run] }
+    const same = beginAttempt(s, 'run_1', { head: 'h1' }, at).runs[0]
+    expect(same.deliveryState).toMatchObject({ state: 'delivering', attempts: 4, previousError: 'push refused' })
+    expect(same.deliveryState).not.toHaveProperty('lastError')
+    expect(same.delivery?.error).toBeUndefined()
+    expect(beginAttempt(s, 'run_1', { head: 'h2' }, at).runs[0].deliveryState).toMatchObject({ attempts: 0, headAtAttempt: 'h2' })
   })
 })

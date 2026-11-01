@@ -45,9 +45,12 @@ export function outcomeOf(state: OrchState, runId: string): RunOutcome {
 
 /** Why a Run's delivery failed (a merge conflict or a refused push, `run.pr.error` or `run.delivery.error`), or
  *  undefined. A later successful delivery replaces the record, so the error is gone with it. T1: a delivery that ended
- *  (delivered, by the owner, or dismissed by them) never reads failed, whatever error a record still holds. */
+ *  (delivered, by the owner, or dismissed by them) never reads failed, whatever error a record still holds. A new attempt
+ *  that is running (`delivering`) has no error yet: the old one is `deliveryState.previousError`, not the plan's. */
 export const deliveryErrorOf = (run: JobRun | undefined): string | undefined =>
-  run?.deliveryState !== undefined && SETTLED.has(run.deliveryState.state) ? undefined : (run?.pr?.error ?? run?.delivery?.error)
+  run?.deliveryState !== undefined && (SETTLED.has(run.deliveryState.state) || run.deliveryState.state === 'delivering')
+    ? undefined
+    : (run?.pr?.error ?? run?.delivery?.error)
 const SETTLED = new Set<string>(['delivered', 'delivered-by-owner', 'dismissed'])
 
 /** What a Run reads: its Tasks' outcome, except that a plan whose work did not get delivered did not complete, and a

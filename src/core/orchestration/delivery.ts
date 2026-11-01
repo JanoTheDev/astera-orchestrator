@@ -214,7 +214,7 @@ export function afterAttempt(
   prev: DeliveryProgress | undefined,
   at: string,
   error?: string,
-  opts?: { ask?: boolean; /** T1: the stop's code (PushStop), kept as `lastCode` */ code?: string }
+  opts?: { ask?: boolean; /** T1: the stop's code (PushStop), kept as `lastCode` */ code?: string; /** the heads the attempt ran against */ heads?: DeliveryHeads }
 ): DeliveryProgress {
   const attempts = (prev?.attempts ?? 0) + 1
   const keep = prev?.questionId !== undefined ? { questionId: prev.questionId } : {}
@@ -227,18 +227,61 @@ export function afterAttempt(
     lastAttemptAt: at,
     nextRetryAt: new Date(Date.parse(at) + wait * 60_000).toISOString(),
     ...(opts?.code !== undefined ? { lastCode: opts.code } : {}),
+    ...(opts?.heads?.head !== undefined ? { headAtAttempt: opts.heads.head } : {}),
+    ...(opts?.heads?.origin !== undefined ? { originAtAttempt: opts.heads.origin } : {}),
     ...keep
   }
 }
 
-/** Whether the driving loop attempts the end delivery now: once pending, after a failure when its retry time came
- *  (the owner's "I'll push it myself" is checked instead, `ownerCheckDue`), and a `delivering` left by a dead process. */
-export function deliveryDue(p: DeliveryProgress | undefined, nowMs: number): boolean {
+/** What the plan branch and origin stood at, read by the driving loop (one `git rev-parse` each, per Run per pass). */
+export interface DeliveryHeads {
+  head?: string
+  origin?: string
+}
+
+/** Whether the plan branch's head is not the one the last attempt ran against (a fix landed on it). Unknown on either
+ *  side (a record from before this, a head that could not be read) is no move. */
+export const headMoved = (p: DeliveryProgress | undefined, heads: DeliveryHeads | undefined): boolean =>
+  p?.headAtAttempt !== undefined && heads?.head !== undefined && heads.head !== p.headAtAttempt
+
+const originMoved = (p: DeliveryProgress, heads: DeliveryHeads | undefined): boolean =>
+  p.originAtAttempt !== undefined && heads?.origin !== undefined && heads.origin !== p.originAtAttempt
+
+/** Whether the driving loop attempts the end delivery now: once pending, after a failure when its retry time came or the
+ *  plan branch head or origin moved since its attempt (the owner's "I'll push it myself" is checked instead,
+ *  `ownerCheckDue`; a dismissed one never), and a `delivering` left by a dead process. */
+export function deliveryDue(p: DeliveryProgress | undefined, nowMs: number, heads?: DeliveryHeads): boolean {
   if (!p) return false
   if (p.state === 'pending') return true
   if (p.state === 'delivering') return p.lastAttemptAt === undefined || nowMs - Date.parse(p.lastAttemptAt) >= DELIVERING_STALE_MS
   if (p.state !== 'retrying' && p.state !== 'needs-owner') return false
-  return p.ownerPushes !== true && (p.nextRetryAt === undefined || Date.parse(p.nextRetryAt) <= nowMs)
+  if (p.ownerPushes === true) return false
+  return headMoved(p, heads) || originMoved(p, heads) || p.nextRetryAt === undefined || Date.parse(p.nextRetryAt) <= nowMs
+}
+
+/** The Run as its next attempt starts (`run-deliver`): the progress is `delivering`, the error it stopped with moves to
+ *  `previousError` and the Run's stored delivery errors go, so nothing reads that error as the new attempt's. A moved
+ *  plan branch head starts the count afresh (a fixed plan is not stuck at hourly retries) and answers the owner question
+ *  of the old failures. */
+export function beginAttempt(s: OrchState, runId: string, heads: DeliveryHeads | undefined, at: string): OrchState {
+  const run = s.runs.find((r) => r.id === runId)
+  if (!run) return s
+  const p = run.deliveryState
+  const moved = headMoved(p, heads)
+  const previousError = p?.lastError ?? run.delivery?.error ?? run.pr?.error ?? p?.previousError
+  const { lastError: _e, lastCode: _c, nextRetryAt: _n, ...rest } = p ?? { attempts: 0 }
+  const next: DeliveryProgress = {
+    ...rest,
+    state: 'delivering',
+    attempts: moved ? 0 : (p?.attempts ?? 0),
+    lastAttemptAt: at,
+    ...(previousError !== undefined ? { previousError } : {}),
+    ...(heads?.head !== undefined ? { headAtAttempt: heads.head } : {}),
+    ...(heads?.origin !== undefined ? { originAtAttempt: heads.origin } : {})
+  }
+  if (moved) delete next.questionId
+  const out = { ...s, runs: s.runs.map((r) => (r.id === runId ? { ...withoutDeliveryError(r), deliveryState: next } : r)) }
+  return moved ? answerQuestion(out, p?.questionId, 'the plan branch changed; delivering again') : out
 }
 
 /** Whether the owner's "I'll push it myself" is due another look at git. */

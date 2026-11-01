@@ -117,6 +117,17 @@ describe('run-deliver (W6-H)', () => {
     expect(h.pushes).toHaveLength(2)
   })
 
+  it('a stopped push is tried again without --force once the plan branch head moved, counting afresh', async () => {
+    const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'push refused' } })
+    await h.call('run-deliver', { run: 'r1', head: 'h1' })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 1, headAtAttempt: 'h1' })
+    expect((await h.call('run-deliver', { run: 'r1', head: 'h1' })).status).toBe(409)
+    expect(h.pushes).toHaveLength(1)
+    await h.call('run-deliver', { run: 'r1', head: 'h2' })
+    expect(h.pushes).toHaveLength(2)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 1, headAtAttempt: 'h2', lastError: 'push refused' })
+  })
+
   it('a push that stopped reads failed with its reason, and a forced push that lands reads completed again', async () => {
     const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'push refused' } })
     expect(outcomeOf(h.state(), 'r1')).toBe('completed')

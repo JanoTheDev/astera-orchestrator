@@ -1115,6 +1115,13 @@ export interface DeliveryProgress {
   lastCode?: string
   /** A delivered state's remark: `closed on GitHub` for a pull request closed without merging. */
   note?: string
+  /** The plan branch's head when the last attempt started, and origin's tip after it: a delivery that failed is due again
+   *  at once when either moved (a fix landed, or origin changed), whatever its backoff (delivery.ts `deliveryDue`). */
+  headAtAttempt?: string
+  originAtAttempt?: string
+  /** The error the previous attempt stopped with, kept while the next attempt runs, so the plan never reads that stale
+   *  error as its own (running.ts `deliveryErrorOf`). */
+  previousError?: string
 }
 
 /** The plan's pull request: its URL and number once opened, or the error that stopped it. */
