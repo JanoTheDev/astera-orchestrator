@@ -8,6 +8,14 @@
 // and no connection.
 //
 // **Wire.** Newline-delimited JSON both ways (src/host/framing.ts). One connection is one Host; ptys outlive it.
+// **Hello.** The first line of every connection is `hello`: a nonce and its proof under the profile's Host key (the
+// secret the Host's own address answers with, packages/client/src/hostKey.ts). A supervisor refuses (closes) a
+// connection whose first line is anything else; it answers `welcome` with its own proof, and a client that does not get
+// that within HELLO_MS drops the supervisor. A squatter on the address has no key to do either.
+//
+// **Spawn never blocks long.** The Host starts the supervisor in the background and connects in the background; a
+// session spawned before it is connected starts in the Host (logged once). A spawn on a connected supervisor is
+// bounded by SPAWN_BOUND_MS.
 //
 // **Client API** (client.ts, `PtySupervisorClient`), what a Host uses, the next one adopting after a crash included:
 //   - `spawn(file, args, opts, meta)`: the Host registry's spawn. `meta.kind === 'session'` goes to the supervisor and
@@ -21,6 +29,7 @@
 //   - `close()`: lets the connection go; the ptys stay.
 import { createHash } from 'node:crypto'
 import path from 'node:path'
+import { hostProof } from '../../core/publicContract'
 import type { PtyMeta, PtyOpenOptions } from '../../core/host/protocol'
 
 /** In the address: a supervisor of another build's protocol is another supervisor, never a confused peer. */
@@ -28,6 +37,18 @@ export const PTY_SUPERVISOR_PROTOCOL = 1
 
 /** No live pty and no Host for this long, and the supervisor exits. */
 export const SUPERVISOR_IDLE_MS = 60_000
+
+/** How long a client waits for the supervisor's `welcome` before it drops the connection. */
+export const HELLO_MS = 2_000
+
+/** The most a session spawn on a connected supervisor blocks the Host's main thread (connect 1 s + the answer). */
+export const SPAWN_BOUND_MS = 2_000
+
+/** What a client sends first: the proof of `nonce` under the Host key. */
+export const helloProof = (key: string, nonce: string): string => hostProof(key, nonce)
+/** What the supervisor answers with: a proof no client's hello can be replayed as. */
+export const welcomeProof = (key: string, nonce: string): string => hostProof(key, `pty-supervisor-welcome
+${nonce}`)
 
 /** UTF-16 units of output kept per pty: the Host registry's SCROLLBACK_CHARS. */
 export const RING_CHARS = 256_000
@@ -54,6 +75,7 @@ export interface SupervisorPtyInfo {
 export type SpawnRequest = { t: 'spawn'; id: string; file: string; args: string[] | string; opts: PtyOpenOptions; note?: PtyMeta }
 
 export type ToSupervisor =
+  | { t: 'hello'; nonce: string; proof: string }
   | SpawnRequest
   | { t: 'list' }
   | { t: 'attach'; id: string }
@@ -64,6 +86,7 @@ export type ToSupervisor =
   | { t: 'resume'; id: string }
 
 export type FromSupervisor =
+  | { t: 'welcome'; proof: string }
   | { t: 'spawned'; id: string; pid: number }
   | { t: 'spawn-failed'; id: string; error: string }
   | { t: 'listed'; ptys: SupervisorPtyInfo[] }

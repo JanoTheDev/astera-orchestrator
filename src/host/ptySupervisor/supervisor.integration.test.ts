@@ -10,6 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { build } from 'esbuild'
+import { readHostKey } from '../../core/publicContract'
 import { createPtySupervisorClient, netLink } from './client'
 import { SUPERVISOR_IDLE_ENV, supervisorAddress } from './protocol'
 
@@ -46,6 +47,7 @@ afterAll(() => {
 const PARENT = `
 import { startPtySupervisor } from ${JSON.stringify(path.join(here, 'client.ts'))}
 const [profileDir, entryPath] = process.argv.slice(2)
+async function main() {
 const client = startPtySupervisor({
   profileDir,
   execPath: process.execPath,
@@ -55,10 +57,22 @@ const client = startPtySupervisor({
   log: (m) => process.stderr.write(m + '\\n'),
   fallback: () => { throw new Error('fell back to the parent') }
 })
-const p = client.spawn(process.execPath, ['-e', "let i = 0; setInterval(() => console.log('tick ' + i++), 100)"], { cwd: profileDir, cols: 80, rows: 24, env: process.env }, { kind: 'session', id: 'it-1', restore: {} })
+// The supervisor is started and connected in the background: a spawn before that starts in the Host (here: throws).
+let p
+for (let i = 0; ; i++) {
+  try {
+    p = client.spawn(process.execPath, ['-e', "let i = 0; setInterval(() => console.log('tick ' + i++), 100)"], { cwd: profileDir, cols: 80, rows: 24, env: process.env }, { kind: 'session', id: 'it-1', restore: {} })
+    break
+  } catch (err) {
+    if (i > 100) throw err
+    await new Promise((r) => setTimeout(r, 100))
+  }
+}
 p.onData(() => {})
 process.stdout.write(JSON.stringify({ pid: p.pid }) + '\\n')
 setInterval(() => {}, 60_000)
+}
+main()
 `
 
 describe('pty supervisor (real processes)', () => {
@@ -93,7 +107,7 @@ describe('pty supervisor (real processes)', () => {
 
     // A new Host finds it, reads what it wrote meanwhile, and ends it.
     const address = supervisorAddress(profileDir, process.platform)
-    const c = createPtySupervisorClient({ link: netLink(address, Date.now() + 5_000, () => {}), request: () => 'unreachable', fallback: () => { throw new Error('no fallback here') }, log: () => {} })
+    const c = createPtySupervisorClient({ link: netLink(address, Date.now() + 5_000, () => {}), request: () => 'unreachable', key: readHostKey(profileDir), fallback: () => { throw new Error('no fallback here') }, log: () => {} })
     const held = (await c.list()).find((p) => p.pid === ptyPid)
     expect(held).toMatchObject({ alive: true, note: { kind: 'session', id: 'it-1' } })
     let out = ''
