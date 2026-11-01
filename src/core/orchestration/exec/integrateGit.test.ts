@@ -5,6 +5,7 @@ import { makeRepo, gitSync, tempDir, addOrigin } from '../../worktrees/testRepo'
 import { WorktreeRegistry } from '../../worktrees/registry'
 import { git, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import {
+  forkInTurns,
   forkWorktree,
   integrateWorktrees,
   reapWorktree,
@@ -58,6 +59,7 @@ describe('forkWorktree', () => {
     const wt = await forkWorktree({ repoPath: repo, name: 'a' }, { registry, log: () => {} })
     await expect(fs.stat(path.join(wt, 'only-on-feature.txt'))).resolves.toBeTruthy()
     expect(registry.list().map((w) => w.path)).toEqual([wt])
+    expect(gitSync(wt, ['status', '--porcelain'])).toBe('') // the split checkout leaves a clean tree
   })
   it('runs the project setup command in the new worktree, and not when it is off', async () => {
     await fs.writeFile(path.join(repo, 'package-lock.json'), '{}'); gitSync(repo, ['add', '.']); gitSync(repo, ['commit', '-m', 'lock'])
@@ -161,6 +163,37 @@ describe('forkWorktree', () => {
     expect(gitSync(wt, ['rev-parse', 'HEAD'])).toBe(originSha)
     await expect(fs.stat(path.join(wt, 'newer.txt'))).resolves.toBeTruthy()
     expect(gitSync(repo, ['rev-parse', 'refs/heads/feature-x'])).toBe(localBefore)
+  })
+})
+
+describe('forkInTurns — only the admin step waits its turn (T31)', () => {
+  it('6 forks of one repository with a 0.5 s admin step and a 40 s checkout all finish within 60 s, admin steps never overlapping', async () => {
+    vi.useFakeTimers()
+    try {
+      let admins = 0, adminPeak = 0
+      const finished: number[] = []
+      const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+      const fork = (n: number): Promise<string> =>
+        forkInTurns('/big-repo', async () => {
+          adminPeak = Math.max(adminPeak, ++admins)
+          await wait(500) // git worktree add --no-checkout
+          admins--
+          return async () => {
+            await wait(40_000) // git checkout -f HEAD
+            finished.push(Date.now())
+            return `wt-${n}`
+          }
+        })
+      const start = Date.now()
+      const all = Promise.all([0, 1, 2, 3, 4, 5].map(fork))
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(finished).toHaveLength(6)
+      expect(Math.max(...finished) - start).toBeLessThanOrEqual(60_000)
+      expect(adminPeak).toBe(1)
+      await expect(all).resolves.toEqual(['wt-0', 'wt-1', 'wt-2', 'wt-3', 'wt-4', 'wt-5'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

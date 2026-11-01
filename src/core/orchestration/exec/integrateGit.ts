@@ -15,6 +15,7 @@ import type { OrchServerDeps } from '../command'
 import { t, type Message, type MessageKey, type MessageParams } from '../../i18n'
 import { comparablePath, isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
+import { inCheckoutSlot } from '../../worktrees/checkoutLimit'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
@@ -79,7 +80,7 @@ async function forkWorktreeGit(
      *  every chain and pass, so it may wait, at most SETUP_SLOT_WAIT_MS. forkWorktreeGit itself never reads it. */
     heavy?: InstallTurn['heavy']
   }
-): Promise<string> {
+): Promise<() => Promise<string>> {
   // **폴더를 git 보다 먼저 묻는다** (예산 안의 세션 폴더 probe). 끊긴 공유 위의 폴더를 cwd 로
   // git 을 띄우면 Windows 는 그 폴더를 부르는 스레드 — Host 의 하나뿐인 스레드 — 에서 동기로
   // 들여다보고, 그동안 그 스레드가 쥔 모든 pty 가 멈춘다. 답이 없으면 "닿지 않는다"이지 "저장소가
@@ -114,25 +115,30 @@ async function forkWorktreeGit(
     name: a.name,
     baseRef: onlyOnOrigin ? `origin/${head.stdout}` : head.stdout,
     registry: ctx.registry,
-    ...(ctx.probe ? { repoProbe: ctx.probe } : {})
+    ...(ctx.probe ? { repoProbe: ctx.probe } : {}),
+    deferCheckout: true
   })
-  // 경고를 버리지 않는다 — worktree.create.fetchFailed 는 "base 를 가져올 수 없어 낡은 참조에서
-  // 만들었다" 는 뜻이고 워커는 그 위에서 일한다. 이 경로에는 사용자 화면이 없어 로그가 유일한
-  // 흔적이다. 키만 남긴다: 번역은 렌더러의 일이고 여기에는 언어가 없다.
-  for (const w of r.warnings) ctx.log(`worktree warning ${w.key} ${JSON.stringify(w.params ?? {})}`)
-  // The new branch moves, never the owner's checked-out one; the base recorded stays the local name (a PR's base)
+  // The new branch moves, never the owner's checked-out one; the base recorded stays the local name (a PR's base).
+  // The tree is not checked out yet, so the fast-forward is the branch ref alone: origin is a descendant (originAhead).
   if (ahead) {
-    const ff = await realGit(['merge', '--ff-only', `refs/remotes/origin/${head.stdout}`], { cwd: r.info.path, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    const ff = await realGit(['update-ref', `refs/heads/${r.branch}`, `refs/remotes/origin/${head.stdout}`], { cwd: a.repoPath, timeoutMs: GIT_WRITE_TIMEOUT_MS })
     ctx.log(
       ff.ok
-        ? `fork: ${r.info.path} starts at origin/${head.stdout}, which is ahead of the local ${head.stdout}`
-        : `fork: ${r.info.path} could not fast-forward to origin/${head.stdout}, so it starts at the local ${head.stdout}: ${ff.stderr}`
+        ? `fork: ${r.path} starts at origin/${head.stdout}, which is ahead of the local ${head.stdout}`
+        : `fork: ${r.path} could not fast-forward to origin/${head.stdout}, so it starts at the local ${head.stdout}: ${ff.stderr}`
     )
   }
-  return r.info.path
+  return async () => {
+    const done = await r.finish()
+    // 경고를 버리지 않는다 — worktree.create.fetchFailed 는 "base 를 가져올 수 없어 낡은 참조에서
+    // 만들었다" 는 뜻이고 워커는 그 위에서 일한다. 이 경로에는 사용자 화면이 없어 로그가 유일한
+    // 흔적이다. 키만 남긴다: 번역은 렌더러의 일이고 여기에는 언어가 없다.
+    for (const w of done.warnings) ctx.log(`worktree warning ${w.key} ${JSON.stringify(w.params ?? {})}`)
+    return done.info.path
+  }
 }
 
-/** The git half of each fork of one repository runs one at a time: two `worktree add`s or fetches in the same repo at
+/** The git admin step of each fork of one repository runs one at a time: two `worktree add`s or fetches in the same repo at
  *  once race on its lock files. Keyed by the repo's comparable path; a failed fork hands the turn on all the same. */
 const forkTurns = new Map<string, Promise<unknown>>()
 export function inForkTurn<T>(repoPath: string, run: () => Promise<T>): Promise<T> {
@@ -147,9 +153,19 @@ export function inForkTurn<T>(repoPath: string, run: () => Promise<T>): Promise<
   return mine
 }
 
-/** forkWorktreeGit (its doc above), then the setup command in the new worktree. Only the git half waits its turn in the
- *  repository: the setup (`bun install` and the like, minutes on a large repo) runs beside other forks' setups, so the
- *  scheduler can start several workers of one repository at once without each waiting for the last one's install.
+/** T31: the admin step of a fork (`admin`: the fetch and `worktree add --no-checkout`, which race on the repo's lock
+ *  files) waits its turn in the repository (inForkTurn); the checkout it hands back, the slow part (about 40 s for the
+ *  big monorepo on Windows) that touches only the new worktree's own index, runs after the turn is handed on, beside
+ *  other forks' checkouts up to CHECKOUT_LIMIT_PER_REPO. Before, the whole checkout sat inside the turn and workers of
+ *  one repository started one every 45 s. Exported for its scheduling test. */
+export async function forkInTurns(repoPath: string, admin: () => Promise<() => Promise<string>>): Promise<string> {
+  const checkout = await inForkTurn(repoPath, admin)
+  return inCheckoutSlot(repoPath, checkout)
+}
+
+/** forkWorktreeGit (its doc above) through forkInTurns, then the setup command in the new worktree. Only the git admin
+ *  step waits its turn in the repository: the checkout and the setup (`bun install` and the like, minutes on a large
+ *  repo) run beside other forks' own, so the scheduler can start several workers of one repository at once without each waiting for the last one's install.
  *  Inside a worker start that lends it an install turn (setup.ts `installTurn`, the Host's `worker-start`), the install
  *  first waits for one of the machine's heavy slots, at most SETUP_SLOT_WAIT_MS, and says when it queues, so that start
  *  stops holding the scheduler pass and the Host's command chain; the fork turn is already handed on by then. With no
@@ -158,7 +174,7 @@ export async function forkWorktree(
   a: Parameters<typeof forkWorktreeGit>[0],
   ctx: Parameters<typeof forkWorktreeGit>[1]
 ): Promise<string> {
-  const dir = await inForkTurn(a.repoPath, () => forkWorktreeGit(a, ctx))
+  const dir = await forkInTurns(a.repoPath, () => forkWorktreeGit(a, ctx))
   const turn = installTurn()
   // Fresh checkouts have no node_modules, which a pre-push hook that needs its tools rejects; never fails the fork
   await runWorktreeSetup({

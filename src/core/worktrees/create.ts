@@ -21,6 +21,9 @@ import { askUntilAnswered, defaultActionPresenceCheck, type PresenceCheck } from
 import { backupRef } from './remove'
 
 const WORKTREE_ADD_TIMEOUT_MS = 180_000
+/** The deadline of populating a tree made with `deferCheckout`: the whole checkout of a large repository (about 40 s
+ *  for the big monorepo on Windows), so far longer than the admin step's. */
+const WORKTREE_CHECKOUT_TIMEOUT_MS = 10 * 60_000
 
 /** What making the repo's folder answered: `created` when this call made it, `present` when it was
  *  already there, or the probe's `absent` / `timeout`. */
@@ -207,7 +210,7 @@ export async function resolveRepo(repoPath: string, probe: Probe = defaultGatePr
   throw new Error(`REPO_UNREACHABLE: could not ask git about ${repoPath} (${r.reason})`)
 }
 
-export async function createWorktree(args: {
+export interface CreateWorktreeArgs {
   repoPath: string
   name?: string
   /** The branch to fork from, in short form ('develop' or 'origin/develop'). Optional: the orchestration
@@ -236,7 +239,30 @@ export async function createWorktree(args: {
    *  left, when the rollback itself could not finish). Once the registry entry is written the creation
    *  is done and an abort changes nothing. Optional; callers without one behave exactly as before. */
   signal?: AbortSignal
-}): Promise<{ info: WorktreeInfo; warnings: Message[] }> {
+  /** Makes only git's admin entry (`worktree add --no-checkout`: the branch and the record, which need the repo's
+   *  locks and are fast) and returns `finish`, which populates the tree (`checkout -f HEAD` in the new worktree, which
+   *  touches only its own index), copies the includes and registers it. So a caller holding a per-repository turn
+   *  hands it on before the slow part. A failed `finish` rolls the worktree and its branch back. */
+  deferCheckout?: boolean
+  /** Test seam: the deadline of the deferred checkout (WORKTREE_CHECKOUT_TIMEOUT_MS by default). */
+  checkoutTimeoutMs?: number
+}
+
+export interface CreatedWorktree {
+  info: WorktreeInfo
+  warnings: Message[]
+}
+
+/** A worktree made with `deferCheckout`: git has its branch and record, the tree is still empty. */
+export interface PendingWorktree {
+  path: string
+  branch: string
+  finish(): Promise<CreatedWorktree>
+}
+
+export function createWorktree(args: CreateWorktreeArgs & { deferCheckout: true }): Promise<PendingWorktree>
+export function createWorktree(args: CreateWorktreeArgs & { deferCheckout?: false }): Promise<CreatedWorktree>
+export async function createWorktree(args: CreateWorktreeArgs): Promise<CreatedWorktree | PendingWorktree> {
   const { signal } = args
   const report = (p: WorktreeCreateProgress): void => {
     try {
@@ -348,6 +374,7 @@ export async function createWorktree(args: {
     if (!slug && !unreachable) await takeBackRepoDir()
   }
   if (!slug) throw new Error(`NAME_EXHAUSTED: no name starting with '${baseSlug}' is available (20 attempts)`)
+  const picked = slug
 
   const rfs = probedRollbackFs(
     args.cleanupPool,
@@ -363,7 +390,7 @@ export async function createWorktree(args: {
   try {
     throwIfCancelled(signal)
     report({ stage: 'checkout' })
-    const add = await git(['worktree', 'add', '--no-track', '-b', branch, wtPath, fullBase], {
+    const add = await git(['worktree', 'add', ...(args.deferCheckout ? ['--no-checkout'] : []), '--no-track', '-b', branch, wtPath, fullBase], {
       cwd: repo,
       timeoutMs: args.addTimeoutMs ?? WORKTREE_ADD_TIMEOUT_MS,
       signal
@@ -386,8 +413,8 @@ export async function createWorktree(args: {
     release()
   }
 
+  // follow-up configuration only produces warnings; it writes the repo's config, so it stays with the admin step
   try {
-    // follow-up configuration only produces warnings
     const setBase = await git(['config', '--local', `branch.${branch}.base`, fullBase], { cwd: repo })
     if (!setBase.ok) warnings.push({ key: 'worktree.create.baseRecordFailed' })
     const autoSetup = await git(['config', '--get', 'push.autoSetupRemote'], { cwd: repo })
@@ -395,29 +422,47 @@ export async function createWorktree(args: {
       const set = await git(['config', '--local', 'push.autoSetupRemote', 'true'], { cwd: repo })
       if (!set.ok) warnings.push({ key: 'worktree.create.autoSetupRemoteFailed' })
     }
-    throwIfCancelled(signal)
-    warnings.push(
-      ...(await copyWorktreeInclude(repo, wtPath, {
-        signal,
-        onProgress: (p) => report({ stage: 'copy-includes', ...p })
-      }))
-    )
-    throwIfCancelled(signal) // the last point a cancel is honoured — after the registry write it is done
-
-    const info: WorktreeInfo = {
-      id: randomUUID(),
-      repoPath: repo,
-      path: wtPath,
-      name: slug,
-      branch,
-      baseRef,
-      createdAt: new Date().toISOString()
-    }
-    await args.registry.add(info)
-    return { info, warnings }
   } catch (err) {
-    // rollback: do not leave behind the worktree and branch that were just created — and say so when
-    // some of it could not be taken back
     throw await rollBack(err)
   }
+
+  const finish = async (): Promise<CreatedWorktree> => {
+    try {
+      if (args.deferCheckout) {
+        throwIfCancelled(signal)
+        const co = await git(['checkout', '-f', 'HEAD'], {
+          cwd: wtPath,
+          timeoutMs: args.checkoutTimeoutMs ?? WORKTREE_CHECKOUT_TIMEOUT_MS,
+          signal
+        })
+        if (co.cancelled) throw cancelledError()
+        if (!co.ok) throw new Error(`GIT_CHECKOUT_FAILED: git checkout ${co.timedOut ? 'timed out' : 'failed'} (${co.stderr || co.stdout})`)
+      }
+      throwIfCancelled(signal)
+      warnings.push(
+        ...(await copyWorktreeInclude(repo, wtPath, {
+          signal,
+          onProgress: (p) => report({ stage: 'copy-includes', ...p })
+        }))
+      )
+      throwIfCancelled(signal) // the last point a cancel is honoured — after the registry write it is done
+
+      const info: WorktreeInfo = {
+        id: randomUUID(),
+        repoPath: repo,
+        path: wtPath,
+        name: picked,
+        branch,
+        baseRef,
+        createdAt: new Date().toISOString()
+      }
+      await args.registry.add(info)
+      return { info, warnings }
+    } catch (err) {
+      // rollback: do not leave behind the worktree and branch that were just created — and say so when
+      // some of it could not be taken back
+      throw await rollBack(err)
+    }
+  }
+  return args.deferCheckout ? { path: wtPath, branch, finish } : finish()
 }
