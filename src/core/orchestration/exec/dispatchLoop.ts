@@ -950,7 +950,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           ? ((await (c.readTip ?? tipOf)(job.cwd, mode === 'merge' ? onto : `origin/${onto}`)) ?? undefined)
           : undefined
       const action: DeliveryStep['action'] | null =
-        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs, heads, { head: run.git?.head, target: tip }) ? 'auto' : null
+        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs, heads, { branch: run.git?.head, target: tip }) ? 'auto' : null
       if (action === null) continue
       // W6-D: the PR waits for the final check (replan.ts completionSettled). W8-E (#99): a failed plan has none
       if (outcome === 'completed' && !completionSettled(s, job, run.id)) continue

@@ -386,7 +386,7 @@ export async function removeWorktree(args: {
       if (row.head && !(await isOnBranch(info.repoPath, row.head)))
         throw new Error(`NOT_ON_BRANCH: its commit ${row.head.slice(0, 7)} is on no branch, nothing was removed (${info.path})`)
       await detachBeforeRemove(info.path, args.force === true, args.detach ?? detachLinks)
-      // Stopping the processes still using the folder belongs here, before it moves.
+      // The processes still using the folder are stopped before it moves
       await stopProcessesBeforeRemoval(info.path, args.stopProcessesIn)
       // Renamed aside, never deleted in place: on Windows git deletes the `.git` link first and then stops at a locked
       // file, which left a whole checkout without its `.git`. A rename moves all of it or nothing.

@@ -1045,8 +1045,9 @@ async function recheckTips(
 /** The worktrees whose HEAD no other one in the list already holds: merging those brings everything. A worktree whose
  *  HEAD cannot be read is kept, so nothing is dropped on a guess; T19: but one gone or half removed (sortFolders) is
  *  dropped, as mergeWorktrees drops it: refreshing it can only fail. */
-async function tipsOf(all: string[], run: typeof realGit, presence?: PresenceCheck): Promise<string[]> {
+async function tipsOf(all: string[], run: typeof realGit, presence?: PresenceCheck, onGone?: (gone: string[]) => void): Promise<string[]> {
   const { gone } = await sortFolders(all, presence)
+  if (gone.length > 0) onGone?.(gone)
   const worktrees = all.filter((w) => !gone.includes(w))
   const heads = await headsOf(worktrees, run)
   const out: string[] = []
@@ -1099,7 +1100,7 @@ export interface PushContext {
   gitAtLeast?: typeof gitVersionAtLeast
   /** T3: who is told Astera moves HEAD for the catch-up merge with origin (integrateWorktrees' own). Optional. */
   gitOp?: IntegrateContext['gitOp']
-  /** Test seam for the retry's `.git` link check and for which worktrees are there (tipsOf); defaults to the action-lane check. */
+  /** Test seam for the retry's `.git` link check and which worktrees are there (tipsOf); defaults to the action-lane check (worktrees/presence.ts). */
   presence?: PresenceCheck
 }
 
@@ -1315,14 +1316,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   if (!merged.ok) {
     ctx.log(`delivery: merging into ${branch} failed (${merged.reason}); refreshing the plan onto ${base} and trying once more`)
     let stop = await backToBase()
-    // A worktree without its `.git` link (half removed, or gone) is skipped as mergeWorktrees does: refreshing it would
-    // run git where git cannot run and stop the delivery on a folder that holds nothing to merge
-    const linked = stop === null
-      ? await Promise.all(a.worktrees.map(async (wt) => (await askUntilAnswered(ctx.presence ?? defaultActionPresenceCheck, path.join(wt, '.git'))) !== 'missing'))
-      : []
-    const skipped = a.worktrees.filter((_, i) => linked[i] === false)
-    if (skipped.length > 0) ctx.log(`delivery: skipping ${skipped.length} removed worktree(s) on the retry: ${skipped.join(', ')}`)
-    const tips = stop === null ? await tipsOf(a.worktrees.filter((_, i) => linked[i]), run, ctx.presence) : []
+    const tips = stop === null ? await tipsOf(a.worktrees, run, ctx.presence, (gone) => ctx.log(`delivery: skipping ${gone.length} removed worktree(s) on the retry: ${gone.join(', ')}`)) : []
     for (const wt of tips) {
       if (stop !== null) break
       const r = await refreshOnto(wt, base, `Refresh onto ${branch} before delivery`, { log: ctx.log, git: run, ...(ctx.gitAtLeast ? { gitAtLeast: ctx.gitAtLeast } : {}) })

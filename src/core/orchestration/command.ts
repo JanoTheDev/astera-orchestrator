@@ -2196,6 +2196,7 @@ function inFlightKeyOf(s: OrchState, cmd: string, args: Record<string, unknown>)
       return null
   }
 }
+
 /** Commands that can make a paused run workable again: the review-paused Gates they leave behind are cleared. */
 const RESUMING_COMMANDS = new Set(['runs-resume', 'run-resume', 'run-start'])
 
@@ -7458,7 +7459,7 @@ async function handleCommandInner(
       const force = args.force === true
       // T3: the loop's attempt is made only when it is due (pending, or a failure's retry time came)
       // T19: `targetTip` is the target's tip the loop read, for a merge failure judged on another one
-      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now), heads, { head: run.git?.head, target: str(args.targetTip) ?? undefined }))
+      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now), heads, { branch: run.git?.head, target: str(args.targetTip) ?? undefined }))
         return conflict('No delivery attempt is due for this Run yet')
       // The plan branch moved since the last attempt: this one counts afresh, as the owner's "Retry now" does
       const moved = headMoved(run.deliveryState, heads)

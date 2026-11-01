@@ -133,23 +133,23 @@ describe('T19: a merge-failed delivery is retried once the plan branch moves', (
   it('is due at once when the plan branch head changed, not while it stays, and its retry delivers with no owner', () => {
     const failed = afterAttempt(undefined, AT, 'git merge-tree says x does not merge cleanly', { code: 'merge-failed', head: 'h1' })
     expect(failed).toMatchObject({ state: 'retrying', lastCode: 'merge-failed', judgedOn: { branch: 'h1' } })
-    expect(deliveryDue(failed, now, undefined, { head: 'h1' })).toBe(false)
+    expect(deliveryDue(failed, now, undefined, { branch: 'h1' })).toBe(false)
     expect(deliveryDue(failed, now)).toBe(false)
-    expect(deliveryDue(failed, now, undefined, { head: 'h2' })).toBe(true)
+    expect(deliveryDue(failed, now, undefined, { branch: 'h2' })).toBe(true)
     // after every automatic attempt (needs-owner) too, and the retry that merges ends delivered
     let p = failed
     for (let i = 0; i < 4; i++) p = afterAttempt(p, AT, 'still', { code: 'merge-failed', head: 'h1' })
     expect(p.state).toBe('needs-owner')
-    expect(deliveryDue(p, now, undefined, { head: 'h2' })).toBe(true)
+    expect(deliveryDue(p, now, undefined, { branch: 'h2' })).toBe(true)
     expect(afterAttempt(p, AT).state).toBe('delivered')
   })
 
   it('is due at once when the target tip moved while the plan branch stayed, not while both stay', () => {
     const failed = afterAttempt(undefined, AT, 'git merge-tree says x does not merge cleanly', { code: 'merge-failed', head: 'h1', target: 'm1' })
     expect(failed.judgedOn).toEqual({ branch: 'h1', target: 'm1' })
-    expect(deliveryDue(failed, now, undefined, { head: 'h1', target: 'm1' })).toBe(false)
-    expect(deliveryDue(failed, now, undefined, { head: 'h1' })).toBe(false)
-    expect(deliveryDue(failed, now, undefined, { head: 'h1', target: 'm2' })).toBe(true)
+    expect(deliveryDue(failed, now, undefined, { branch: 'h1', target: 'm1' })).toBe(false)
+    expect(deliveryDue(failed, now, undefined, { branch: 'h1' })).toBe(false)
+    expect(deliveryDue(failed, now, undefined, { branch: 'h1', target: 'm2' })).toBe(true)
     // no plan branch head recorded: the target alone is watched
     expect(deliveryDue(afterAttempt(undefined, AT, 'x', { code: 'merge-failed', target: 'm1' }), now, undefined, { target: 'm2' })).toBe(true)
   })
@@ -157,8 +157,8 @@ describe('T19: a merge-failed delivery is retried once the plan branch moves', (
   it('only a merge failure keeps the head it was judged on, and an owner who pushes it is left alone', () => {
     const other = afterAttempt(undefined, AT, 'offline', { code: 'fetch-failed', head: 'h1' })
     expect(other.judgedOn).toBeUndefined()
-    expect(deliveryDue(other, now, undefined, { head: 'h2' })).toBe(false)
+    expect(deliveryDue(other, now, undefined, { branch: 'h2' })).toBe(false)
     const mine = { ...afterAttempt(undefined, AT, 'x', { code: 'merge-failed', head: 'h1' }), ownerPushes: true as const }
-    expect(deliveryDue(mine, now, undefined, { head: 'h2' })).toBe(false)
+    expect(deliveryDue(mine, now, undefined, { branch: 'h2' })).toBe(false)
   })
 })

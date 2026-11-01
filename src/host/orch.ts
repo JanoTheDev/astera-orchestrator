@@ -1230,7 +1230,7 @@ export function createHostOrch(a: {
       ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {}),
       // T4: a slow command's git, gh and spawn steps run with the chain handed on (command.ts offChain), one command per Run
       // at a time; a commit made inside one of them (a start's `onWait`) queues for the chain like any outside caller.
-      // `runs-pr-sync`'s origin fetch: slow network git that commits nothing until the command reads the state again
+      // Also `runs-pr-sync`'s origin fetch: slow network git that commits nothing until the command reads the state again
       outsideChain,
       inChain: <T>(commit: () => Promise<T>): Promise<T> => serially('in-chain', {}, commit),
       inFlight
