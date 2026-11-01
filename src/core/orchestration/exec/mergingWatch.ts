@@ -32,8 +32,17 @@ const branchMerged: BranchMerged = async (a) => {
   return (await git(['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd: a.runRoot, timeoutMs: ANCESTOR_TIMEOUT_MS })).ok
 }
 
-export function createMergingWatch(o: { merged?: BranchMerged } = {}): { due(s: OrchState, nowMs: number): Promise<MergingDone[]> } {
+/** Whether the Run root has uncommitted changes. Unanswerable counts as dirty: asked again next time. */
+export type RunRootDirty = (runRoot: string) => Promise<boolean>
+
+const dirtyRoot: RunRootDirty = async (runRoot) => {
+  const r = await git(['status', '--porcelain'], { cwd: runRoot, timeoutMs: ANCESTOR_TIMEOUT_MS })
+  return !r.ok || r.stdout.trim() !== ''
+}
+
+export function createMergingWatch(o: { merged?: BranchMerged; dirty?: RunRootDirty } = {}): { due(s: OrchState, nowMs: number): Promise<MergingDone[]> } {
   const merged = o.merged ?? branchMerged
+  const runRootDirty = o.dirty ?? dirtyRoot
   const checkedAt = new Map<string, number>()
   return {
     async due(s, nowMs) {
@@ -48,6 +57,8 @@ export function createMergingWatch(o: { merged?: BranchMerged } = {}): { due(s: 
           out.push({ runId: run.id, taskId: t.id, runRoot, reason: `its merge task ${merge.id} completed` })
           continue
         }
+        // A merge worker still on it may hold uncommitted resolution work in the run root: wait for it
+        if (merge && merge.status !== 'failed') continue // completed was handled above; there is no cancelled status
         if (nowMs - (checkedAt.get(t.id) ?? -Infinity) < MERGING_RECHECK_MS) continue
         checkedAt.set(t.id, nowMs)
         const last = [...s.dispatches].reverse().find((d) => d.taskId === t.id && !d.review && (d.outcome || d.endedAt) && !samePlace(d.cwd, runRoot))
@@ -58,6 +69,7 @@ export function createMergingWatch(o: { merged?: BranchMerged } = {}): { due(s: 
         } catch {
           // git could not answer: asked again after MERGING_RECHECK_MS
         }
+        if (inPlan && (await runRootDirty(runRoot))) continue
         if (inPlan) out.push({ runId: run.id, taskId: t.id, runRoot, reason: `its branch tip is already in the plan branch (${runRoot})` })
       }
       return out

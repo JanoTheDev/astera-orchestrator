@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createMergingWatch, MERGING_WATCH_MS } from './mergingWatch'
 import { emptyState, type OrchState } from '../state'
@@ -41,7 +43,7 @@ describe('mergingWatch', () => {
 
   it('a Task merging over 5 minutes whose branch tip is already in the plan branch is due, asked with its recorded head', async () => {
     const asked: unknown[] = []
-    const watch = createMergingWatch({ merged: async (a) => (asked.push(a), true) })
+    const watch = createMergingWatch({ merged: async (a) => (asked.push(a), true), dirty: async () => false })
     const s = state([task('tsk_A')], [worked('tsk_A', '/wt/a', 'abc123')])
     expect(await watch.due(s, T0 + MERGING_WATCH_MS - 1)).toEqual([])
     expect(asked).toEqual([])
@@ -73,5 +75,21 @@ describe('mergingWatch', () => {
     gitSync(repo, ['reset', '--hard', 'HEAD~1'])
     const s2 = state([task('tsk_A')], [worked('tsk_A', '/elsewhere', later)], repo)
     expect(await createMergingWatch().due(s2, T0 + MERGING_WATCH_MS + 1)).toEqual([])
+  })
+
+  it('a tip in the plan branch is not recorded while its merge Task is dispatched, and is once that completes', async () => {
+    const watch = createMergingWatch({ merged: async () => true, dirty: async () => false })
+    const open = state([task('tsk_A'), task('tsk_M', { parentId: 'tsk_A', status: 'dispatched' })], [worked('tsk_A', '/wt/a', 'abc')])
+    expect(await watch.due(open, T0 + MERGING_WATCH_MS + 1)).toEqual([])
+    const done = state([task('tsk_A'), task('tsk_M', { parentId: 'tsk_A', status: 'completed' })], [worked('tsk_A', '/wt/a', 'abc')])
+    expect((await watch.due(done, T0 + MERGING_WATCH_MS + 2)).map((d) => d.taskId)).toEqual(['tsk_A'])
+  })
+
+  it('a tip in the plan branch is not recorded while the Run root has uncommitted changes', async () => {
+    const repo = await makeRepo('astera-mergingwatch-dirty-')
+    const tip = gitSync(repo, ['rev-parse', 'HEAD'])
+    writeFileSync(join(repo, 'wip.txt'), 'resolution in progress')
+    const s = state([task('tsk_A')], [worked('tsk_A', '/elsewhere', tip)], repo)
+    expect(await createMergingWatch().due(s, T0 + MERGING_WATCH_MS + 1)).toEqual([])
   })
 })
