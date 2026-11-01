@@ -31,7 +31,7 @@ const rig = (over: Partial<HostWorktreesDeps> & { state?: () => OrchState } = {}
   })
   const procs = new ProcRegistry({ spawn: () => ({ pid: 2, onData() {}, onExit() {}, write() {}, kill() {} }), log: () => {} })
   const wt = createHostWorktrees({ profileDir: profile, homeDir: home, ptys, procs, getState: over.state ?? (() => emptyState()),
-    broadcast: (m) => sent.push(m), log: (m) => logs.push(m), app: noApp, closeTimeoutMs: 500, pollMs: 10, ...over })
+    broadcast: (m) => sent.push(m), log: (m) => logs.push(m), app: noApp, closeTimeoutMs: 500, pollMs: 10, appReattachMs: 0, ...over })
   const open = (id: string, cwd: string, meta?: PtyMeta) => ptys.open({ id, file: 'x', args: [], opts: { cwd, cols: 80, rows: 24, env: {} }, meta })
   const session = (id: string, cwd: string) => open(`pty_${id}`, cwd, { kind: 'session', id, restore: { title: id } })
   return { wt, ptys, procs, sent, logs, session, open }
@@ -392,6 +392,26 @@ describe('createHostWorktrees', () => {
       const h = rig({ app: { ...noApp, lastAppPid: () => process.pid } })
       const p = await h.wt.fork({ repoPath: repo, name: 'a' })
       h.session('ses_w', p)
+      const err = await h.wt.removeWorktrees([p]).then(() => null, (e: unknown) => e)
+      expect(err).toBeInstanceOf(AppUnreachable)
+      await fs.stat(p)
+    })
+    // The app reconnects to the Host by itself after a crash; a delivery landing in that gap waits for it.
+    it('waits for the app to attach again instead of refusing, then asks it and removes the folder', async () => {
+      let attached = false
+      const asked: unknown[] = []
+      const h = rig({ appReattachMs: 2_000, app: { hasApp: () => attached, act: async (name, args) => { asked.push([name, args]); return null } } })
+      const p = await h.wt.fork({ repoPath: repo, name: 'a' })
+      await appPid(process.pid)
+      setTimeout(() => { attached = true }, 100)
+      expect(await h.wt.removeWorktrees([p])).toEqual({ failed: [], uncommitted: 0 })
+      expect(asked).toEqual([[HOST_ACT_PATH_IN_USE, [p]], [HOST_ACT_PATH_IN_USE, [p]]])
+      await expect(fs.stat(p)).rejects.toThrow()
+    })
+    it('still refuses, keeping the folder, when the app does not attach within the wait', async () => {
+      const h = rig({ appReattachMs: 100 })
+      const p = await h.wt.fork({ repoPath: repo, name: 'a' })
+      await appPid(process.pid)
       const err = await h.wt.removeWorktrees([p]).then(() => null, (e: unknown) => e)
       expect(err).toBeInstanceOf(AppUnreachable)
       await fs.stat(p)
