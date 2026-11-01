@@ -40,6 +40,9 @@ import {
   answerCheckUnavailable,
   isCheckUnavailableAnswer,
   CHECK_UNAVAILABLE_OPTIONS,
+  answerReviewEnded,
+  isReviewEndedAnswer,
+  REVIEW_ENDED_OPTIONS,
   deleteRuns,
   deleteJobs,
   startJobRun,
@@ -59,10 +62,12 @@ import {
   recordDispatchGit,
   placedByApp,
   coordinatorStarting,
+  addDecision,
   type OrchState,
   type RepairTarget,
   type Res
 } from './state'
+import { acceptedNotProvable, missingToolOf } from './exec/notProvable'
 import { CLI_PROTOCOL } from './cliOutput'
 import { collectChanges, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
@@ -148,6 +153,8 @@ import path from 'node:path'
 import { SAVE_REASON_TEXT } from '../run/validateConfigs'
 import type { AddRunConfigResult } from '../run/runConfigsFile'
 import { access, readFile } from 'node:fs/promises'
+// T13: the hold on new starts for the whole profile (a restart's, or the owner's)
+import { readStartHold, startHeldNow, startHoldMessage } from './startHold'
 import { promptPlanOf, sha256Of } from './promptWaves'
 // W10-A Run as written by name
 import { detectPromptsDir, isNamesText, PROMPTS_DIR_MAX_DEPTH, promptNamesOf, repoRelative, resolvePromptNames, takenPrompts } from './promptNames'
@@ -196,6 +203,7 @@ import type { HandoffBody } from '../handoff/types'
 import { t as tr, type Lang } from '../i18n'
 import { isOverrideCompletion, policyOf } from './convergence'
 import { leftNothingBehind } from '../host/orchProtocol'
+import { HostRetiring } from '../host/hostRetiring'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
 import { rollupMarkdown, type SessionSummary } from '../sessions/summary'
 import { UNREADABLE, recordDetail, recordSummary, recordsFor, type StoreShape } from '../understanding/read'
@@ -212,15 +220,16 @@ import {
   type JobSourcesDeps
 } from './commandSources'
 // W6-D wave replanning
-import { failedWaitAsked, failedWaitQuestion, replanJobOf, resolveFailedWait, stallOf, waveOpen, type ReplanRecord } from './replan'
+import { failedBlocks, failedWaitAsked, failedWaitQuestion, replanJobOf, resolveFailedWait, stallOf, waveOpen, type ReplanRecord } from './replan'
 import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStart'
 // Coordinator rotation
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
 // T5 crash restore
 import { crashResumedBrief } from './exec/crashResume'
 import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
-import type { WorkerInstall } from './exec/coordinator'
 import { specsDirOf } from './exec/specFiles'
+import { INSTALL_PLACEHOLDER_PREFIX, INSTALL_START_WINDOW_MS, isInstallingStart } from './exec/stallWatch'
+import { specFileName } from './exec/coordinator'
 import { approvalDefaultOf } from '../settings/approvalDefault'
 import { feedbackCommand, handsOffOf, isFeedbackCommand } from './exec/plannerFeedback'
 export { JOB_SOURCE } from './commandSources'
@@ -381,7 +390,7 @@ export function keptPhrase(why: 'dirty' | 'unchecked'): string {
     : 'could not be checked (its folder did not answer, or git could not read its status)'
 }
 
-/** What a worker start answers (`OrchServerDeps.startWorker`). */
+/** What `startWorker` answers for a worker that started. */
 export interface StartedWorker {
   sessionId: string
   cwd: string
@@ -392,14 +401,15 @@ export interface StartedWorker {
   modelNote?: string
 }
 
-/** T2: a worker start that answered with its fork's install queued for a heavy slot (`installLater`). */
-export interface InstallingStart {
-  /** Settles with the whole start once the install has run and the session is up, or rejects with why it could not. */
-  done: Promise<StartedWorker>
-  /** Runs `run` later as a command of its own, with fresh deps: it takes the Host's command chain the way any outside
-   *  caller does, never inline in the command that asked and never as a sibling holder of another command's chain
-   *  (host/orch.ts). How the start ended is recorded through it. Never throws; a `run` that fails is logged. */
-  record(run: (deps: OrchServerDeps) => Promise<void>): void
+/** A worker start whose fork's dependency install queued for one of the machine's heavy slots (worktrees/setup.ts):
+ *  `worker-start` answers at once and the start goes on outside the call, so the scheduler pass places its next slot
+ *  while this install waits. */
+export interface QueuedInstall {
+  /** The rest of the start: it settles once the install ran (or was skipped) and the session started, or it failed. */
+  rest: Promise<StartedWorker>
+  /** Runs `commit` later as a command of its own. It enters the Host's command chain the way any outside caller does,
+   *  never nested inside the command that queued it nor as a sibling holder of that command's chain (d6800b53e). */
+  later(commit: () => Promise<void>): void
 }
 
 export interface OrchServerDeps {
@@ -446,17 +456,13 @@ export interface OrchServerDeps {
     /** Forwarded straight through to OrchCoordinator.startWorker, where the reason it exists is
      *  documented. Type-only pass-through here — this file adds no behaviour for it. */
     launchPhrase?: string
-    /** T2: worker-start's own `--worktree new` start. A wiring that can (the Host, host/orch.ts) answers as soon as
-     *  the fork's install is queued for a heavy slot, with `installing`, and goes on with the install and the session
-     *  outside the command. Any other wiring ignores it and answers once the session is up. */
-    installLater?: true
-    /** T2: the install plan the Host's chain wrapper adds to an `installLater` start (host/orch.ts), forwarded to
-     *  OrchCoordinator.startWorker. Never set by a caller. */
-    install?: WorkerInstall
+    /** Set by `worker-start` alone: the start may answer once its fork's dependency install queues for one of the
+     *  machine's heavy slots (`installing` in the answer) rather than after it. Every other caller gets whole starts. */
+    queueInstall?: true
   }): Promise<StartedWorker & {
-    /** T2: set when the start answered with its install queued (`installLater`). `cwd` and `specPath` are already
-     *  the real ones and `sessionId` is empty. */
-    installing?: InstallingStart
+    /** Only with `queueInstall`, and only from a wiring that queues installs (the Host, host/orch.ts): the install
+     *  queued, `cwd` is the new worktree, and `sessionId`/`specPath` are empty until `rest` settles. */
+    installing?: QueuedInstall
   }>
   releaseWorker(a: { dispatchId: string; closeReason?: CloseReason }): Promise<void>
   /** 그 세션의 롤링 체인을 버린다 — **세션은 죽이지 않는다**(releaseWorker 와 그 점이 다르다).
@@ -1034,6 +1040,16 @@ const refused = (r: { error: string; missing?: true }): Reply =>
 const denied = (msg: string): Reply => ({ status: 403, body: { error: msg } })
 const conflict = (msg: string): Reply => ({ status: 409, body: { error: msg } })
 
+/** T13: the profile's hold on new starts (startHold.ts) as a refusal, or null when nothing holds. A wait, not a failure:
+ *  `held: true` is what every placer already reads a plan's own hold by (dispatchLoop.ts placeSlot), so no Gate opens and
+ *  a coordinator waits. Only a caller that names the profile can be held, which is the Host (`deps.profileDir`).
+ *  **No turn is taken when nothing holds** (`startHeldNow` is a stat): a start that is not held reaches its commit in
+ *  the same turns as before, which the commands racing it rely on. */
+function startHeldReply(deps: OrchServerDeps): Promise<Reply | null> | null {
+  if (!deps.profileDir || !startHeldNow(deps.profileDir)) return null
+  return readStartHold(deps.profileDir).then((h) => (h ? { status: 409, body: { error: startHoldMessage(h), held: true, startHold: h } } : null))
+}
+
 /** What the Run's Tasks say, not what it reads: a Run whose delivery failed reads `failed`, and a delivery retried
  *  (`--force`) must still see its Tasks completed. A paused Run is neither. */
 const taskOutcomeOf = (s: OrchState, run: JobRun): ReturnType<typeof outcomeOfTasks> | 'paused' =>
@@ -1055,115 +1071,25 @@ export const PENDING_START_WINDOW_MS = 2 * 60_000
  *  **Only inside the start window** (`PENDING_START_WINDOW_MS`, fix round 2). An older placeholder
  *  is a start that died, and refusing it forever would leave a Dispatch nothing can close short of
  *  `worker-abandon` or a Host restart. Such a one goes ahead, with no release (`releases`).
+ *  A start whose install waits for a heavy slot (`isInstallingStart`) has its own, longer window,
+ *  INSTALL_START_WINDOW_MS, and says so.
  *  Null when no Dispatch among `open` is still starting. */
 export const stillStarting = (open: readonly Dispatch[], now: string): Reply | null => {
-  const d = open.find((x) => isPlaceholderSessionId(x.sessionId) && Date.parse(now) - Date.parse(x.startedAt) < startWindowOf(x.sessionId))
+  const d = open.find((x) => isPlaceholderSessionId(x.sessionId) && Date.parse(now) - Date.parse(x.startedAt) < startWindowOf(x))
   if (!d) return null
   return conflict(
-    isInstallingSessionId(d.sessionId)
-      ? `the worker is waiting for a heavy slot to install its dependencies, and starts after that; try again once it has started (dispatch ${d.id})`
+    isInstallingStart(d.sessionId)
+      ? `the worker is still starting: its dependency install waits for one of the machine's heavy slots; try again once it runs (dispatch ${d.id})`
       : `the worker is still starting; try again in a moment (dispatch ${d.id})`
   )
 }
-
-/** T2: the placeholder of a worker-start that answered with its fork's install queued for a heavy slot: the Dispatch
- *  is open and counts against the caps like any start in flight (it is still a `pending:` placeholder, so the board
- *  shows it starting), and its session is spawned once the install has run. `worker-show` shows it by this id. */
-export const INSTALLING_PREFIX = 'pending:install:'
-export const isInstallingSessionId = (id: string): boolean => id.startsWith(INSTALLING_PREFIX)
-/** T2: how long an installing start counts as in flight: waiting its turn behind the machine's other heavy jobs (with
- *  one slot and 25 agents at ~2 min an install, the last waits ~50 min) and then up to `SETUP_TIMEOUT_MS` (15 min)
- *  installing. Past it the stop goes ahead, and the start, which asks whether its Dispatch is still wanted while it
- *  waits and again before it spawns, gives up without a session. */
-export const INSTALL_START_WINDOW_MS = 60 * 60_000
-/** The window a placeholder counts as a start in flight. */
-export const startWindowOf = (sessionId: string): number =>
-  isInstallingSessionId(sessionId) ? INSTALL_START_WINDOW_MS : PENDING_START_WINDOW_MS
+/** How long a `pending:` Dispatch counts as a start in flight: INSTALL_START_WINDOW_MS while its install waits for a
+ *  heavy slot, else PENDING_START_WINDOW_MS. */
+export const startWindowOf = (d: Pick<Dispatch, 'sessionId'>): number =>
+  isInstallingStart(d.sessionId) ? INSTALL_START_WINDOW_MS : PENDING_START_WINDOW_MS
 /** Whether stopping this Dispatch has a session to kill. A placeholder that got past `stillStarting`
  *  is a start that died: no pty was ever opened for it, so there is nothing to release. */
 export const releases = (d: Dispatch): boolean => !isPlaceholderSessionId(d.sessionId)
-
-/**
- * T2: how a worker-start that answered with its install queued ends. The start (the install under its heavy slot,
- * then the session) goes on outside that command; once it settles, a fresh command records the outcome
- * (`InstallingStart.record`: it takes the Host's chain as any outside caller does, never inline in another command's
- * hold), so no command ever waits for an install. The account's reservation (`release`) goes as the start settles.
- *
- * Started: the session id, folder, spec and model are patched onto the Dispatch, as worker-start patches a start
- * that answered whole. A Dispatch closed meanwhile (stopped past the install window) has its new session released;
- * the start asks whether it is still wanted while it waits and before it spawns, so that is a narrow race.
- * Failed: the Dispatch is closed unreported with a status message saying why, the way a worker that died is
- * (closeDispatch): its Task stays `dispatched` and counts the failure, and is started again with `--retry-of` by its
- * coordinator or the stall watchdog up to its limits, or gets the lost-worker Gate. Nobody waits on an answer any
- * more, and a rollback to `ready` would place it again at once, installing again each time. A Dispatch closed or
- * removed meanwhile keeps that record.
- */
-function finishInstallingStart(installing: InstallingStart, a: { dispatchId: string; release: () => void }): void {
-  installing.done.then(
-    (started) => {
-      a.release()
-      installing.record(async (deps) => {
-        const latest = deps.getState()
-        const d = latest.dispatches.find((x) => x.id === a.dispatchId)
-        if (!d) {
-          deps.log?.(`worker-start: dispatch ${a.dispatchId} was removed while it installed; its worker ${started.sessionId} has no Dispatch`)
-          return
-        }
-        await deps.setState({
-          ...latest,
-          dispatches: latest.dispatches.map((x) =>
-            x.id === a.dispatchId
-              ? { ...x, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath, ...dispatchModelFields(started) }
-              : x
-          )
-        })
-        if (d.endedAt !== undefined || d.outcome !== undefined) {
-          deps.log?.(`worker-start: dispatch ${a.dispatchId} was closed while it installed, so its new worker ${started.sessionId} is released`)
-          await deps.releaseWorker({ dispatchId: a.dispatchId, closeReason: 'stopped' })
-        }
-      })
-    },
-    (e: unknown) => {
-      a.release()
-      installing.record(async (deps) => {
-        const latest = deps.getState()
-        const d = latest.dispatches.find((x) => x.id === a.dispatchId)
-        if (!d || d.endedAt !== undefined || d.outcome !== undefined) return
-        const why = e instanceof Error ? e.message : String(e)
-        deps.log?.(`worker-start: dispatch ${a.dispatchId} could not start its worker after its install: ${why}`)
-        await deps.setState(failedInstallingStart(latest, d, why, deps.now?.() ?? new Date().toISOString()))
-      })
-    }
-  )
-}
-
-/** T2: an installing start that could not start its worker, closed as `closeDispatch` closes a worker that ended
- *  unreported (lost: no outcome, no `closedBy`), with its own status message. */
-function failedInstallingStart(s: OrchState, d: Dispatch, why: string, now: string): OrchState {
-  const task = s.tasks.find((t) => t.id === d.taskId)
-  return {
-    ...s,
-    dispatches: s.dispatches.map((x) => (x.id === d.id ? { ...x, endedAt: now, workerState: 'failed' as const } : x)),
-    tasks: s.tasks.map((t) => (t.id === d.taskId ? { ...t, consecutiveFailures: t.consecutiveFailures + 1, updatedAt: now } : t)),
-    messages: task
-      ? [
-          ...s.messages,
-          {
-            // 16 hex, as newId (types.ts)
-            id: `msg_${randomBytes(8).toString('hex')}`,
-            runId: runIdOf(task),
-            type: 'status' as MessageType,
-            taskId: task.id,
-            dispatchId: d.id,
-            subject: 'worker could not start after its install',
-            body: `${why}\nNo session was started. It is started again like a worker that ended without reporting.`,
-            answered: false,
-            createdAt: now
-          }
-        ]
-      : s.messages
-  }
-}
 
 /** The Job's latest Run **while it still runs**, else undefined. `jobs run` refuses on it, and a fire
  *  skips on it (`run-spawn --unless-running`; the user's ruling of 2026-09-25 on U1): the same test in
@@ -1787,6 +1713,74 @@ async function assignAll(gh: GhRunner, cwd: string, numbers: readonly number[]):
 export function ghRefusal(f: GhFailed): Reply {
   const status = f.kind === 'not-found' ? 404 : f.kind === 'not-installed' || f.kind === 'auth' ? 409 : 502
   return { status, body: { error: f.message } }
+}
+
+/** T12: what a `worker_done` says this machine cannot run. A succeeded report's own `--not-provable`; or, in a hands-off
+ *  plan, a failed implementation report whose words only say a tool or OS is missing here (exec/notProvable.ts
+ *  `missingToolOf`) from an attempt that committed its work: that one is `converted` to succeeded with the note. null:
+ *  nothing to note, and a failed report stays failed. Never throws: a git read that fails converts nothing. */
+async function notProvableOfReport(
+  deps: OrchServerDeps,
+  s: OrchState,
+  a: { taskId: string; dispatch: Dispatch | undefined; outcome: 'succeeded' | 'failed'; args: Record<string, unknown> }
+): Promise<{ note: string; converted: boolean } | null> {
+  const given = str(a.args.notProvable)?.trim()
+  if (a.outcome === 'succeeded') return given ? { note: given, converted: false } : null
+  const d = a.dispatch
+  if (!d || d.review || !d.git?.base) return null
+  const task = s.tasks.find((t) => t.id === a.taskId)
+  const run = task && s.runs.find((r) => r.id === task.runId)
+  const job = run && jobOf(s, run)
+  if (!job || !handsOffOf(s, job)) return null
+  const note = missingToolOf([given, str(a.args.subject), str(a.args.body)].filter((x): x is string => !!x).join('\n'))
+  if (note === null) return null
+  try {
+    // The commits the attempt added over its recorded base, read on this machine (rangeCommits: empty when git cannot say)
+    return (await rangeCommits(d.cwd, d.git.base)).length > 0 ? { note, converted: true } : null
+  } catch (e) {
+    deps.log?.(`task ${a.taskId}: the commits of dispatch=${d.id} could not be read: ${String(e)}`)
+    return null
+  }
+}
+
+/** T12: the state after an accepted `worker_done`, with the Task's `notProvable` set from the report (a later report
+ *  without one clears an earlier one's, as `gaps`), and in a hands-off plan the decision that accepted it, unless the
+ *  attempt acts on a Gate answer, whose own decision already said so (autoAnswer.ts `notProvableReviewStepOf`). */
+function withNotProvable(
+  s: OrchState,
+  a: { taskId: string; dispatch: Dispatch | undefined; found: { note: string; converted: boolean } | null; subject: string },
+  now: string
+): OrchState {
+  const note = a.found?.note
+  let next: OrchState = {
+    ...s,
+    tasks: s.tasks.map((t) => {
+      if (t.id !== a.taskId) return t
+      if (note !== undefined) return { ...t, notProvable: note }
+      if (t.notProvable === undefined) return t
+      const { notProvable: _cleared, ...rest } = t
+      return rest
+    })
+  }
+  const task = next.tasks.find((t) => t.id === a.taskId)
+  const run = task && next.runs.find((r) => r.id === task.runId)
+  const job = run && jobOf(next, run)
+  if (note === undefined || !task || !job || !handsOffOf(next, job) || a.dispatch?.decision !== undefined) return next
+  const line = (text: string, max: number): string => {
+    const one = text.replace(/\s+/g, ' ').trim()
+    return one.length > max ? `${one.slice(0, max - 3)}...` : one
+  }
+  next = addDecision(next, job.id, {
+    at: now,
+    kind: 'gate',
+    taskId: task.id,
+    question: line(a.found!.converted ? `${task.title} reported failed: ${a.subject || note}` : `${task.title} could not prove everything here`, 300),
+    choice: line(acceptedNotProvable(task.title, note), 200),
+    why: a.found!.converted
+      ? 'its report says only that this machine lacks a tool, its work is committed, and the plan runs hands-off'
+      : 'the worker proved the rest, this machine cannot run that part, and the plan runs hands-off'
+  })
+  return next
 }
 
 /** W2-D: what a worker's `worker_done` gives its Task's links (core/github/taskLinks.ts): the issue it reports
@@ -4003,6 +3997,13 @@ export async function handleCommand(
       // W8-C plan after plan: a queued plan's planner is the Host's to start, once the plan it waits on is delivered
       if (job.after !== undefined && job.plannerSessionIds === undefined && !jobDelivered(s, job.after))
         return conflict(`queued after ${afterNameOf(s, job.after)}: it starts by itself once that plan is delivered`)
+      // T13: no fresh planner while new starts are held for the whole profile. A planner's own conversation resumed after
+      // a restart (`--resume`, host/sessionRestore.ts) is not a new start: the next Host brings it back before it lifts the hold
+      if (!str(args.resume)) {
+        const holding = startHeldReply(deps)
+        const profileHeld = holding && (await holding)
+        if (profileHeld) return profileHeld
+      }
       // Every flag is checked before the first write below, so a refused call leaves the Job as it was
       // W6-D: `--replan waves|off` sets Job.replan as the plan starts
       if (args.replan !== undefined && args.replan !== 'waves' && args.replan !== 'off') return bad('--replan must be waves|off')
@@ -4909,6 +4910,10 @@ export async function handleCommand(
       // T1: no account is "auto" with "Pick accounts automatically" on: the loop places it on the account with most room
       if ((task.accountIds?.length ?? 0) === 0 && deps.usageGuard?.autoAccounts?.() !== true)
         return conflict(`task ${id} names no account to run on`)
+      // T13: held for the whole profile (worker-start would refuse it the same way, later)
+      const holding = startHeldReply(deps)
+      const profileHeld = holding && (await holding)
+      if (profileHeld) return profileHeld
       const limit = job?.concurrency ?? DEFAULT_CONCURRENCY
       const mine = new Set(s.tasks.filter((t) => t.runId === run.id).map((t) => t.id))
       const openHere = s.dispatches.filter((d) => mine.has(d.taskId) && !d.outcome && !d.endedAt).length
@@ -5226,6 +5231,10 @@ export async function handleCommand(
       // 회차를 찾지 못한다. 그래도 남겨 둔다: orchestration.json 은 손으로 고쳐진다.
       if (runJob?.schedule && run.ordinal === 0)
         return bad(`job ${run.jobId} is a schedule — it does not dispatch its own Tasks; its runs do`)
+      // T13: held for the whole profile (a restart, or the owner): no new worker from any placer, the plan's own hold aside
+      const holding = startHeldReply(deps)
+      const profileHeld = holding && (await holding)
+      if (profileHeld) return profileHeld
       // W5-C: a plan held from launching (`jobs-hold`) gets no new worker from any placer: the app's loop, `tasks
       // dispatch`, a coordinator, a person. `held` tells the loop this is a wait, not a reason for a Gate.
       // W8-E (#95): a replan holds the plan too (dispatchHold), but it lifts by itself: the coordinator waits for
@@ -5463,15 +5472,10 @@ export async function handleCommand(
         ? { subject: report?.subject ?? 'it failed', body: report?.body ?? 'No failure report was recorded.' }
         : undefined
 
-      // T2: a fresh fork's install queues for one of the machine's heavy slots. Where the wiring can finish the start
-      // as a fresh command (the Host), the start answers once the install is queued, so the scheduler's pass and the
-      // Host's command chain never wait for an install; the app ignores it and answers once the session is up.
-      const installLater = worktree === 'new' && !terminal
       let started: Awaited<ReturnType<OrchServerDeps['startWorker']>>
       try {
         // T5b: the session now counts itself on its account (a live session), so the start's own count goes
         started = await deps.startWorker({
-          ...(installLater ? { installLater: true as const } : {}),
           dispatchId,
           taskId,
           title: task.title,
@@ -5486,7 +5490,9 @@ export async function handleCommand(
           terminal,
           terminalCwd,
           terminalProvider,
-          terminalAccountId
+          terminalAccountId,
+          // T2: only a fresh fork installs dependencies, so only its start may answer before the install
+          ...(worktree === 'new' && !terminal ? { queueInstall: true as const } : {})
         })
       } catch (e) {
         release()
@@ -5524,21 +5530,65 @@ export async function handleCommand(
         return bad(`failed to start worker: ${e instanceof Error ? e.message : String(e)}`)
       }
 
-      // T2: the fork exists and its install is queued for a heavy slot. The Dispatch stays a placeholder (so it still
-      // counts against the caps and the board shows it starting), named as installing (`INSTALLING_PREFIX`: its own,
-      // longer start window), with its real folder and spec path: the spec sweep keeps a spec an open Dispatch names,
-      // and the spec is written just before the session starts. The account's reservation is kept until then.
-      if (started.installing !== undefined) {
-        const installingId = `${INSTALLING_PREFIX}${pendingSessionId.slice('pending:'.length)}`
-        const queued = deps.getState()
+      // T2: the fork's dependency install queued for one of the machine's heavy slots, and the start goes on outside
+      // this call (QueuedInstall). The scheduler pass places its slots one after another (d6800b53e), so waiting here
+      // would hold every later start behind this install. The Dispatch stays open on a `pending:install:` placeholder:
+      // it counts against the caps, the board shows it starting, and stillStarting gives it INSTALL_START_WINDOW_MS. Its
+      // spec path is named now (the name the coordinator writes), so the Host's spec sweep keeps that file between the
+      // start's end and the commit below that records it, which waits its turn in the chain.
+      if (started.installing) {
+        const { rest, later } = started.installing
+        const placeholder = `${INSTALL_PLACEHOLDER_PREFIX}${randomBytes(4).toString('hex')}`
+        const specPath = deps.profileDir ? path.join(specsDirOf(deps.profileDir), specFileName(taskId, dispatchId)) : ''
+        rest.then(
+          (done) => {
+            release()
+            // Recorded as a whole start's patch below is: these fields only, on the state as it is then
+            later(async () => {
+              const latest = deps.getState()
+              await deps.setState({
+                ...latest,
+                dispatches: latest.dispatches.map((d) =>
+                  d.id === dispatchId ? { ...d, sessionId: done.sessionId, cwd: done.cwd, specPath: done.specPath, ...dispatchModelFields(done) } : d
+                )
+              })
+            })
+          },
+          (e: unknown) => {
+            release()
+            const error = e instanceof Error ? e.message : String(e)
+            later(async () => {
+              deps.log?.(`worker-start: dispatch ${dispatchId} of task ${taskId} failed after its install queued: ${error}`)
+              const latest = deps.getState()
+              const d = latest.dispatches.find((x) => x.id === dispatchId)
+              // Closed meanwhile (worker-abandon): nothing is left to roll back
+              if (!d || d.endedAt !== undefined || d.outcome !== undefined) return
+              const at = deps.now?.() ?? new Date().toISOString()
+              // The failure rollback above, with one difference: the call answered long ago, so nobody reads this reason
+              // unless a Gate carries it, as the scheduler gates a start it could not make. Back at its old status alone,
+              // the Task would be placed again by the next pass and fork and fail the same way at once. A Host that is
+              // leaving is no such failure (R15): the Task goes back for the next Host's pass, with no Gate.
+              const rolledBack: OrchState = {
+                ...latest,
+                dispatches: latest.dispatches.filter((x) => x.id !== dispatchId),
+                tasks: latest.tasks.map((t) => (t.id === taskId ? { ...t, status: previousStatus, updatedAt: at } : t))
+              }
+              const gated =
+                e instanceof HostRetiring
+                  ? null
+                  : createGate(rolledBack, { taskId, question: tr((await deps.lang?.()) ?? 'en', 'jobs.integration.startFailed', { error }) }, at)
+              await deps.setState(gated?.ok ? gated.state : rolledBack)
+            })
+          }
+        )
+        const latest = deps.getState()
         await deps.setState({
-          ...queued,
-          dispatches: queued.dispatches.map((d) =>
-            d.id === dispatchId ? { ...d, sessionId: installingId, cwd: started.cwd, specPath: started.specPath } : d
+          ...latest,
+          dispatches: latest.dispatches.map((d) =>
+            d.id === dispatchId && d.sessionId === pendingSessionId ? { ...d, sessionId: placeholder, cwd: started.cwd, specPath } : d
           )
         })
-        finishInstallingStart(started.installing, { dispatchId, release })
-        return okBody({ sessionId: installingId, cwd: started.cwd, specPath: started.specPath, dispatchId, installing: true })
+        return okBody({ dispatchId, sessionId: placeholder, cwd: started.cwd, specPath, installing: 'waiting for a heavy slot to install its dependencies' })
       }
 
       release()
@@ -5727,7 +5777,8 @@ export async function handleCommand(
       if (!id) return bad('--id is required: the failed Task')
       const action = str(args.action)
       if (action !== 'retry' && action !== 'accept' && action !== 'cancel') return bad('--action must be one of retry|accept|cancel')
-      return commit(resolveFailedWait(s, id, action, now, { reason: str(args.reason) ?? undefined }))
+      // T10: Astera's own retry in a hands-off plan keeps the failure count (exec/failedRetry.ts)
+      return commit(resolveFailedWait(s, id, action, now, { reason: str(args.reason) ?? undefined, keepFailures: args.keepFailures === true }))
     }
     // T36: the driving loop asks the owner once about each failure a stalled Run waits on (replan.ts stallOf).
     case 'run-failed-ask': {
@@ -5735,6 +5786,18 @@ export async function handleCommand(
       const id = str(args.run)
       const run = s.runs.find((r) => r.id === id)
       if (!run) return notFound(`unknown run: ${String(id)}`)
+      // Hands-off leftovers: a failed Task Astera escalates (exec/failedRetry.ts) is asked about whether or not its Run is
+      // stalled: a failed Task that holds nothing back would otherwise reach nobody. Once per failure.
+      const only = str(args.task)
+      if (only) {
+        const failed = s.tasks.find((t) => t.id === only && t.runId === run.id)
+        if (!failed) return notFound(`unknown task in ${run.id}: ${only}`)
+        if (failed.status !== 'failed' || failedWaitAsked(s, failed)) return okBody({ stalled: false, asked: [] })
+        const block = failedBlocks(s, run.id).find((b) => b.task.id === failed.id) ?? { task: failed, waiting: [] }
+        const question = failedWaitQuestion(s, block, now)
+        await deps.setState({ ...s, messages: [...s.messages, question] })
+        return okBody({ stalled: false, asked: [{ id: question.id, taskId: question.taskId }] })
+      }
       const stall = stallOf(s, run)
       if (!stall) return okBody({ stalled: false, asked: [] })
       const questions = stall.blocks.filter((b) => !failedWaitAsked(s, b.task)).map((b) => failedWaitQuestion(s, b, now))
@@ -5917,6 +5980,11 @@ export async function handleCommand(
           }
           return okBody(r.value)
         }
+        // T12: what this machine cannot run; a hands-off plan takes a failed report that only says so as succeeded.
+        // Not a report that ended at a usage limit: that is the limit's, not the machine's.
+        const notProvable =
+          limitResetsAt === null ? await notProvableOfReport(deps, deps.getState(), { taskId, dispatch: reporting, outcome, args }) : null
+        if (notProvable?.converted) deps.log?.(`worker_done: task=${taskId} failed -> succeeded, not provable here: ${notProvable.note}`)
         // getState is read again here — the state may have changed during the probeLimit await
         // above, and calling applyWorkerDone with the pre-await snapshot (s) would overwrite and
         // lose that change (the same reason as in handleExit — the write inversion this has caused
@@ -5926,7 +5994,7 @@ export async function handleCommand(
           {
             taskId,
             dispatchId,
-            outcome,
+            outcome: notProvable?.converted ? 'succeeded' : outcome,
             subject: str(args.subject) ?? '',
             body: str(args.body) ?? '',
             filesModified:
@@ -5943,7 +6011,13 @@ export async function handleCommand(
           now
         )
         if (!result.ok) return refused(result)
-        await deps.setState(withLimit(result.state))
+        await deps.setState(
+          withLimit(
+            result.value === 'accepted'
+              ? withNotProvable(result.state, { taskId, dispatch: reporting, found: notProvable, subject: str(args.subject) ?? '' }, now)
+              : result.state
+          )
+        )
         if (result.value === 'accepted') dropRollingChain() // 위 검토 경로와 같은 이유·같은 조건
         // W2-D: the issue, branch and commits this attempt reports go to its Task's links, after the commit and off the
         // reply's path (gh is a network call)
@@ -6224,12 +6298,25 @@ export async function handleCommand(
       if (gate?.kind === 'check-unavailable' && gate.status === 'open') {
         if (!isCheckUnavailableAnswer(resolution)) return bad(`answer one of ${CHECK_UNAVAILABLE_OPTIONS.join(', ')}`)
         if (resolution !== 'mark-failed' && !deps.startValidation) return conflict('the checks cannot be run here')
-        const answered = answerCheckUnavailable(s, { gateId, resolution }, now)
+        const answered = answerCheckUnavailable(s, { gateId, resolution, ...(skippedByHandsOff(s, gate, resolution) ? { by: 'hands-off' as const } : {}) }, now)
         if (!answered.ok) return answered.missing ? refused(answered) : conflict(answered.error)
         deps.log?.(`gate-resolve: task=${gate.taskId} blocked -> ${resolution === 'mark-failed' ? 'failed' : 'validating'} (${resolution} on a check-unavailable Gate)`)
         await deps.setState(answered.state)
         // After the commit, as every start of checks is: the Task is validating before the runner reads it
         if (answered.value.revalidate) deps.startValidation?.(answered.value.revalidate)
+        return okBody(answered.value.gate satisfies AnsweredQuestion)
+      }
+      // A review that ended without a report takes its two answers and no other: the plain resolve below would hand the
+      // Task back to a worker whose work is done
+      if (gate?.kind === 'review-ended' && gate.status === 'open') {
+        if (!isReviewEndedAnswer(resolution)) return bad(`answer one of ${REVIEW_ENDED_OPTIONS.join(', ')}`)
+        if (resolution === 'review-again' && !deps.startReview) return conflict('a review cannot be started here')
+        const answered = answerReviewEnded(s, { gateId, resolution }, now)
+        if (!answered.ok) return answered.missing ? refused(answered) : conflict(answered.error)
+        deps.log?.(`gate-resolve: task=${gate.taskId} blocked -> ${resolution === 'review-again' ? 'reviewing' : 'completed'} (${resolution} on a review-ended Gate)`)
+        await deps.setState(answered.state)
+        // After the commit, as every start of a review is: the Task is reviewing before the reviewer is opened
+        if (answered.value.review) deps.startReview?.(answered.value.review)
         return okBody(answered.value.gate satisfies AnsweredQuestion)
       }
       const r = resolveGate(s, { gateId, resolution }, now)
@@ -7994,6 +8081,17 @@ export async function handleCommand(
   }
 }
 
+/** Whether a `skip-check` answer is the one a hands-off plan gives: the plan runs hands-off and the Task's check had
+ *  already been retried once (an earlier check-unavailable Gate of the Task was answered `retry`). Its check record then
+ *  says the plan skipped it (`skippedBy`). */
+function skippedByHandsOff(s: OrchState, gate: Gate, resolution: string): boolean {
+  if (resolution !== 'skip-check') return false
+  const run = s.runs.find((r) => r.id === gate.runId)
+  const job = run && jobOf(s, run)
+  if (!job || !handsOffOf(s, job)) return false
+  return s.gates.some((g) => g.taskId === gate.taskId && g.id !== gate.id && g.kind === 'check-unavailable' && g.status === 'resolved' && g.resolution === 'retry')
+}
+
 /** T8: the Run this session coordinates (its slot or its external coordinator), or undefined. Not `callerRun`, which
  *  falls back to the latest Run: a permission check must not read any session as that Run's coordinator. */
 const coordinatedBy = (s: OrchState, sessionId: string): JobRun | undefined =>
@@ -8072,7 +8170,7 @@ export async function handleExit(
   }
   const gated = blockForReview(
     r.state,
-    { taskId: task.id, reason: `검토자의 세션이 보고 없이 끝났습니다(dispatch=${closed.id})` },
+    { taskId: task.id, reason: `the reviewer session ended without a report (dispatch=${closed.id})`, lang: (await deps.lang?.()) ?? 'en' },
     now
   )
   if (!gated.ok) {

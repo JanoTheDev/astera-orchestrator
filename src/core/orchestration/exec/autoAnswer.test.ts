@@ -10,8 +10,9 @@ import { handleCommand, type OrchServerDeps } from '../command'
 import { addDecision, createGate, emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityDraft } from '../activity'
 import { heldForOwner, outcomeOf } from '../running'
-import type { Task } from '../types'
-import { FAILED_WAIT_OPTIONS } from '../replan'
+import { FAILURE_LIMIT, type ReviewIssue, type Task } from '../types'
+import { notProvableReviewAnswer } from './notProvable'
+import { FAILED_WAIT_OPTIONS, isFailedWait, stallOf } from '../replan'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const T0 = Date.parse(NOW)
@@ -89,7 +90,7 @@ async function rig(
   on = true,
   o: {
     handsOff?: boolean
-    kind?: 'convergence-exhausted'
+    kind?: 'convergence-exhausted' | 'review-ended'
     escalation?: boolean
     /** T11: more of the Host's deps (a planner's sessions), and the plan's planner sessions */
     deps?: Partial<OrchServerDeps>
@@ -169,6 +170,132 @@ async function rig(
   }
 }
 
+describe('Hands-off leftovers: a failed Task Astera escalates asks the owner once', () => {
+  const failedWaits = (st: OrchState) => st.messages.filter((m) => isFailedWait(m))
+  /** A hands-off plan with no coordinator whose first Task failed its last try without committing; `waiting` makes the
+   *  second Task wait on it (the Run stalls), else the second is done and nothing waits on the failed one. */
+  async function failedPlan(waiting: boolean) {
+    const r = await rig('x', undefined, true, { handsOff: true })
+    const s = r.state()
+    await r.deps.setState({
+      ...s,
+      gates: [],
+      tasks: s.tasks.map((t, i) =>
+        i === 0
+          ? { ...t, status: 'failed' as const, consecutiveFailures: FAILURE_LIMIT, result: 'tests failed in C:\\wt\\x\\src\\parser.ts', updatedAt: NOW }
+          : waiting
+            ? { ...t, status: 'pending' as const, deps: [s.tasks[0].id] }
+            : { ...t, status: 'completed' as const }
+      )
+    })
+    return r
+  }
+
+  it('asks the failed-wait question although the Run is not stalled, and the feed says so', async () => {
+    const r = await failedPlan(false)
+    expect(stallOf(r.state(), r.state().runs[0])).toBeUndefined()
+    await r.tick()
+    const asked = failedWaits(r.state())
+    expect(asked).toHaveLength(1)
+    expect(asked[0]).toMatchObject({ taskId: r.state().tasks[0].id, answered: false, options: [...FAILED_WAIT_OPTIONS] })
+    expect(asked[0].subject).toContain('C:\\wt\\x\\src\\parser.ts')
+    expect(r.lines.filter((l) => l.type === 'watchdog' && String(l.payload.reason).includes('goes to the owner'))).toHaveLength(1)
+    expect(r.lines.find((l) => l.type === 'watchdog')?.taskId).toBe(r.state().tasks[0].id)
+    // once per failure: later ticks ask nothing more
+    await r.tick()
+    await r.tick()
+    expect(failedWaits(r.state())).toHaveLength(1)
+    expect(r.lines.filter((l) => l.type === 'watchdog')).toHaveLength(1)
+  })
+
+  it('asks once, not twice, when the Run is stalled and unstallRuns would ask too', async () => {
+    const r = await failedPlan(true)
+    expect(stallOf(r.state(), r.state().runs[0])).toBeDefined()
+    await r.tick()
+    await r.tick()
+    const asked = failedWaits(r.state())
+    expect(asked).toHaveLength(1)
+    expect(asked[0].subject).toContain('wait on failed')
+  })
+
+  it('asks again for a later failure of the same Task, not for the one already asked about', async () => {
+    const r = await failedPlan(false)
+    await r.tick()
+    const s = r.state()
+    // the owner retried it and it failed again, later
+    r.advance(10 * 60_000)
+    const again = new Date(Date.parse(NOW) + 10 * 60_000).toISOString()
+    await r.deps.setState({ ...s, tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, updatedAt: again } : t)) })
+    await r.tick()
+    expect(failedWaits(r.state())).toHaveLength(2)
+  })
+
+  it('run-failed-ask --task leaves a Task that is not failed alone', async () => {
+    const r = await rig('x', undefined, true, { handsOff: true })
+    const s = r.state()
+    const res = await r.handle('run-failed-ask', { run: s.runs[0].id, task: s.tasks[0].id })
+    expect(res.body).toMatchObject({ asked: [] })
+    expect(failedWaits(r.state())).toHaveLength(0)
+  })
+})
+
+describe('Hands-off leftovers: a review-ended Gate left to the owner says why, once', () => {
+  async function secondReviewEnded(checksPassed: boolean) {
+    const r = await rig('The review could not run: the reviewer session ended in C:\\wt\\x without a report', ['review-again', 'accept-as-done'], true, { handsOff: true, kind: 'review-ended' })
+    const s = r.state()
+    const check = (status: 'passed' | 'failed') => ({ configId: 'c1', name: 'tests', status })
+    await r.deps.setState({
+      ...s,
+      tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, checks: [check(checksPassed ? 'passed' : 'failed')] } : t)),
+      gates: [{ id: 'gat_0', runId: s.runs[0].id, taskId: s.tasks[0].id, question: 'q', kind: 'review-ended' as const, status: 'resolved' as const, resolution: 'review-again', createdAt: NOW }, ...s.gates]
+    })
+    return r
+  }
+  const lines = (r: Awaited<ReturnType<typeof secondReviewEnded>>) => r.feed().filter((l) => l.type === 'plan.decided')
+
+  it('records one decision line and leaves the Gate open, however many ticks pass', async () => {
+    const r = await secondReviewEnded(false)
+    await r.tick()
+    await r.tick()
+    await r.tick()
+    expect(r.gateNow()?.status).toBe('open')
+    expect(lines(r)).toHaveLength(1)
+    expect(String(lines(r)[0].payload.reason)).toContain('left to the owner')
+    expect(String(lines(r)[0].payload.reason)).toContain('review ended twice and checks failed')
+    expect(r.state().jobs[0].decisions).toEqual([expect.objectContaining({ kind: 'gate', choice: 'left to the owner', taskId: r.state().tasks[0].id })])
+  })
+
+  it('does not record it again after a restart that rebuilds the loop, when the Job already holds the decision', async () => {
+    const r = await secondReviewEnded(false)
+    await r.tick()
+    const rebuilt = createDispatchLoop({
+      handle: r.handle,
+      getState: () => r.state(),
+      accounts: () => [],
+      loginStatus: async () => true,
+      lang: () => 'en',
+      sessionAlive: () => false,
+      sessionBusy: () => null,
+      typeInto: () => {},
+      autoAnswer: () => true,
+      activity: () => {},
+      recordDecision: async (jobId: string, d: Parameters<typeof addDecision>[2]) => r.deps.setState(addDecision(r.state(), jobId, d)),
+      mayStart: () => true,
+      log: () => {},
+      nowMs: () => Date.now()
+    } as unknown as DispatchLoopContext)
+    await rebuilt.nudge()
+    expect(r.state().jobs[0].decisions).toHaveLength(1)
+  })
+
+  it('says nothing when the checks passed: the Gate is accepted as done instead', async () => {
+    const r = await secondReviewEnded(true)
+    await r.tick()
+    expect(lines(r).map((l) => String(l.payload.reason))).toEqual([expect.stringContaining('accept-as-done')])
+    expect(r.state().jobs[0].decisions?.some((d) => d.choice === 'left to the owner')).toBe(false)
+  })
+})
+
 describe('the Host answers on its tick', () => {
   it('a Gate naming a safe default is answered within 60 s, with one feed line', async () => {
     const r = await rig('Hold it until W9-A merges? say go or hold', undefined)
@@ -228,10 +355,80 @@ describe('hands-off plans decide for the owner (#117)', () => {
     expect(handsOffStepsDue(s, [exhausted], T0)).toEqual([
       { kind: 'answer', answer: { id: 'gat_1', answer: 'retry-once', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', taskId: 'tsk_x', choice: 'retry-once' }) }
     ])
-    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', status: 'resolved', resolution: 'retry-once', createdAt: NOW }] }
+    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', kind: 'convergence-exhausted', status: 'resolved', resolution: 'retry-once', createdAt: NOW }] }
     expect(handsOffStepsDue(retried, [exhausted], T0)).toEqual([
       { kind: 'answer', answer: expect.objectContaining({ answer: 'mark-failed' }), decision: expect.objectContaining({ kind: 'gate', choice: 'mark-failed' }) }
     ])
+  })
+
+  it('a retry answered on a check-unavailable Gate is not the retry of a later convergence-exhausted Gate of the Task', () => {
+    // Windows paths in the Gate text, as the Host writes them
+    const check = { id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'lint could not run in C:\\wt\\x', kind: 'check-unavailable' as const, status: 'resolved' as const, resolution: 'retry', createdAt: NOW }
+    const afterCheckRetry: OrchState = { ...s, gates: [check] }
+    expect(handsOffStepsDue(afterCheckRetry, [exhausted], T0)).toEqual([
+      { kind: 'answer', answer: { id: 'gat_1', answer: 'retry-once', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', choice: 'retry-once' }) }
+    ])
+    // its own kind's earlier retry still counts, whatever else was retried
+    const both: OrchState = { ...s, gates: [check, { ...check, id: 'gat_2', kind: 'convergence-exhausted', resolution: 'retry-once' }] }
+    expect(handsOffStepsDue(both, [exhausted], T0)).toEqual([expect.objectContaining({ answer: expect.objectContaining({ answer: 'mark-failed' }) })])
+    // the same holds outside hands-off (autoAnswersDue)
+    expect(autoAnswersDue(afterCheckRetry, [exhausted], T0)).toEqual([expect.objectContaining({ answer: 'retry-once' })])
+  })
+
+  describe('T9: a check that could not run and a review that ended without a report', () => {
+    const gate = (id: string, kind: 'check-unavailable' | 'review-ended', resolution: string) => ({ id, runId: 'run_1', taskId: 'tsk_x', question: 'q', kind, status: 'resolved' as const, resolution, createdAt: NOW })
+    const unavailable = q('The check could not be made: lint: down', { kind: 'check-unavailable', options: ['retry', 'skip-check', 'mark-failed'] })
+    const ended = q('The review could not run: the reviewer session ended without a report', { kind: 'review-ended', options: ['review-again', 'accept-as-done'] })
+    const passed = { configId: 'c1', name: 'lint', status: 'passed' as const }
+    const answerOf = (st: OrchState, question: OpenQuestion) => handsOffStepsDue(st, [question], T0)
+
+    it('answers a check-unavailable Gate retry, then skip-check, never mark-failed, and records why', () => {
+      expect(answerOf(s, unavailable)).toEqual([
+        { kind: 'answer', answer: { id: 'gat_1', answer: 'retry', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', taskId: 'tsk_x', choice: 'retry', why: expect.stringContaining('retried once') }) }
+      ])
+      const retried: OrchState = { ...s, gates: [gate('gat_0', 'check-unavailable', 'retry')] }
+      expect(answerOf(retried, unavailable)).toEqual([
+        { kind: 'answer', answer: { id: 'gat_1', answer: 'skip-check', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', choice: 'skip-check', why: expect.stringContaining('skipped, reason recorded') }) }
+      ])
+      // however many times it comes back, mark-failed is not an answer
+      const twice: OrchState = { ...s, gates: [gate('gat_0', 'check-unavailable', 'retry'), gate('gat_2', 'check-unavailable', 'skip-check')] }
+      expect(JSON.stringify(answerOf(twice, unavailable))).not.toContain('mark-failed')
+    })
+
+    it('a retry of another kind of Gate does not count as the check having been retried', () => {
+      const other: OrchState = { ...s, gates: [{ ...gate('gat_0', 'check-unavailable', 'retry-once'), kind: undefined }] }
+      expect(answerOf(other, unavailable)).toEqual([expect.objectContaining({ answer: expect.objectContaining({ answer: 'retry' }) })])
+    })
+
+    it('answers a review-ended Gate review-again, then accept-as-done, as decisions', () => {
+      expect(answerOf(s, ended)).toEqual([
+        { kind: 'answer', answer: { id: 'gat_1', answer: 'review-again', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', taskId: 'tsk_x', choice: 'review-again' }) }
+      ])
+      const again: OrchState = { ...s, gates: [gate('gat_0', 'review-ended', 'review-again')] }
+      expect(answerOf(again, ended)).toEqual([
+        { kind: 'answer', answer: { id: 'gat_1', answer: 'accept-as-done', why: 'safe default' }, decision: expect.objectContaining({ kind: 'gate', choice: 'accept-as-done', why: expect.stringContaining('ended twice') }) }
+      ])
+    })
+
+    it('leaves a second review-ended Gate to the owner when the Task checks did not pass', () => {
+      const failing = base([task({ id: 'tsk_x', title: 'T1 · Login', checks: [passed, { configId: 'c2', name: 'tests', status: 'failed' }] })])
+      expect(answerOf({ ...failing, gates: [gate('gat_0', 'review-ended', 'review-again')] }, ended)).toEqual([
+        {
+          kind: 'left',
+          id: 'gat_1',
+          decision: { kind: 'gate', taskId: 'tsk_x', question: ended.question, choice: 'left to the owner', why: 'review ended twice and checks failed' }
+        }
+      ])
+      // the first time it still reviews again
+      expect(answerOf(failing, ended)).toEqual([expect.objectContaining({ answer: expect.objectContaining({ answer: 'review-again' }) })])
+      const passing = base([task({ id: 'tsk_x', title: 'T1 · Login', checks: [passed] })])
+      expect(answerOf({ ...passing, gates: [gate('gat_0', 'review-ended', 'review-again')] }, ended)).toEqual([expect.objectContaining({ answer: expect.objectContaining({ answer: 'accept-as-done' }) })])
+    })
+
+    it('outside hands-off the owner keeps a review-ended Gate', () => {
+      expect(autoAnswerOf(s, ended)).toBeNull()
+      expect(autoAnswersDue(s, [ended], T0)).toEqual([])
+    })
   })
 
   it("a question Astera asked itself is judged by its options, not by the Task titles in its text", () => {
@@ -278,7 +475,7 @@ describe('hands-off plans decide for the owner (#117)', () => {
     ])
     // Without the kind the same text is a guardrail case
     expect(handsOffStepsDue(s, [{ ...mergeGate, kind: undefined, options: undefined }], T0)).toEqual([expect.objectContaining({ decision: expect.objectContaining({ kind: 'refused' }) })])
-    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', status: 'resolved', resolution: 'retry', createdAt: NOW }] }
+    const retried: OrchState = { ...s, gates: [{ id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', kind: 'merge-failed', status: 'resolved', resolution: 'retry', createdAt: NOW }] }
     expect(handsOffStepsDue(retried, [mergeGate], T0)).toEqual([{ kind: 'coordinator', question: mergeGate }])
   })
 
@@ -419,6 +616,55 @@ describe('a review-needs-decision Gate on a hands-off plan', () => {
     }
   })
 
+  const issue = (over: Partial<ReviewIssue>): ReviewIssue => ({ id: 'iss_1', severity: 'high', blocking: true, title: 'next dev not run', description: '', ...over })
+  const reviewed = (issues: ReviewIssue[], grants?: string[]): OrchState => {
+    const s = planned(grants)
+    return { ...s, tasks: s.tasks.map((t) => ({ ...t, reviewIssues: issues })) }
+  }
+
+  it('T12: only environment blockers: accepted as not provable here and recorded, not handed to a coordinator', () => {
+    const g = gate('The review needs a decision: next dev not run (needs environment); no iOS simulator (needs environment)')
+    const s = reviewed([issue({ needs: 'environment' }), issue({ id: 'iss_2', title: 'no iOS simulator', needs: 'environment' }), issue({ id: 'iss_3', blocking: false, title: 'nit' })])
+    const steps = handsOffStepsDue(s, [g], T0)
+    expect(steps).toEqual([
+      {
+        kind: 'answer',
+        answer: { id: 'gat_1', answer: notProvableReviewAnswer([{ title: 'next dev not run' }, { title: 'no iOS simulator' }]), why: 'safe default' },
+        decision: {
+          kind: 'gate',
+          taskId: 'tsk_x',
+          question: g.question,
+          choice: 'accepted T1 · Login: not provable here: next dev not run (needs environment); no iOS simulator (needs environment)',
+          why: expect.stringContaining('plan runs hands-off')
+        }
+      }
+    ])
+    // The answer tells the repair worker to report --not-provable, and the next review reads it as dropping that proof
+    const answer = (steps[0] as { answer: { answer: string } }).answer.answer
+    expect(answer).toContain('--not-provable')
+    expect(answer).toContain('its absence is not a finding')
+  })
+
+  it('T12: an environment blocker beside a code or scope blocker goes the usual way', () => {
+    const g = gate('The review needs a decision: next dev not run (needs environment)')
+    for (const other of [issue({ id: 'iss_2', title: 'bug' }), issue({ id: 'iss_2', title: 'wider change', needs: 'scope' })])
+      expect(handsOffStepsDue(reviewed([issue({ needs: 'environment' }), other]), [g], T0)).toEqual([{ kind: 'coordinator', question: g }])
+  })
+
+  it('T12: a Task accepted this way once already goes the usual way, not round a loop', () => {
+    const g = gate('The review needs a decision: next dev not run (needs environment)')
+    const s = reviewed([issue({ needs: 'environment' })])
+    const earlier = { id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', kind: 'review-needs-decision' as const, status: 'resolved' as const, resolution: notProvableReviewAnswer([issue({})]), createdAt: NOW, resolvedAt: NOW }
+    expect(handsOffStepsDue({ ...s, gates: [earlier] }, [g], T0)).toEqual([{ kind: 'coordinator', question: g }])
+  })
+
+  it('T12: a guardrail in the text still holds the Task for the owner', () => {
+    const g = gate('The review needs a decision: the production credentials (needs environment)')
+    expect(handsOffStepsDue(reviewed([issue({ title: 'the production credentials', needs: 'environment' })]), [g], T0)).toEqual([
+      expect.objectContaining({ kind: 'hold', decision: expect.objectContaining({ kind: 'refused' }) })
+    ])
+  })
+
   it('has no safe default for the global auto-answer', () => {
     expect(autoAnswerOf(planned(), gate('The review needs a running dev server.'))).toBeNull()
     expect(autoAnswerOf(planned(), gate('The review needs a decision. Options are open.'))).toBeNull()
@@ -516,9 +762,14 @@ describe('a hands-off escalation with no live coordinator (T11)', () => {
     await r.tick()
     expect(r.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: true, answerBody: ESCALATION_DEFAULT_ANSWER })
     expect(r.state().jobs[0].decisions).toEqual([
-      expect.objectContaining({ kind: 'escalation', choice: ESCALATION_DEFAULT_ANSWER, why: expect.stringContaining('did not answer within 5 minutes') })
+      expect.objectContaining({ kind: 'escalation', choice: ESCALATION_DEFAULT_ANSWER.slice(0, 200), why: expect.stringContaining('did not answer within 5 minutes') })
     ])
     expect(typed).toHaveLength(1)
+  })
+
+  it('T12: the default answer tells a worker that lacks a tool or OS here to report --not-provable', () => {
+    expect(ESCALATION_DEFAULT_ANSWER).toContain('tool or OS this machine lacks')
+    expect(ESCALATION_DEFAULT_ANSWER).toContain('report succeeded with --not-provable')
   })
 
   it('no planner to reach: the default answer after the wait, recorded once', async () => {

@@ -36,7 +36,9 @@ import type { InstallOutcome, SourceBuildStep, UpdateMode, UpdateStatus } from '
 const execFileP = promisify(execFile)
 
 async function git(cwd: string, args: string[], timeout = 120_000): Promise<string> {
-  const { stdout } = await execFileP('git', ['-C', cwd, ...args], { timeout, maxBuffer: 16 * 1024 * 1024 })
+  // windowsHide: the source check runs on win32 for a build made from a git checkout, and main is a GUI-subsystem
+  // program, so each git call would otherwise flash a console window.
+  const { stdout } = await execFileP('git', ['-C', cwd, ...args], { timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true })
   return stdout
 }
 
@@ -224,7 +226,7 @@ export function createSourceUpdater(d: SourceUpdaterDeps): {
   function run(cmd: string, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<number> {
     const fd = openSync(buildLog, 'a')
     return new Promise<number>((resolve) => {
-      const c = spawn(cmd, args, { cwd, env, stdio: ['ignore', fd, fd] })
+      const c = spawn(cmd, args, { cwd, env, stdio: ['ignore', fd, fd], windowsHide: true })
       c.on('error', (e) => {
         d.log(`ERROR source: ${cmd} could not start: ${e.message}`)
         resolve(127)
@@ -342,7 +344,8 @@ export function createSourceUpdater(d: SourceUpdaterDeps): {
     spawn('sh', ['-c', 'while kill -0 "$1" 2>/dev/null; do sleep 0.5; done; exec "$2" --no-sandbox', 'sh', String(process.pid), file], {
       detached: true,
       stdio: 'ignore',
-      env
+      env,
+      windowsHide: true // posix-only (an AppImage), stated so the scan in src/core/childWindows.scan.test.ts can see it
     }).unref()
     d.log(`source install: ${file} starts once pid ${process.pid} exits`)
     await d.quitForInstall()

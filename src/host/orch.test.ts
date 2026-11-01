@@ -13,8 +13,7 @@ import {
   RECEIPTS_TOTAL,
   RECEIPT_TTL_MS
 } from './orch'
-import { INSTALL_START_WINDOW_MS, INSTALLING_PREFIX, PENDING_START_WINDOW_MS } from '../core/orchestration/command'
-import { isPlaceholderSessionId } from '../core/orchestration/types'
+import { PENDING_START_WINDOW_MS } from '../core/orchestration/command'
 import {
   applyWorkerDone,
   attachCoordinator,
@@ -55,6 +54,9 @@ import { runRecordInputOf } from '../core/orchestration/runRecord'
 import { createControllerRegistry } from './controllers'
 import { createPluginManager } from './plugins/manager'
 import { git } from '../core/worktrees/git'
+import { installPending, installSettled, installTurn } from '../core/worktrees/setup'
+import { specsDirOf } from '../core/orchestration/exec/specFiles'
+import { INSTALL_START_WINDOW_MS } from '../core/orchestration/exec/stallWatch'
 
 // Relative, not a fixed date: the store prunes finished Runs older than RUN_TTL_MS, so a fixed one rots into a 404.
 const NOW = new Date().toISOString()
@@ -2661,202 +2663,6 @@ describe('GitHub writes and request receipts (MCP P2-B)', () => {
   })
 })
 
-// T2: a worker start's install waits for one of the machine's heavy slots. The scheduler places slots one after another
-// (d6800b53e), so the start answers once the install is queued and goes on outside the pass and the command chain;
-// a fresh command records how it ended.
-describe('a worker start whose install waits for a heavy slot (T2)', () => {
-  type StartArgs = Parameters<HostLocal['startWorker']>[0]
-  /** A Host-local spawner whose `--worktree new` starts queue an install the test finishes (or fails) by Task. */
-  const installingSpawner = () => {
-    const seen = new Map<string, StartArgs>()
-    const finish = new Map<string, (fail?: string) => void>()
-    const startWorker = vi.fn(async (x: StartArgs) => {
-      seen.set(x.taskId, x)
-      const at = { cwd: `D:/wt/${x.name ?? x.taskId}`, specPath: `D:/specs/${x.taskId}-${x.dispatchId}.md` }
-      if (x.install) {
-        x.install.queued(at)
-        const failed = await new Promise<string | undefined>((r) => finish.set(x.taskId, r))
-        if (failed) throw new Error(failed)
-      }
-      return { sessionId: `ses_${x.taskId}`, ...at }
-    })
-    const local: HostLocal = {
-      owns: () => true,
-      startWorker,
-      startCoordinator: vi.fn(async () => ({ sessionId: 'ses_coord' })),
-      releaseWorker: vi.fn(async () => {}),
-      readWorker: vi.fn(async () => ''),
-      probeLimit: vi.fn(async () => null),
-      readReviewFile: vi.fn(async () => null),
-      makeRunWorktree: vi.fn(async () => 'D:/wt-run'),
-      mergeWorktrees: vi.fn(async () => ({ ok: true as const, merged: [], uncommitted: 0 })),
-      removeWorktrees: vi.fn(async () => ({ failed: [] }))
-    }
-    return { local, seen, finish: (taskId: string, fail?: string) => finish.get(taskId)?.(fail), queuedFor: (taskId: string) => finish.has(taskId) }
-  }
-  /** `n` plans, each a Job with one Run and one Task: slots of different Runs, the d6800b53e shape. */
-  const plans = async (n: number): Promise<string[]> => {
-    let state = emptyState()
-    const taskIds: string[] = []
-    for (let i = 0; i < n; i++) {
-      const job = createJob(state, { objective: `plan ${i}`, cwd: 'D:/p' }, NOW)
-      if (!job.ok) throw new Error(job.error)
-      const run = startJobRun(job.state, job.value.id, NOW)
-      if (!run.ok) throw new Error(run.error)
-      const task = createTask(run.state, { runId: run.value.id, title: `t${i}`, spec: 's', deps: [] }, NOW)
-      if (!task.ok) throw new Error(task.error)
-      state = task.state
-      taskIds.push(task.value.id)
-    }
-    await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(state, null, 2), 'utf8')
-    return taskIds
-  }
-  const fork = (taskId: string, name = taskId) => ({ task: taskId, agent: 'claude', account: 'acc1', worktree: 'new', name })
-  const dispatchOf = (orch: ReturnType<typeof createHostOrch>, taskId: string) => orch.state().dispatches.find((d) => d.taskId === taskId)
-  const within = <T,>(p: Promise<T>, ms = 5_000): Promise<T | 'stuck'> => Promise.race([p, new Promise<'stuck'>((r) => setTimeout(() => r('stuck'), ms))])
-
-  it('answers once the install is queued, keeps the slot as a starting Dispatch, and records the session when it is up', async () => {
-    const [taskId] = await plans(1)
-    const s = installingSpawner()
-    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: s.local })
-    const r = await within(orch.call({ cmd: 'worker-start', args: fork(taskId, 'auth'), sessionId: '' }))
-    expect(r).not.toBe('stuck')
-    const reply = r as Awaited<ReturnType<typeof orch.call>>
-    expect(reply.status).toBe(200)
-    const body = reply.body as { sessionId: string; dispatchId: string; installing?: boolean; cwd: string }
-    expect(body).toMatchObject({ installing: true, cwd: 'D:/wt/auth' })
-    expect(body.sessionId.startsWith(INSTALLING_PREFIX)).toBe(true)
-    expect(s.seen.get(taskId)).toMatchObject({ installLater: true, worktree: 'new' })
-    // Still a start in flight: a placeholder (the board shows it starting), open, counted, with its folder and spec
-    const d = dispatchOf(orch, taskId)!
-    expect(d).toMatchObject({ id: body.dispatchId, sessionId: body.sessionId, cwd: 'D:/wt/auth', specPath: `D:/specs/${taskId}-${d.id}.md` })
-    expect(isPlaceholderSessionId(d.sessionId)).toBe(true)
-    expect(d.endedAt).toBeUndefined()
-    s.finish(taskId)
-    await vi.waitFor(() => expect(dispatchOf(orch, taskId)?.sessionId).toBe(`ses_${taskId}`))
-    expect(dispatchOf(orch, taskId)).toMatchObject({ cwd: 'D:/wt/auth', specPath: `D:/specs/${taskId}-${d.id}.md` })
-    expect(dispatchOf(orch, taskId)?.endedAt).toBeUndefined()
-  })
-
-  // d6800b53e: a pass inside a command that holds the chain, placing slots of different Runs; each slot's worker-start
-  // handed the chain on and a sibling took it, and the Host stood still for an hour. Here the pass places two Runs'
-  // slots one after another and both installs wait: every command is answered, none waits on another, and an install
-  // that ends while the holder still runs is recorded by a fresh command after it, never inline in its hold.
-  it('two Runs’ slots placed by a pass inside a holding command, both installs waiting: no command waits on another', async () => {
-    const [holderTask, a, b] = await plans(3)
-    const s = installingSpawner()
-    let orch: ReturnType<typeof createHostOrch> | undefined
-    const pass: { replies: number[]; aRecordedInsideHold?: boolean; done?: boolean } = { replies: [] }
-    let first = true
-    orch = orchOver({
-      hasApp: () => false,
-      act: vi.fn(),
-      local: s.local,
-      // The holder: a command that holds the chain and runs the pass inline, as `tasks-dispatch` -> the loop ->
-      // `orch.handle`. Here a worker-start whose usage read runs it; its own account is then paused, so it ends
-      // committing nothing of its own over the Dispatches the pass recorded.
-      usageGuard: {
-        refresh: async () => {
-          if (!first) return
-          first = false
-          pass.replies.push((await orch!.handle('worker-start', fork(a))).status)
-          // A's install ends while the holder still holds the chain: its record must wait for the holder
-          s.finish(a)
-          await new Promise((r) => setTimeout(r, 100))
-          pass.aRecordedInsideHold = dispatchOf(orch!, a)?.sessionId === `ses_${a}`
-          pass.replies.push((await orch!.handle('worker-start', fork(b))).status)
-          pass.done = true
-        },
-        pauseOf: (id) => (id === 'acc-holder' ? { accountId: id, window: 'five_hour', percent: 99, resetsAt: null } : null)
-      }
-    })
-    const holder = await within(orch.call({ cmd: 'worker-start', args: { task: holderTask, agent: 'claude', account: 'acc-holder', worktree: 'current' }, sessionId: '' }))
-    expect(holder, 'the holding command never finished').not.toBe('stuck')
-    expect((holder as { status: number }).status).toBe(409)
-    expect(pass).toMatchObject({ replies: [200, 200], done: true, aRecordedInsideHold: false })
-    // B's install still waits for its slot, and the Host answers other commands meanwhile
-    expect(s.queuedFor(b)).toBe(true)
-    expect(dispatchOf(orch, b)?.sessionId.startsWith(INSTALLING_PREFIX)).toBe(true)
-    const other = await within(orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' }), 2_000)
-    expect(other).not.toBe('stuck')
-    // A was recorded by its own command once the holder let the chain go
-    await vi.waitFor(() => expect(dispatchOf(orch!, a)?.sessionId).toBe(`ses_${a}`))
-    s.finish(b)
-    await vi.waitFor(() => expect(dispatchOf(orch!, b)?.sessionId).toBe(`ses_${b}`))
-    expect(dispatchOf(orch, a)?.endedAt).toBeUndefined()
-    expect(dispatchOf(orch, holderTask)).toBeUndefined()
-    expect(await within(orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' }), 2_000)).not.toBe('stuck')
-  })
-
-  it('a start that fails after its install closes its Dispatch as lost, with why, and its Task counts the failure', async () => {
-    const [taskId] = await plans(1)
-    const s = installingSpawner()
-    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: s.local })
-    const r = await orch.call({ cmd: 'worker-start', args: fork(taskId), sessionId: '' })
-    const dispatchId = (r.body as { dispatchId: string }).dispatchId
-    s.finish(taskId, 'CWD_MISSING: the account folder is gone')
-    await vi.waitFor(() => expect(dispatchOf(orch, taskId)?.endedAt).toBeDefined())
-    const d = dispatchOf(orch, taskId)!
-    expect(d).toMatchObject({ id: dispatchId, workerState: 'failed' })
-    expect(d.outcome).toBeUndefined()
-    expect(d.closedBy).toBeUndefined()
-    const task = orch.state().tasks.find((t) => t.id === taskId)!
-    expect(task).toMatchObject({ status: 'dispatched', consecutiveFailures: 1 })
-    const msg = orch.state().messages.find((m) => m.dispatchId === dispatchId && m.type === 'status')
-    expect(msg).toMatchObject({ subject: 'worker could not start after its install' })
-    expect(msg?.body).toContain('CWD_MISSING: the account folder is gone')
-  })
-
-  it('tells the install it is no longer wanted once its Dispatch is closed or gone', async () => {
-    const [taskId] = await plans(1)
-    const s = installingSpawner()
-    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: s.local })
-    await orch.call({ cmd: 'worker-start', args: fork(taskId), sessionId: '' })
-    const install = s.seen.get(taskId)!.install!
-    expect(install.abandoned()).toBe(false)
-    const st = orch.state()
-    const closed = { ...st, dispatches: st.dispatches.map((d) => ({ ...d, endedAt: NOW, workerState: 'stopped' as const, closedBy: 'stop' as const })) }
-    await orch.call({ cmd: 'state-put', args: { state: closed }, sessionId: '', from: { role: 'app', toOthers: () => {} } })
-    expect(install.abandoned()).toBe(true)
-    await orch.call({ cmd: 'state-put', args: { state: { ...closed, dispatches: [] } }, sessionId: '', from: { role: 'app', toOthers: () => {} } })
-    expect(install.abandoned()).toBe(true)
-    s.finish(taskId, 'given up')
-    // Its record finds no Dispatch and writes nothing
-    await new Promise((r) => setTimeout(r, 50))
-    expect(orch.state().dispatches).toEqual([])
-  })
-
-  it('a start waiting to install is still starting for its own longer window: stops wait, then go ahead past it', async () => {
-    const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p' }, NOW); if (!job.ok) throw new Error(job.error)
-    const run = startJobRun(job.state, job.value.id, NOW); if (!run.ok) throw new Error(run.error)
-    const task = createTask(run.state, { runId: run.value.id, title: 't', spec: 's', deps: [] }, NOW); if (!task.ok) throw new Error(task.error)
-    const at = (ago: number) => new Date(Date.parse(NOW) - ago).toISOString()
-    const open = (sessionId: string, startedAt: string) => {
-      const dsp = openDispatch(task.state, { taskId: task.value.id, provider: 'claude', accountId: 'acc1', sessionId, cwd: 'D:/wt/a', specPath: '' }, startedAt)
-      if (!dsp.ok) throw new Error(dsp.error)
-      return dsp
-    }
-    const stop = async (sessionId: string, startedAt: string) => {
-      const dsp = open(sessionId, startedAt)
-      const l = installingSpawner().local
-      const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: l })
-      await orch.call({ cmd: 'state-put', args: { state: dsp.state }, sessionId: '', from: { role: 'app', toOthers: () => {} } })
-      const r = await orch.call({ cmd: 'worker-stop', args: { dispatch: dsp.value.id }, sessionId: '' })
-      return { r, released: (l.releaseWorker as ReturnType<typeof vi.fn>).mock.calls.length }
-    }
-    // 30 minutes in: an ordinary start would be dead by now, an installing one is still waiting its turn
-    const waiting = await stop(`${INSTALLING_PREFIX}ab12cd34`, at(30 * 60_000))
-    expect(waiting.r.status).toBe(409)
-    expect((waiting.r.body as { error: string }).error).toContain('waiting for a heavy slot to install')
-    expect((await stop('pending:ab12cd34', at(PENDING_START_WINDOW_MS + 60_000))).r.status).toBe(200)
-    // Past its own window it is a start that died: the stop closes it, with nothing to release
-    const dead = await stop(`${INSTALLING_PREFIX}ab12cd34`, at(INSTALL_START_WINDOW_MS + 60_000))
-    expect(dead.r.status).toBe(200)
-    expect(dead.released).toBe(0)
-    expect(INSTALL_START_WINDOW_MS).toBeGreaterThan(PENDING_START_WINDOW_MS)
-  })
-})
-
 describe('Host-local spawn (S2)', () => {
   const local = (over: Partial<HostLocal> = {}): HostLocal => ({
     owns: () => true,
@@ -2991,6 +2797,44 @@ describe('Host-local spawn (S2)', () => {
     expect(l.startCoordinator).toHaveBeenCalledTimes(1)
     const run = orch.state().runs.find((x) => x.jobId === job.value.id)!
     expect(run).toMatchObject({ worktree: 'D:/wt-run', coordinatorSessionId: 'ses_coord' })
+  })
+  // T24: run-start holds the chain, so its Run worktree answers once its install queues for a heavy slot, and the
+  // install goes on beside every command; the folder is installing (installPending) until it ends
+  it('run-start answers once its Run worktree install queues for a heavy slot, and no command waits on that install', async () => {
+    const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p', coordinatorAccountId: 'acc1' }, NOW); if (!job.ok) throw new Error(job.error)
+    await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(job.state))
+    const wt = process.platform === 'win32' ? 'D:\\Work Trees\\plan run' : '/work trees/plan run'
+    const noQueue = path.join(dir, 'no-heavy-queue')
+    let finish!: (fail?: Error) => void
+    let lent: unknown
+    const l = local({
+      makeRunWorktree: vi.fn(async () => {
+        await Promise.resolve()
+        const turn = installTurn()
+        lent = turn?.heavy
+        if (!turn) return wt
+        turn.queued(wt)
+        // As forkWorktree: the install never throws, so the fork ends with its folder however the install went
+        await new Promise<Error | undefined>((r) => (finish = r))
+        return wt
+      })
+    })
+    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: l })
+    const r = await Promise.race([
+      orch.call({ cmd: 'run-start', args: { run: job.value.id }, sessionId: '' }),
+      new Promise<'held'>((res) => setTimeout(() => res('held'), 5_000))
+    ])
+    expect(r, 'run-start waited on the install').not.toBe('held')
+    expect((r as { status: number }).status).toBe(200)
+    expect(lent).toMatchObject({ slots: expect.any(Function) })
+    expect(orch.state().runs.find((x) => x.jobId === job.value.id)).toMatchObject({ worktree: wt, coordinatorSessionId: 'ses_coord' })
+    expect(installPending(wt, noQueue)).toBe(true)
+    // An outside caller is not held up by it either
+    const listed = await Promise.race([orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' }), new Promise<'held'>((res) => setTimeout(() => res('held'), 2_000))])
+    expect(listed).not.toBe('held')
+    finish()
+    await installSettled(wt)
+    expect(installPending(wt, noQueue)).toBe(false)
   })
   // Fix round 1, I1: risk-6's cleanup calls the Host's own removeWorktrees, which can itself throw
   // AppUnreachable (an unattached app is alive). That must never turn a spawn failure into a 409 —
@@ -5472,5 +5316,177 @@ describe('a plan delivered by a later plan (T14)', () => {
     })
     await vi.waitFor(() => expect(marked(orch, 'job_early')).toMatchObject({ jobId: 'job_late', commit: sha }))
     expect(marked(orch, 'job_other')).toBeUndefined()
+  })
+})
+
+// T2: a fresh fork's dependency install waits for one of the machine's heavy slots. The scheduler places slots one after
+// another (d6800b53e) inside whatever command kicked its pass, so a `worker-start` that waited for its install would hold
+// every later start and that command's chain. It answers once the install queues instead, and what the start records
+// afterwards is a command of its own.
+describe('T2: a worker start answers once its install queues for a heavy slot', () => {
+  const sleepFor = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+  type Started = { sessionId: string; cwd: string; specPath: string }
+
+  /** Two Jobs with a Run and a Task each (two Runs' slots), and a third Task beside the first one. */
+  const seedTwoRuns = async (): Promise<{ a: string; b: string; holder: string }> => {
+    let state = emptyState()
+    const ids: string[] = []
+    for (const objective of ['one', 'two']) {
+      const job = createJob(state, { objective, cwd: 'D:/p', concurrency: 3 }, NOW); if (!job.ok) throw new Error(job.error)
+      const run = startJobRun(job.state, job.value.id, NOW); if (!run.ok) throw new Error(run.error)
+      const task = createTask(run.state, { runId: run.value.id, title: objective, spec: 's', deps: [] }, NOW); if (!task.ok) throw new Error(task.error)
+      state = task.state
+      ids.push(task.value.id)
+    }
+    const runId = state.tasks.find((t) => t.id === ids[0])!.runId!
+    const third = createTask(state, { runId, title: 'holder', spec: 's', deps: [] }, NOW); if (!third.ok) throw new Error(third.error)
+    await fs.writeFile(path.join(dir, 'orchestration.json'), JSON.stringify(third.state, null, 2), 'utf8')
+    return { a: ids[0], b: ids[1], holder: third.value.id }
+  }
+
+  /** The Host's own start. A fresh fork queues its install, as forkWorktree does inside the install turn the Host lends
+   *  it, and waits until the test lets that install end (with an error: the rest of the start failed). A start with no
+   *  turn (no fresh fork) installs nothing and starts at once. */
+  const installing = () => {
+    const installs = new Map<string, (fail?: Error) => void>()
+    const started: string[] = []
+    const startWorker = vi.fn(async (x: { taskId: string }): Promise<Started> => {
+      started.push(x.taskId)
+      await Promise.resolve()
+      const cwd = `D:/wt/${x.taskId}`
+      const turn = installTurn()
+      if (turn) {
+        turn.queued(cwd)
+        const fail = await new Promise<Error | undefined>((r) => installs.set(x.taskId, r))
+        if (fail) throw fail
+      }
+      return { sessionId: `ses_${x.taskId}`, cwd, specPath: `D:/specs/${x.taskId}.md` }
+    })
+    const local: HostLocal = {
+      owns: () => true,
+      startWorker,
+      startCoordinator: vi.fn(async () => ({ sessionId: 'ses_coord' })),
+      releaseWorker: vi.fn(async () => {}),
+      readWorker: vi.fn(async () => ''),
+      probeLimit: vi.fn(async () => null),
+      readReviewFile: vi.fn(async () => null),
+      makeRunWorktree: vi.fn(async () => 'D:/wt-run'),
+      mergeWorktrees: vi.fn(async () => ({ ok: true as const, merged: [], uncommitted: 0 })),
+      removeWorktrees: vi.fn(async () => ({ failed: [] }))
+    }
+    return { installs, started, local }
+  }
+  const fresh = (task: string, name: string) => ({ task, agent: 'claude', account: 'acc1', worktree: 'new', name })
+  const openOf = (orch: ReturnType<typeof orchOver>, taskId: string) => orch.state().dispatches.find((d) => d.taskId === taskId && !d.endedAt)
+
+  it('d6800b53e: two Runs\' slots placed one after another inside a command holding the chain both wait on installs, and no command waits on another', async () => {
+    const { a, b, holder } = await seedTwoRuns()
+    const w = installing()
+    const replies = new Map<string, { status: number; body: unknown }>()
+    let passing = false
+    const box: { orch?: ReturnType<typeof orchOver> } = {}
+    const pause = { accountId: 'acc-held', window: 'five_hour' as const, percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' }
+    box.orch = orchOver({
+      hasApp: () => false,
+      act: vi.fn(),
+      local: w.local,
+      // The pass of d6800b53e: run inside the command that holds the chain (here a worker-start, which asks the usage
+      // guard first), it places its slots one after another, each a worker-start whose fork installs. The holding
+      // command is then refused (its account is paused), so it commits nothing over what the pass committed
+      usageGuard: {
+        refresh: async () => {
+          if (passing) return
+          passing = true
+          for (const [id, name] of [[a, 'a'], [b, 'b']]) replies.set(id, await box.orch!.handle('worker-start', fresh(id, name)))
+        },
+        pauseOf: (id) => (id === 'acc-held' ? pause : null)
+      }
+    })
+    const orch = box.orch
+    const held = await Promise.race([
+      orch.call({ cmd: 'worker-start', args: { task: holder, agent: 'claude', account: 'acc-held', worktree: 'current' }, sessionId: '' }),
+      sleepFor(5_000).then(() => 'deadlocked' as const)
+    ])
+    expect(held, 'the command holding the chain waited on an install').not.toBe('deadlocked')
+    expect(held).toMatchObject({ status: 409, body: { usagePaused: pause } })
+    // Both slots answered, and the second slot's start began while the first slot's install had not run
+    expect(w.started).toEqual([a, b])
+    expect([...w.installs.keys()]).toEqual([a, b])
+    for (const id of [a, b]) {
+      expect(replies.get(id)?.status).toBe(200)
+      expect(replies.get(id)?.body).toMatchObject({ sessionId: expect.stringMatching(/^pending:install:/), cwd: `D:/wt/${id}`, installing: expect.any(String) })
+      // Still a starting Dispatch: open, on its placeholder, counted against the caps; its spec is already named
+      const d = openOf(orch, id)!
+      expect(d.sessionId).toMatch(/^pending:install:/)
+      expect(d.specPath).toBe(path.join(specsDirOf(dir), `${id}-${d.id}.md`))
+    }
+    // A caller from outside is not held up by either install
+    const listed = await Promise.race([orch.call({ cmd: 'jobs-list', args: {}, sessionId: '' }), sleepFor(2_000).then(() => 'deadlocked' as const)])
+    expect(listed, 'an outside command waited on an install').not.toBe('deadlocked')
+    // Each install ends on its own, and its start records itself as a command of its own
+    w.installs.get(b)!()
+    await vi.waitFor(() => expect(openOf(orch, b)?.sessionId).toBe(`ses_${b}`))
+    expect(openOf(orch, a)?.sessionId).toMatch(/^pending:install:/)
+    w.installs.get(a)!()
+    await vi.waitFor(() => expect(openOf(orch, a)?.sessionId).toBe(`ses_${a}`))
+    expect(openOf(orch, a)).toMatchObject({ cwd: `D:/wt/${a}`, specPath: `D:/specs/${a}.md` })
+  })
+
+  it('two outside worker-starts of two Runs both answer while both installs wait', async () => {
+    const { a, b } = await seedTwoRuns()
+    const w = installing()
+    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: w.local })
+    const both = await Promise.race([
+      Promise.all([a, b].map((id) => orch.call({ cmd: 'worker-start', args: fresh(id, id), sessionId: '' }))),
+      sleepFor(5_000).then(() => 'deadlocked' as const)
+    ])
+    expect(both).not.toBe('deadlocked')
+    expect((both as { status: number }[]).map((r) => r.status)).toEqual([200, 200])
+    for (const id of [a, b]) w.installs.get(id)!()
+    await vi.waitFor(() => expect([a, b].map((id) => openOf(orch, id)?.sessionId)).toEqual([`ses_${a}`, `ses_${b}`]))
+  })
+
+  it('a start that fails after its install queued is rolled back, and its reason goes to a Gate: the call answered long ago', async () => {
+    const { a } = await seedTwoRuns()
+    const w = installing()
+    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: w.local })
+    expect((await orch.call({ cmd: 'worker-start', args: fresh(a, 'a'), sessionId: '' })).status).toBe(200)
+    w.installs.get(a)!(new Error('the spawn was refused'))
+    await vi.waitFor(() => expect(orch.state().dispatches.filter((d) => d.taskId === a)).toEqual([]))
+    expect(orch.state().tasks.find((t) => t.id === a)?.status).toBe('blocked')
+    expect(orch.state().gates.find((g) => g.taskId === a && g.status === 'open')?.question).toContain('the spawn was refused')
+  })
+
+  it('a start refused after its install because the Host is leaving goes back to ready with no Gate, for the next Host', async () => {
+    const { a } = await seedTwoRuns()
+    const w = installing()
+    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: w.local })
+    expect((await orch.call({ cmd: 'worker-start', args: fresh(a, 'a'), sessionId: '' })).status).toBe(200)
+    w.installs.get(a)!(new HostRetiring())
+    await vi.waitFor(() => expect(orch.state().dispatches.filter((d) => d.taskId === a)).toEqual([]))
+    expect(orch.state().tasks.find((t) => t.id === a)?.status).toBe('ready')
+    expect(orch.state().gates.filter((g) => g.taskId === a)).toEqual([])
+  })
+
+  const stopAfter = async (ago: number): Promise<{ status: number; body: unknown }> => {
+    const job = createJob(emptyState(), { objective: 'o', cwd: 'D:/p' }, NOW); if (!job.ok) throw new Error(job.error)
+    const run = startJobRun(job.state, job.value.id, NOW); if (!run.ok) throw new Error(run.error)
+    const task = createTask(run.state, { runId: run.value.id, title: 't', spec: 's', deps: [] }, NOW); if (!task.ok) throw new Error(task.error)
+    const at = new Date(Date.parse(NOW) - ago).toISOString()
+    const dsp = openDispatch(task.state, { taskId: task.value.id, provider: 'claude', accountId: 'acc1', sessionId: 'pending:install:ab12cd34', cwd: 'D:/wt/a', specPath: '' }, at)
+    if (!dsp.ok) throw new Error(dsp.error)
+    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: installing().local })
+    await orch.call({ cmd: 'state-put', args: { state: dsp.state }, sessionId: '', from: { role: 'app', toOthers: () => {} } })
+    return orch.call({ cmd: 'worker-stop', args: { dispatch: dsp.value.id }, sessionId: '' })
+  }
+
+  it('refuses to stop a start whose install waits, past the 2-minute window and inside its own, and says why', async () => {
+    const r = await stopAfter(PENDING_START_WINDOW_MS + 30 * 60_000)
+    expect(r.status).toBe(409)
+    expect((r.body as { error: string }).error).toContain("its dependency install waits for one of the machine's heavy slots")
+  })
+
+  it('stops a start left on an install placeholder past INSTALL_START_WINDOW_MS: a start that died', async () => {
+    expect((await stopAfter(INSTALL_START_WINDOW_MS + 60_000)).status).toBe(200)
   })
 })

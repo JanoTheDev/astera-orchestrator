@@ -519,42 +519,6 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     d()
   })
 
-  it('a setup ticket neither replaces nor is replaced by a check or a delivery ticket of its folder', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-'))
-    dirs.push(dir)
-    const at = { lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20, slots: 1 }
-    const w = path.join(dir, 'w')
-    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
-    const check = heavySlot({ ...at, cwd: w, cmd: 'check' })
-    const setup = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
-    const delivery = heavySlot({ ...at, cwd: w, cmd: 'delivery', kind: 'delivery' })
-    await new Promise((r) => setTimeout(r, 150))
-    expect(fs.readdirSync(at.queueDir).filter((f) => f.endsWith('.json')).length).toBe(4)
-    holder()
-    for (const waiting of [check, setup, delivery]) {
-      const release = await waiting
-      expect(release).not.toBeNull()
-      release!()
-    }
-  })
-
-  it('two setups of one folder do not both wait: the newer takes the older one’s place, which answers null', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-heavy-'))
-    dirs.push(dir)
-    const at = { lock: path.join(dir, 'lock'), queueDir: path.join(dir, 'q'), pollMs: 20, slots: 1 }
-    const w = path.join(dir, 'w')
-    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
-    const older = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
-    await new Promise((r) => setTimeout(r, 60))
-    const newer = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
-    expect(await older).toBeNull()
-    expect(fs.readdirSync(at.queueDir).filter((f) => f.endsWith('.json')).length).toBe(2)
-    holder()
-    const release = await newer
-    expect(release).not.toBeNull()
-    release!()
-  })
-
   it('a light check takes the slot only while checksAsHeavy answers true', async () => {
     for (const [strained, want] of [[true, ['lint']], [false, []]] as const) {
       const h = rig({ checks: ['seed:npm:lint'], checksAsHeavy: strained })
@@ -624,6 +588,47 @@ describe('T2: heavy checks take the machine heavy slot', () => {
     holder()
     const release = await fresh
     release!()
+    expect(tickets(at.queueDir)).toEqual([])
+  })
+
+  it('a setup ticket neither replaces nor is replaced by a check or a delivery ticket of its folder', async () => {
+    const { dir, at } = tmpQueue()
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
+    const w = path.join(dir, 'w')
+    const check = heavySlot({ ...at, cwd: w, cmd: 'check' })
+    const setup = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
+    const delivery = heavySlot({ ...at, cwd: w, cmd: 'delivery', kind: 'delivery' })
+    const later = heavySlot({ ...at, cwd: w, cmd: 'check again' }) // replaces the check alone
+    expect(await check).toBeNull()
+    await new Promise((r) => setTimeout(r, 100))
+    const kinds = tickets(at.queueDir).map((n) => JSON.parse(fs.readFileSync(path.join(at.queueDir, n), 'utf8')).kind)
+    expect(kinds).toEqual(['check', 'setup', 'delivery', 'check'])
+    holder()
+    for (const waiting of [setup, delivery, later]) {
+      const release = await waiting
+      expect(release).not.toBeNull()
+      release!()
+    }
+    expect(tickets(at.queueDir)).toEqual([])
+  })
+
+  it('a newer setup of the same folder replaces the older one, whose waiter answers null: one install of a folder waits, not two', async () => {
+    const { dir, at } = tmpQueue()
+    const holder = (await heavySlot({ ...at, cwd: path.join(dir, 'held'), cmd: 'held' }))!
+    const w = path.join(dir, 'w')
+    const old = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
+    await new Promise((r) => setTimeout(r, 100))
+    const fresh = heavySlot({ ...at, cwd: w, cmd: 'npm ci', kind: 'setup' })
+    // Another folder's install is other work: it keeps its place
+    const other = heavySlot({ ...at, cwd: path.join(dir, 'other'), cmd: 'npm ci', kind: 'setup' })
+    expect(await old).toBeNull()
+    await new Promise((r) => setTimeout(r, 100))
+    expect(tickets(at.queueDir)).toHaveLength(3) // holder, the newer setup of w, the other folder's
+    holder()
+    const first = (await fresh)!
+    first()
+    const second = (await other)!
+    second()
     expect(tickets(at.queueDir)).toEqual([])
   })
 

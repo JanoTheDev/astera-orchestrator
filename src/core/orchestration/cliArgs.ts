@@ -115,7 +115,7 @@ const APP_SUBCOMMANDS = new Set<string>(APP_VERBS)
  * trick cliPublic.ts plays on the public field allowlist.
  */
 export const NOUNS = {
-  host: ['start', 'status', 'stop'],
+  host: ['start', 'status', 'stop', /* T15 */ 'restart'],
   // Creates a branch in a registered project's repository (core/git/branchCreate.ts).
   git: ['branch-create'],
   // `add` registers a folder of this machine (remote runtime N5): the Host answers it for local callers only.

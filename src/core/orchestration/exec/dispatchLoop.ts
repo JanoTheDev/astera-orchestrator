@@ -53,6 +53,7 @@ import { isSamePath } from '../../files/tree'
 import { outcomeOf } from '../view'
 import { completionSettled, failedWaitAsked, failedWaitChoice, replansDue, stallOf } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
+import { failedRetriesDue, failedRetryOf } from './failedRetry'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
 import { refreshOnto, type Integration, type Refresh } from './integrateGit'
@@ -81,6 +82,7 @@ import { autoAnswerLine, autoAnswersDue, coordinatorDecideBody, ESCALATION_DEFAU
 import { STALL_WATCH_MS, stallPauseProbe, stallRemedies, startNotice, watchdogActivity, type StallEntry, type StallRemedy } from './stallWatch'
 import type { ActivityDraft } from '../activity'
 import { DETACHED_GRACE_MS, isDetachedHeadError } from '../../worktrees/base'
+import { forkAnsweringAtInstall, installPending, installSettled, type InstallTurn } from '../../worktrees/setup'
 import { MERGE_FAILED_GATE, MERGE_FAILED_OPTIONS, MERGE_RETRY_BACKOFF_MS, mergeRetryChoice, mergeRetryOf, transientCauseOf, transientWhy, type TransientCause } from './transientGit'
 
 /** W6-D: a replan whose start left no session after this long died with its process, and is ended. */
@@ -209,11 +211,23 @@ export interface DispatchLoopContext {
   /** W1-B: the app-wide worker cap from app settings, or null for none. Read once per pass. Optional:
    *  without it there is no cap. */
   maxConcurrentWorkers?(): number | null | Promise<number | null>
+  /** T13: whether new starts are held for the whole profile (core/orchestration/startHold.ts). Read once per pass, beside
+   *  the cap: while it says yes the pass places nothing (`slotsToFill`). Optional: without it nothing is held here, and
+   *  `worker-start` still refuses a held start. */
+  startHeld?(): boolean | Promise<boolean>
   accounts(): Account[] | Promise<Account[]>
   loginStatus(accountId: string): Promise<boolean>
   lang(): Lang
   /** `base`: the plan's target branch (`deliveryBranchOf`), forked from instead of the branch the folder stands on. */
   forkRunWorktree(a: { repoPath: string; name: string; base?: string }): Promise<string>
+  /** T24: the heavy slots a Run worktree's dependency install waits for (worktrees/setup.ts InstallTurn), read at each
+   *  fork. With it the lazy fork answers once its install queues, so the pass is not held while the install waits for a
+   *  slot or runs, and a Run whose worktree still installs (`installPending`) waits, its other Runs placed meanwhile.
+   *  Optional: without it the fork installs inside the pass with no slot, and nothing waits on an install. */
+  installHeavy?(): InstallTurn['heavy']
+  /** Test seams: setup.ts installPending and installSettled. */
+  installPending?(dir: string): boolean
+  installSettled?(dir: string): Promise<void> | undefined
   /** True when the folder is there for sure not (delivery removes a plan's worktree but the Run keeps the path). A
    *  folder that does not answer is not gone. Optional: without it a recorded Run worktree is taken as present. */
   worktreeGone?(p: string): Promise<boolean>
@@ -1021,11 +1035,80 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         log(`run=${run.id} stalled: ${stall.reason}`)
       }
       if (stall.blocks.every((b) => failedWaitAsked(c.getState(), b.task)) || !c.mayStart()) continue
+      // T10: not while Astera still retries or accepts one of its failed Tasks itself (`retryFailedTasks`)
+      if (stall.blocks.some((b) => failedRetriedByAstera(c.getState(), b.task))) continue
       try {
         const r = await c.handle('run-failed-ask', { run: run.id })
         log(r.status >= 400 ? `run=${run.id}: asking the owner about its failed Task was refused: ${JSON.stringify(r.body)}` : `run=${run.id}: asked the owner about its failed Task`)
       } catch (e) {
         log(`run=${run.id}: asking the owner about its failed Task failed: ${String(e)}`)
+      }
+    }
+  }
+
+  /**
+   * T10: a hands-off plan whose Run has no live coordinator (`coordinatorLive`) handles its own failed Tasks
+   * (failedRetry.ts): one with tries left is retried once its backoff is over, keeping its failure count
+   * (`task-failed-resolve` with `keepFailures`); one whose last try failed but that committed its work and passes its checks
+   * is accepted as done. Each is a decision on its Job (the feed's plan.decided line). The rest escalate: `unstallRuns`
+   * asks the owner as before, the one way the failed-Task question reaches them. Before `unstallRuns`, so a retried Task
+   * no longer stalls its Run. Driving process only; a failure is logged and never thrown.
+   */
+  // In memory: a refused step is not repeated for the same failure in this process
+  const failedStepTried = new Set<string>()
+  const failedRetriedByAstera = (s: OrchState, task: Task): boolean => {
+    const step = task.runId === undefined ? undefined : failedRetryOf(s, task, { coordinatorLive: coordinatorLive(s, task.runId), nowMs: c.nowMs() })
+    return step !== undefined && step.kind !== 'escalate' && !failedStepTried.has(`${task.id}@${task.updatedAt}`)
+  }
+  const retryFailedTasks = async (): Promise<void> => {
+    const s = c.getState()
+    for (const step of failedRetriesDue(s, c.nowMs(), (runId) => coordinatorLive(s, runId))) {
+      const t = step.task
+      const key = `${t.id}@${t.updatedAt}`
+      if (failedStepTried.has(key)) continue
+      if (step.kind === 'escalate') {
+        if (!c.mayStart()) return
+        failedStepTried.add(key)
+        log(`run=${t.runId}: failed ${t.id} goes to the owner: ${step.why}`)
+        // Hands-off leftovers: asked now, stalled Run or not (`unstallRuns` only asks for a stalled one); once per failure
+        try {
+          const r = await c.handle('run-failed-ask', { run: t.runId, task: t.id })
+          const asked = (r.body as { asked?: unknown[] } | undefined)?.asked
+          if (r.status >= 400) log(`run=${t.runId}: asking the owner about failed ${t.id} was refused: ${JSON.stringify(r.body)}`)
+          else if (Array.isArray(asked) && asked.length > 0 && t.runId !== undefined)
+            c.activity?.(watchdogActivity(c.getState(), t.runId, `${t.title} failed and goes to the owner: ${step.why}`, t.id))
+        } catch (e) {
+          log(`run=${t.runId}: asking the owner about failed ${t.id} failed: ${String(e)}`)
+        }
+        continue
+      }
+      if (step.kind === 'wait' || (step.kind === 'retry' && !step.due)) continue
+      if (!c.mayStart()) return
+      failedStepTried.add(key)
+      const job = handsOffJobOf(c.getState(), t.runId ?? '')
+      const args =
+        step.kind === 'retry' ? { id: t.id, action: 'retry', keepFailures: true } : { id: t.id, action: 'accept', reason: step.reason }
+      try {
+        const r = await c.handle('task-failed-resolve', args)
+        if (r.status >= 400) {
+          log(`run=${t.runId}: Astera's ${step.kind} of failed ${t.id} was refused: ${JSON.stringify(r.body)}`)
+          continue
+        }
+        if (!job) continue
+        await decide(
+          job.id,
+          step.kind === 'retry'
+            ? {
+                kind: 'escalation',
+                taskId: t.id,
+                question: `${t.title} failed (${t.consecutiveFailures} of ${FAILURE_LIMIT})`,
+                choice: `retried ${t.title} (attempt ${step.attempt} of ${FAILURE_LIMIT})`,
+                why: step.why
+              }
+            : { kind: 'escalation', taskId: t.id, question: `${t.title} failed ${t.consecutiveFailures} of ${FAILURE_LIMIT} times`, choice: `accepted ${t.title} as done`, why: step.reason }
+        )
+      } catch (e) {
+        log(`run=${t.runId}: Astera's ${step.kind} of failed ${t.id} failed: ${String(e)}`)
       }
     }
   }
@@ -1255,6 +1338,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       await liftAnsweredHolds()
       await replanAtBoundaries()
       if (!c.mayStart()) return
+      // T10: after the replans (one under way looks at the failure first), before the stall's owner question
+      await retryFailedTasks()
+      if (!c.mayStart()) return
       // T36: after the replans, so a Run a replan just took up is not stalled
       await unstallRuns()
       if (!c.mayStart()) return
@@ -1311,6 +1397,39 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       return null
     }
     return { kind: 'wait', why: 'the project folder is not on a branch right now (detached HEAD); it is tried again' }
+  }
+
+  /** T24: a Run worktree's fork. With `installHeavy` it answers once the folder's install queues for a heavy slot, and
+   *  the install goes on beside the pass (setup.ts forkAnsweringAtInstall); a Run that is gone stops its wait. */
+  const forkRun = (runId: string, a: { repoPath: string; name: string; base?: string }): Promise<string> => {
+    const heavy = c.installHeavy?.()
+    if (!heavy) return c.forkRunWorktree(a)
+    return forkAnsweringAtInstall(
+      { ...heavy, abandoned: () => heavy.abandoned?.() === true || !c.getState().runs.some((r) => r.id === runId) },
+      () => c.forkRunWorktree(a),
+      log
+    )
+  }
+  /** The Run worktrees whose install end will start a pass, so a Run that waited on it is placed then. */
+  const wakeOnInstall = new Set<string>()
+  /** How often a Run waiting on an install it cannot see the end of (another process's) looks again. */
+  const INSTALL_LOOK_AGAIN_MS = 30_000
+  /** T24: a wait while the Run worktree's dependency install has not ended: a worker started there now would find its
+   *  node_modules half made. Null when it may go on (no install, or no `installHeavy` wiring). */
+  const installWait = (dir: string): SlotEnd | null => {
+    if (!c.installHeavy) return null
+    if (!(c.installPending ?? installPending)(dir)) return null
+    if (!wakeOnInstall.has(dir)) {
+      wakeOnInstall.add(dir)
+      const again = (): void => {
+        wakeOnInstall.delete(dir)
+        void runScheduler().catch((e) => log(`scheduler: the pass after ${dir}'s install failed: ${String(e)}`))
+      }
+      const settled = (c.installSettled ?? installSettled)(dir)
+      if (settled) void settled.then(again)
+      else setTimeout(again, INSTALL_LOOK_AGAIN_MS).unref?.()
+    }
+    return { kind: 'wait', why: `its plan worktree ${dir} is installing its dependencies (or waits for a heavy slot to), and it starts once that ends` }
   }
 
   const placeSlot = async (slot: Slot, accounts: Account[], loggedIn: Set<string>): Promise<SlotEnd> => {
@@ -1417,7 +1536,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // 엉뚱한 조상을 끌고 온다 — 그 판단은 한 곳에만 있어야 한다.
         const runJob = jobOf(state, run)
         const base = runJob && deliveryBranchOf(state, runJob)
-        const created = await c.forkRunWorktree({
+        const created = await forkRun(run.id, {
           repoPath: runJob?.cwd ?? '',
           name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' }), // W7-D (#68): named as the plan is
           ...(base ? { base } : {})
@@ -1469,7 +1588,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       try {
         const runJob = jobOf(state, run)
         const base = runJob && deliveryBranchOf(state, runJob)
-        const created = await c.forkRunWorktree({
+        const created = await forkRun(run.id, {
           repoPath: runJob?.cwd ?? '',
           name: nameForRun({ id: run.jobId, objective: runJob ? jobNameOf(runJob) : '' }),
           ...(base ? { base } : {})
@@ -1491,6 +1610,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           why: `the run worktree could not be made again: ${String(e)}`
         }
       }
+    }
+    // T24: a Run worktree made just now (above, or by run-start's makeRunWorktree) installs beside the pass; until that
+    // ends, this Run's slots wait and the pass places the next
+    if (run.worktree !== undefined) {
+      const installing = installWait(run.worktree)
+      if (installing) return installing
     }
     // Task 는 **워크트리 확보 블록 뒤에** 읽는다. 반드시 있는 것은 run 과 같은 이유이고
     // (slotsToFill 이 상태에서 골라낸 id 다), 여기까지 내려온 것은 이 루프의 "슬롯마다
@@ -1793,7 +1918,16 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         }
         // Awaited only when wired, so a pass with no cap keeps its old timing.
         const maxConcurrentWorkers = c.maxConcurrentWorkers ? ((await c.maxConcurrentWorkers()) ?? null) : null
-        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers }).filter((s) => !attempted.has(s.taskId))
+        // T13: a hold on new starts places nothing; a probe that fails reads as no hold (worker-start still refuses one).
+        // A probe that answers at once is not awaited, so a pass that is not held keeps its old timing.
+        let heldProbe: boolean | Promise<boolean> = false
+        try {
+          heldProbe = c.startHeld?.() ?? false
+        } catch {
+          heldProbe = false
+        }
+        const startHeld = typeof heldProbe === 'boolean' ? heldProbe : await heldProbe.catch(() => false)
+        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers, startHeld }).filter((s) => !attempted.has(s.taskId))
         // 띄울 자리가 없으면 계정 조회까지 가지 않는다. 이 함수는 **모든 저장마다** 불리고 그
         // 대부분은 띄울 것이 없는 저장이다 — 아래 조회에 계정마다 파일(macOS 에서는 Keychain)
         // 읽기가 하나씩 붙으므로, 빈 바퀴에 그것을 치르면 상태를 쓰는 모든 명령이 그만큼 느려진다.
@@ -2156,6 +2290,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       for (const step of handsOffStepsDue(s, handsOff, c.nowMs())) {
         if (step.kind === 'answer') {
           due.push({ a: step.answer, decision: step.decision, hold: step.hold })
+          continue
+        }
+        if (step.kind === 'left') {
+          // Once per Gate: in memory (autoTried), and across a restart by the decision already on the Job
+          autoTried.add(step.id)
+          const job = handsOffJobOf(s, open.find((x) => x.id === step.id)!.runId)
+          const d = step.decision
+          if (job && !job.decisions?.some((x) => x.taskId === d.taskId && x.choice === d.choice && x.question === d.question)) await decide(job.id, d)
           continue
         }
         if (step.kind === 'hold') {
@@ -2599,7 +2741,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const planned = stallRemedies(c.getState(), c.nowMs(), stallMemo, {
         busy: (id) => c.sessionBusy(id),
         isRegistered: (p) => c.isRegisteredWorktree(p),
-        ...usage
+        ...usage,
+        startHeld: (await c.startHeld?.()) === true // T19: no tell-start or place while new starts are held
       })
       stallMemo = planned.memo
       for (const r of planned.due) {

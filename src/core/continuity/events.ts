@@ -201,7 +201,7 @@ function runEndEvents(prev: OrchState, next: OrchState, now: string, stamp: stri
 
 /** Whether a Gate of this kind is a verdict's result. A `check-unavailable` one is not (plugin Phase 5 C9): the check
  *  could not be made, as a Gate with no kind says a check could not run. */
-const isVerdictGate = (kind: GateKind | undefined): boolean => kind !== undefined && kind !== 'check-unavailable'
+const isVerdictGate = (kind: GateKind | undefined): boolean => kind !== undefined && kind !== 'check-unavailable' && kind !== 'review-ended'
 
 /** Which events a Task transition is. A check's verdict (validating → a state other than blocked)
  *  comes first; blocked out of validating is ordinarily a question about an interrupted check, not a

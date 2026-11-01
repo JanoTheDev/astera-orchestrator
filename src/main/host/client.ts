@@ -2,7 +2,7 @@
 // `status()`: nothing else in slice 1 depends on the Host being there, and every failure ends here,
 // as a sentence somebody can read, rather than reaching a caller.
 import net from 'node:net'
-import { HOST_PROTOCOL, HOST_YIELD_WORKTREES, HOST_YIELD_DISPATCH, HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORKSPACE, HOST_YIELD_ORCH_STATE_LATEST, HOST_YIELD_WORK_UNITS, HOST_YIELD_SLACK, HOST_YIELD_RECOVERY, type ClientMessage, type HostMessage, type RetireOutcome } from '../../core/host/protocol'
+import { HOST_PROTOCOL, HOST_FEATURE_RESTART, RESTART_WAIT_MS, RESTART_WAIT_MAX_MS, HOST_YIELD_WORKTREES, HOST_YIELD_DISPATCH, HOST_YIELD_ROLLING, HOST_YIELD_CHAT_TAKEOVER, HOST_YIELD_JOURNAL, HOST_YIELD_UNDERSTANDING, HOST_YIELD_WORKSPACE, HOST_YIELD_ORCH_STATE_LATEST, HOST_YIELD_WORK_UNITS, HOST_YIELD_SLACK, HOST_YIELD_RECOVERY, type ClientMessage, type HostMessage, type RetireOutcome } from '../../core/host/protocol'
 import { HOST_UNRESPONSIVE_MS, PING_MS } from '../../core/host/unresponsive'
 import { hostIsOutdated, hostSpeaksPing } from './outdated'
 import { encodeLine, createLineReader } from '../../host/framing'
@@ -62,6 +62,8 @@ export interface HostClientDeps {
    *  hello (a Host that is leaving). Default RETIRING_RETRY_MS / RETIRING_WAIT_MS; injected for tests. */
   retiringRetryMs?: number
   retiringWaitMs?: number
+  /** `requestRestart`'s allowance past the Host's own wait for the Host to be gone. Default RESTART_EXIT_MARGIN_MS; injected for tests. */
+  restartExitMarginMs?: number
 }
 
 const DEFAULT_ATTEMPTS = 25
@@ -114,6 +116,40 @@ export const RETIRE_SETTLE_MS = 2_000
  *  the connection, seconds later (host/index.ts `leave`). */
 export const RETIRE_ANSWER_MS = 1_000
 
+/** How long past its own wait a `restart` is given to end with the Host gone: the hand-over writes every session down and
+ *  the Host then closes its workspaces, spawns and plugins (RETIRING_WAIT_MS names the measured minute). Past it the
+ *  restart reads as `timeout` and the connection is left as it is. */
+export const RESTART_EXIT_MARGIN_MS = 3 * 60_000
+
+/** One `restart-progress` as the app takes it (protocol.ts): what `requestRestart`'s `onProgress` is handed. */
+export interface RestartProgress {
+  working: number
+  waitingOn: string[]
+  leftMs: number
+}
+
+/** What `HostClient.requestRestart` asks, and how it hears of it. */
+export interface RestartRequest {
+  /** How long the Host waits for the safe point; its own default when absent (protocol.ts RESTART_WAIT_MS). */
+  waitMs?: number
+  /** Hand over at once, without waiting for the safe point ("Restart anyway"). */
+  force?: boolean
+  /** Every progress message the Host sends while the restart is under way. */
+  onProgress?: (p: RestartProgress) => void
+  /** Runs once the Host is taken as leaving, never for a refusal. */
+  onLeaving?: () => void
+}
+
+/** What `requestRestart` came to. `left`: the Host is gone and the client is stopped (the caller `restart()`s it onto the
+ *  next Host); `via` says which way it went. `refused`: a Host without HOST_FEATURE_RESTART refused the plain handover
+ *  because a Task works, with that message's counts; the connection is as it was. `timeout`: the Host did not leave in
+ *  time and the connection is as it was. `absent`: there was no connection to ask on. */
+export type RestartOutcome =
+  | { outcome: 'left'; via: 'restart' | 'retire' }
+  | { outcome: 'refused'; sessions: number; runs: number; tasks?: number }
+  | { outcome: 'timeout' }
+  | { outcome: 'absent' }
+
 /** Which Host answered, as the `hello` reports it. Two `hello`s with the same pair came from the same
  *  process, and one whose registry therefore still holds the ptys this app spawned before the drop. */
 export interface HostIdentity {
@@ -155,6 +191,8 @@ export class HostClient {
   private stopped = false
   /** A `resume` retire is waiting for the Host's answer (`askRetire`): the connection ending then is the Host leaving. */
   private retireAsked = false
+  /** The `restart` under way (`requestRestart`): who hears its progress, and what it comes to. */
+  private restartFlight: { listeners: Set<(p: RestartProgress) => void>; done: Promise<RestartOutcome> } | null = null
   /** Which `cycle()` is the current one. A cycle still waiting on an asynchronous spawnHost when a
    *  restart begins another is superseded, and its spawn is no longer wanted. */
   private cycleGen = 0
@@ -477,6 +515,96 @@ export class HostClient {
     return { outcome: 'left' }
   }
 
+  /**
+   * **Restart the Host now** (T13's `restart` message, HOST_FEATURE_RESTART): it holds new starts, waits up to `waitMs`
+   * for every working Task to reach a safe point while it sends `restart-progress` (`onProgress`), then hands every
+   * session over and closes the socket. Like `retire`, it leaves the client stopped once the Host has gone, so the
+   * caller `restart()`s it onto the next Host, and it announces the disconnect to the handles the Host's ptys left.
+   *
+   * **A Host without the feature gets today's resume retire** (`retire({ resume: true })`), which it refuses while a Task
+   * works: that is `refused`, with the counts, and nothing is stopped. `onProgress` is never called for it.
+   *
+   * **One restart at a time**: a call made while one is under way joins it (its `onProgress` is added, its `force` is
+   * sent on) and resolves with the same outcome, so "Restart anyway" is this method called again.
+   *
+   * The connection ending while it waits is the Host leaving, not a drop to reconnect from (`retireAsked`, as for a
+   * resume retire). Never throws.
+   */
+  requestRestart(a: RestartRequest = {}): Promise<RestartOutcome> {
+    const flight = this.restartFlight
+    if (flight) {
+      if (a.onProgress) flight.listeners.add(a.onProgress)
+      if (a.force === true) this.send({ t: 'restart', force: true })
+      return flight.done
+    }
+    const socket = this.socket
+    if (!socket || socket.destroyed || !this.state.connected) return Promise.resolve({ outcome: 'absent' })
+    if (!this.state.features.includes(HOST_FEATURE_RESTART)) {
+      this.deps.log('this Host cannot restart on request — handing over with a retire instead')
+      return this.retire({ announce: true, resume: true, onLeaving: a.onLeaving }).then((r) => (r.outcome === 'refused' ? r : { outcome: 'left', via: 'retire' }))
+    }
+    const listeners = new Set<(p: RestartProgress) => void>(a.onProgress ? [a.onProgress] : [])
+    const waitMs = typeof a.waitMs === 'number' && Number.isFinite(a.waitMs) ? Math.min(Math.max(0, a.waitMs), RESTART_WAIT_MAX_MS) : RESTART_WAIT_MS
+    const done = new Promise<RestartOutcome>((resolve) => {
+      const settle = (r: RestartOutcome): void => {
+        clearTimeout(timer)
+        off()
+        socket.off('close', onClose)
+        this.retireAsked = false
+        this.restartFlight = null
+        resolve(r)
+      }
+      const off = this.onMessage((m) => {
+        if (m.t !== 'restart-progress') return
+        for (const cb of [...listeners]) {
+          try {
+            cb({ working: m.working, waitingOn: m.waitingOn, leftMs: m.leftMs })
+          } catch (err) {
+            this.deps.log(`a restart progress listener threw: ${String(err)}`)
+          }
+        }
+      })
+      // The Host closing the socket is its way of saying it is leaving: the same ending `retire` makes.
+      const onClose = (): void => {
+        void this.afterHostLeft(a.onLeaving).then(() => settle({ outcome: 'left', via: 'restart' }))
+      }
+      const bound = waitMs + (this.deps.restartExitMarginMs ?? RESTART_EXIT_MARGIN_MS)
+      const timer = setTimeout(() => {
+        this.deps.log(`the Host did not leave within ${Math.round(bound / 1000)}s of the restart — leaving the connection as it is`)
+        settle({ outcome: 'timeout' })
+      }, bound)
+      timer.unref?.()
+      socket.once('close', onClose)
+      this.retireAsked = true
+      try {
+        if (!this.send({ t: 'restart', ...(a.waitMs !== undefined ? { waitMs } : {}), ...(a.force === true ? { force: true } : {}) })) settle({ outcome: 'absent' })
+      } catch {
+        settle({ outcome: 'absent' })
+      }
+    })
+    this.restartFlight = { listeners, done }
+    return done
+  }
+
+  /** What follows the Host's socket closing on a restart: the client stopped (so nothing reconnects behind it), the
+   *  disconnect told to the handles the Host's ptys left, and the Host's own way out waited for, as `retire` does. */
+  private async afterHostLeft(onLeaving: (() => void) | undefined): Promise<void> {
+    onLeaving?.()
+    try {
+      await this.stop()
+    } catch {
+      /* nothing listening is the state this asks for */
+    }
+    for (const cb of [...this.disconnectSubscribers]) {
+      try {
+        cb()
+      } catch (err) {
+        this.deps.log(`a disconnect subscriber threw: ${String(err)}`)
+      }
+    }
+    await sleep(RETIRE_SETTLE_MS)
+  }
+
   /** Sends `m` and resolves the Host's `retire-refused`, or null once RETIRE_ANSWER_MS passed or the connection ended
    *  without one (the Host is leaving). While it waits, a connection the Host ends is not a drop to reconnect from:
    *  `retire` is about to stop this client anyway. */
@@ -769,7 +897,7 @@ export class HostClient {
         features: Array.isArray(m.features) ? m.features.filter((f): f is string => typeof f === 'string') : []
       })
       this.deps.log(
-        `connected to Host ${m.host} (pid ${m.pid}, protocol ${m.protocol})${outdated ? ` — older than this app (${this.deps.appVersion}); replaced once it holds nothing` : ''}${runtimeIncomplete ? ' — its runtime is missing files; replaced once it holds nothing' : ''}`
+        `connected to Host ${m.host} (pid ${m.pid}, protocol ${m.protocol})${outdated ? ` — older than this app (${this.deps.appVersion}); replaced once no Task works, or when the owner restarts it` : ''}${runtimeIncomplete ? ' — its runtime is missing files; replaced once it holds nothing' : ''}`
       )
       // Armed from the status this hello just set, which is what `hostSpeaksPing` reads.
       this.startHeartbeat()

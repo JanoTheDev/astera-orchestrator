@@ -106,6 +106,9 @@ export function workersAgainstCap(s: OrchState): number {
  *  MAX_CONCURRENT_WORKERS (`workerCapOf`). */
 export interface ScheduleLimits {
   maxConcurrentWorkers?: number | null
+  /** T13: new starts are held for the whole profile (`<profile>/host/start-hold.json`, startHold.ts): nothing is placed.
+   *  The workers already open go on, and so do the checks and merges of the Tasks they finish. */
+  startHeld?: boolean
 }
 
 // W6-C: the app-wide cap never passes MAX_CONCURRENT_WORKERS. Read here, not only when the setting is parsed, because
@@ -350,6 +353,8 @@ export function editingByProject(s: OrchState): Map<string, FileHolder[]> {
  *  turns instead of the first in the array winning every freed slot. That order is read off the state
  *  alone, which keeps this function pure. */
 export function slotsToFill(s: OrchState, limits: ScheduleLimits = {}): Slot[] {
+  // T13: held for the whole profile (a restart, or the owner): no slot, whatever is ready
+  if (limits.startHeld === true) return []
   const open = s.dispatches.filter(isOpen)
   const runOf = new Map(s.tasks.map((t) => [t.id, t.runId]))
   let globalRoom = workerCapOf(limits.maxConcurrentWorkers) - workersAgainstCap(s)

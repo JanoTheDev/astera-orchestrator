@@ -9,6 +9,13 @@
 // The actual logic is in run.ts. This file is an entry point that executes immediately at the top
 // level and so cannot be tested; the side-effect-free functions and main() were moved out to make
 // them testable, and all that is left here is the call.
+import childProcess from 'node:child_process'
+import { hideChildConsoleWindows } from '../core/childWindows'
 import { main } from './run'
 
+// Before main() starts any child: Astera.exe is a GUI-subsystem program, so a console program the CLI starts
+// without windowsHide is handed a visible console window whenever the CLI holds no console of its own. Nothing
+// the imports above evaluate starts a child. See hideChildConsoleWindows for why interactive commands that
+// share the caller's terminal are unaffected.
+hideChildConsoleWindows(childProcess, process.platform)
 main()

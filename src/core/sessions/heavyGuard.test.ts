@@ -43,7 +43,24 @@ describe('heavyRewrite: what is a heavy command', () => {
       ['yarn vitest run', `${H} yarn vitest run`],
       ['electron-vite build', `${H} electron-vite build`],
       ['npx electron-vite build', `${H} npx electron-vite build`],
-      ['node node_modules/vitest/vitest.mjs run', `${H} node node_modules/vitest/vitest.mjs run`]
+      ['node node_modules/vitest/vitest.mjs run', `${H} node node_modules/vitest/vitest.mjs run`],
+      ['biome check .', `${H} biome check .`],
+      ['biome ci src', `${H} biome ci src`],
+      ['biome format --write src', `${H} biome format --write src`],
+      ['npx biome lint src', `${H} npx biome lint src`],
+      ['bunx biome check', `${H} bunx biome check`],
+      ['pnpm exec biome check', `${H} pnpm exec biome check`],
+      ['eslint src', `${H} eslint src`],
+      ['npx eslint . --max-warnings=0', `${H} npx eslint . --max-warnings=0`],
+      ['bunx eslint src', `${H} bunx eslint src`],
+      ['npm run lint', `${H} npm run lint`],
+      ['npm run lint:fix', `${H} npm run lint:fix`],
+      ['npm run format:check', `${H} npm run format:check`],
+      ['pnpm lint', `${H} pnpm lint`],
+      ['pnpm run lint', `${H} pnpm run lint`],
+      ['yarn lint', `${H} yarn lint`],
+      ['bun run lint', `${H} bun run lint`],
+      ['bun lint', `${H} bun lint`]
     ]
     for (const [cmd, want] of wrapped) expect(bash(cmd), cmd).toBe(want)
   })
@@ -61,8 +78,16 @@ describe('heavyRewrite: what is a heavy command', () => {
       'npm install',
       'npm ci',
       'npm run dev',
-      'npm run lint',
+      'npm run format',
       'npm view vitest version',
+      'biome --version',
+      'biome -v',
+      'biome --help',
+      'npx biome --version',
+      'pnpm exec biome --help',
+      'eslint --version',
+      'npx eslint -v',
+      'eslint-plugin-foo index.js',
       'pnpm install',
       'yarn add vitest',
       'electron-vite dev',
@@ -133,6 +158,16 @@ describe('heavyRewrite: what is a heavy command', () => {
     expect(bash('npx vitest run 2>&1')).toBe(`${H} npx vitest run 2>&1`)
     expect(bash('echo a &> out.txt')).toBeNull()
   })
+
+  it('wraps lint and format runs inside a compound line, and only those segments', () => {
+    expect(bash('cd x && npx biome check . && npm run lint')).toBe(`cd x && ${H} npx biome check . && ${H} npm run lint`)
+    expect(bash('git add -A; eslint src; echo done')).toBe(`git add -A; ${H} eslint src; echo done`)
+    expect(bash('biome check . | tail -20')).toBe(`${H} biome check . | tail -20`)
+    expect(bash('npx biome check --write . || echo failed')).toBe(`${H} npx biome check --write . || echo failed`)
+    // the word inside a quoted message is text
+    expect(bash('git commit -m "run biome check first"')).toBeNull()
+    expect(bash('echo "npm run lint"')).toBeNull()
+  })
 })
 
 describe('heavyRewrite: Windows paths and PowerShell', () => {
@@ -147,6 +182,11 @@ describe('heavyRewrite: Windows paths and PowerShell', () => {
     expect(pwsh('$env:CI = "1"; npx vitest run')).toBe(`$env:CI = "1"; ${H} npx vitest run`)
     expect(pwsh('$env:CI="1" npx vitest run')).toBe(`$env:CI="1" ${H} npx vitest run`)
     expect(pwsh('npx vitest run 2>&1 | Select-Object -Last 20')).toBe(`${H} npx vitest run 2>&1 | Select-Object -Last 20`)
+    expect(pwsh('cd C:\\dev\\x; npx biome check .')).toBe(`cd C:\\dev\\x; ${H} npx biome check .`)
+    expect(pwsh('npx eslint src; npm run lint')).toBe(`${H} npx eslint src; ${H} npm run lint`)
+    expect(pwsh('& "C:\\dev\\x\\node_modules\\.bin\\biome.cmd" ci .')).toBe(`${H} "C:\\dev\\x\\node_modules\\.bin\\biome.cmd" ci .`)
+    expect(pwsh('npx biome --version')).toBeNull()
+    expect(pwsh('npx eslint --version')).toBeNull()
   })
 
   it("replaces PowerShell's call operator with a launcher that brings its own", () => {
@@ -206,7 +246,16 @@ describe('the hook filters', () => {
       'yarn build',
       'electron-vite build',
       'jest',
-      'npm exec vitest'
+      'npm exec vitest',
+      'biome check .',
+      'npx biome lint src',
+      'eslint src',
+      'npm run lint',
+      'pnpm lint',
+      'yarn lint',
+      'bun run lint',
+      'bun lint',
+      'npm run format:check'
     ]) {
       expect(bash(cmd), cmd).not.toBeNull()
       expect(globs.some((g) => g.test(cmd)), cmd).toBe(true)

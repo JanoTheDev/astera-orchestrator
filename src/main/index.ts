@@ -123,6 +123,12 @@ import {
 import { providerOf } from '../core/providers/meta'
 import { USAGE_GATE_MAX_AGE_MS } from '../core/usage/rateLimitFetcher'
 import { createAccountUsageSource } from '../core/usage/accountReadings'
+import childProcess from 'node:child_process'
+import { hideChildConsoleWindows } from '../core/childWindows'
+
+// Before anything starts a child: this is a GUI-subsystem program, so a console program it starts without
+// windowsHide is handed a visible console window of its own. See hideChildConsoleWindows.
+hideChildConsoleWindows(childProcess, process.platform)
 
 // The dev (unpackaged) app uses a different userData folder than the installed one. The installer
 // writes to %APPDATA%\Astera, and because Windows is case-insensitive the dev build (app name

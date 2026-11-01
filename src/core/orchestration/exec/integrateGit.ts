@@ -15,7 +15,7 @@ import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
-import { LOCKFILES, runWorktreeSetup, type SetupHeavy, type SetupResult } from '../../worktrees/setup'
+import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup, type InstallTurn } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
 import { defaultGateProbe, type Probe } from '../../sessions/pathProbe'
@@ -72,6 +72,9 @@ async function forkWorktreeGit(
     probe?: Probe
     /** The project's `setupCommand` (absent: detect from the lockfile, `off`: none), run in the new worktree. */
     setupCommand?: string
+    /** T24: the heavy slots the install waits for when no install turn is lent (forkWorktree): the caller is outside
+     *  every chain and pass, so it may wait, at most SETUP_SLOT_WAIT_MS. forkWorktreeGit itself never reads it. */
+    heavy?: InstallTurn['heavy']
   }
 ): Promise<string> {
   // **폴더를 git 보다 먼저 묻는다** (예산 안의 세션 폴더 probe). 끊긴 공유 위의 폴더를 cwd 로
@@ -141,27 +144,30 @@ export function inForkTurn<T>(repoPath: string, run: () => Promise<T>): Promise<
   return mine
 }
 
-/** T2: the setup of a fork, handed to the caller instead of run by `forkWorktree` (`setupLater`). It runs the project's
- *  setup command in the new worktree, waiting for a heavy slot first when given `heavy`. */
-export type ForkSetup = (heavy?: SetupHeavy) => Promise<SetupResult>
-
 /** forkWorktreeGit (its doc above), then the setup command in the new worktree. Only the git half waits its turn in the
  *  repository: the setup (`bun install` and the like, minutes on a large repo) runs beside other forks' setups, so the
  *  scheduler can start several workers of one repository at once without each waiting for the last one's install.
- *
- *  T2: with `setupLater`, the setup is not run here but handed over, and the fork answers as soon as the git half is
- *  done. A worker start takes it (OrchCoordinator.startWorker): it merges the deps first, then runs the install under a
- *  heavy slot outside the scheduler's pass. The wirings pass `a` through to here unchanged (the Host's spawner and
- *  worktrees.ts `fork`, the app's createWorktree), which is how the callback arrives. */
+ *  Inside a worker start that lends it an install turn (setup.ts `installTurn`, the Host's `worker-start`), the install
+ *  first waits for one of the machine's heavy slots, at most SETUP_SLOT_WAIT_MS, and says when it queues, so that start
+ *  stops holding the scheduler pass and the Host's command chain; the fork turn is already handed on by then. With no
+ *  turn, `ctx.heavy` (T24: the app's own forks) has the install wait for a slot in place, as long, before it runs. */
 export async function forkWorktree(
-  a: Parameters<typeof forkWorktreeGit>[0] & { setupLater?: (setup: ForkSetup) => void },
+  a: Parameters<typeof forkWorktreeGit>[0],
   ctx: Parameters<typeof forkWorktreeGit>[1]
 ): Promise<string> {
   const dir = await inForkTurn(a.repoPath, () => forkWorktreeGit(a, ctx))
+  const turn = installTurn()
   // Fresh checkouts have no node_modules, which a pre-push hook that needs its tools rejects; never fails the fork
-  const setup: ForkSetup = (heavy) => runWorktreeSetup({ dir, setting: ctx.setupCommand, log: ctx.log, ...(heavy ? { heavy } : {}) })
-  if (typeof a.setupLater === 'function') a.setupLater(setup)
-  else await setup()
+  await runWorktreeSetup({
+    dir,
+    setting: ctx.setupCommand,
+    log: ctx.log,
+    ...(turn
+      ? { heavy: { ...turn.heavy, maxWaitMs: SETUP_SLOT_WAIT_MS, queued: () => turn.queued(dir) } }
+      : ctx.heavy
+        ? { heavy: { ...ctx.heavy, maxWaitMs: SETUP_SLOT_WAIT_MS } }
+        : {})
+  })
   return dir
 }
 

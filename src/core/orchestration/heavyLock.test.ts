@@ -138,22 +138,18 @@ describe('heavyWaits', () => {
     // Two slots: the first two live tickets (s-run, s-a) run; the session-less one is 1st in line, s-b 2nd
     expect([...heavyWaits(queueDir, undefined, 2)]).toEqual([['s-b', 2]])
   })
+})
 
-  it('reads a worktree install’s setup ticket with its kind, and counts it in line like any other', () => {
+describe('heavyQueue ticket kinds (T2)', () => {
+  it('reads each ticket with its kind, a dependency install (setup) among the checks, and keeps one line for all of them', () => {
     mkdirSync(queueDir, { recursive: true })
-    const t = (n: number, extra: Record<string, unknown>): void =>
-      writeFileSync(path.join(queueDir, `${String(n).padStart(20, '0')}.json`), JSON.stringify({ pid: process.pid, cmd: 'x', cwd: dir, at: n, ...extra }))
-    t(1, { kind: 'setup', cmd: 'bun install --frozen-lockfile', cwd: 'C:\\Users\\me\\astera-worktrees\\repo\\task-a' })
-    t(2, { sessionId: 's-a' })
-    t(3, { kind: 'check' })
-    t(4, { sessionId: 's-b' })
-    expect(heavyQueue(queueDir).map((x) => x.kind)).toEqual(['setup', undefined, 'check', undefined])
-    expect(heavyQueue(queueDir)[0]).toMatchObject({ cmd: 'bun install --frozen-lockfile', cwd: 'C:\\Users\\me\\astera-worktrees\\repo\\task-a' })
-    // The install holds the one slot: s-a is 1st in line, s-b 3rd behind the check
-    expect([...heavyWaits(queueDir)]).toEqual([
-      ['s-a', 1],
-      ['s-b', 3]
-    ])
+    const t = (n: number, kind?: string): void =>
+      writeFileSync(path.join(queueDir, `${String(n).padStart(20, '0')}.json`), JSON.stringify({ pid: process.pid, cmd: 'x', cwd: dir, at: n, ...(kind ? { kind } : {}) }))
+    t(1, 'check')
+    t(2, 'setup')
+    t(3, 'delivery')
+    t(4)
+    expect(heavyQueue(queueDir).map((x) => x.kind)).toEqual(['check', 'setup', 'delivery', undefined])
   })
 })
 

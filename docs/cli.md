@@ -88,6 +88,7 @@ closed").
 astera host status     # is a Host running, and on which profile
 astera host start      # start one if none is running
 astera host stop       # ask the running Host to retire
+astera host restart    # restart the Host now, handing its sessions over
 ```
 
 `astera host start` is idempotent. A Host that is already running is success, not an error.
@@ -109,12 +110,45 @@ finish, for up to 20 seconds, and takes no new one. `host stop` therefore waits 
 it to go: those 20 seconds, then the 15 seconds of silence after which a Host is called stuck. A
 Host that is still there after that is exit 7 (`TIMEOUT`), with the wait in `error.details.waitedMs`.
 
-**The three `host` commands fail the way every other command does**, with `"ok": false`, an
+**The `host` commands fail the way every other command does**, with `"ok": false`, an
 `error.code` and `error.nextSteps`, and with the `error:` sentence under `--human`. Until 2026-09-24
 their failures printed `"ok": true` with the details under `data` and only the exit code saying
 otherwise. A script that read `.data.stopped` or `.data.sessions` off a refused `host stop` reads
 `.error.details` now. `host stop` with no Host running is still a success: nothing was running, and
 nothing is.
+
+**`astera host restart` replaces the Host while plans run.** `host stop` refuses while anything
+works, and an outdated Host is otherwise swapped only at a moment when no Task works, which never
+comes while plans run. `host restart` makes that moment:
+
+```bash
+astera host restart              # wait up to 10 minutes for a safe point, then restart
+astera host restart --wait 5     # wait up to 5 minutes (at most 60)
+astera host restart --now        # do not wait: the Tasks not at a safe point are cut short
+```
+
+In order: the Host holds new starts at once (a Task that is already working goes on), waits for every
+working Task to reach a **safe point** (its worker, reviewer or repair session idle at its prompt between
+turns, or done), hands every session over and leaves, and the next Host, started from this `astera`'s own
+install unless the app's Host is already back, resumes them under their own ids and lifts the hold. A
+worker that was cut short mid-Task is told once that the Host restarted. The progress goes to **stderr**,
+a line when it changes and every ten seconds of the wait, so stdout keeps one envelope:
+
+```text
+Holding new starts · waiting for 3 workers to reach a safe point (2:10 left)
+The Host is handing its sessions over and leaving
+Starting the new Host
+Restarted · 12 sessions resumed
+```
+
+It ends with `{"restarted": true, "from": "1.4.1", "to": "1.4.2", "resumed": 12}`. `resumed` is the
+number of sessions and chats the old Host handed over, read from its handover file; the Host does not
+report a count of its own. Exit 3 (`HOST_NOT_RUNNING`) when there was no Host to restart, and also when the
+old Host left but the new one did not answer in time: its sessions are kept, and `astera host start` brings
+them back. Exit 7 (`TIMEOUT`) when the old Host did not leave within the wait plus 90 seconds, or kept its
+address for more than 90 seconds after it ended its connection. Exit 9 (`VERSION_MISMATCH`) for a Host too
+old to restart on request: it does not announce `restart`, and `host stop` or the app's Restart now is
+what it can do. `--wait` takes a number of minutes above 0; anything else is exit 2.
 
 A run, not a Job: a Job with two runs going at once counts as two, because two things are running.
 A run is running while it has work in flight: a worker session open on one of its tasks, a task
@@ -675,6 +709,7 @@ astera status                            is the orchestrator there, and what is 
 
 astera host    status | stop
 astera host    start  [--replace]
+astera host    restart [--wait <minutes>] [--now]
 
 astera runtime status | stop | clients | serve
 astera runtime start   [--listen <addr>] [--port <n>]
@@ -1652,9 +1687,9 @@ command runs exactly as it always did.
 **That refusal is about a Host that answered and cannot help. Some answers never reach a Host at
 all**, and they split in two.
 
-`host start`, `host status`, `host stop`, `skills list`, `skills install`, `mcp serve` and `mcp status` do not go
+`host start`, `host status`, `host stop`, `host restart`, `skills list`, `skills install`, `mcp serve` and `mcp status` do not go
 through the Host's command layer, so a `--request-id` on one of them is **refused with exit 2** rather than
-dropped. `host stop` and `skills install` are the ones that act, and a caller that keys them is owed
+dropped. `host stop`, `host restart` and `skills install` are the ones that act, and a caller that keys them is owed
 either the protection or the refusal. (`skills install` is safe to repeat anyway: a second run writes
 nothing.)
 

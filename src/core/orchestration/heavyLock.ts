@@ -30,9 +30,8 @@ export interface HeavyTicket {
   sessionId?: string
   at: number
   /** 'check': taken by a Task's check (exec/validation.ts heavySlot); 'delivery': the delivery check's (host/checks.ts
-   *  validateTree), which never supersedes or is superseded by a 'check' of its cwd; 'setup': a worktree's dependency
-   *  install (worktrees/setup.ts), which never supersedes or is superseded by a ticket of another kind, only an older
-   *  'setup' of its own cwd; absent: `astera heavy`. */
+   *  validateTree), which never supersedes or is superseded by a 'check' of its cwd; 'setup': a dependency install
+   *  (worktrees/setup.ts runWorktreeSetup), which supersedes only an older 'setup' of its cwd; absent: `astera heavy`. */
   kind?: 'check' | 'delivery' | 'setup'
 }
 

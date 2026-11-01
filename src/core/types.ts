@@ -647,8 +647,10 @@ export type TaskBlockedReason =
   /** FAILURE_LIMIT consecutive failures: nothing restarts it on its own. */
   | { kind: 'failure-limit'; failures: number; limit: number }
   /** Failed with retries left: its coordinator (or a person) decides whether to retry. `noCoordinator` (W5-B, #45): the
-   *  Run has no coordinator slot, so only a person can (the app's loop starts `ready` Tasks, never a failed one). */
-  | { kind: 'failed-retry'; failures: number; limit: number; noCoordinator?: true }
+   *  Run has no coordinator slot, so only a person can (the app's loop starts `ready` Tasks, never a failed one).
+   *  `retryAt` (T10): a hands-off plan with no coordinator, so Astera retries it itself at that time, as attempt
+   *  `failures + 1` (exec/failedRetry.ts). */
+  | { kind: 'failed-retry'; failures: number; limit: number; noCoordinator?: true; retryAt?: string }
   /** The reviewer has not started yet, or was stopped. */
   | { kind: 'awaiting-review' }
   /** `dispatched` with no worker: a person stopped it, or its worker was lost. */
@@ -1447,11 +1449,28 @@ export interface HostStatus {
   /** A Host at the address is leaving (it hangs up before its hello) and the app is waiting for it to
    *  finish before starting its own (main/host/client.ts RETIRING_WAIT_MS). Absent means false. */
   waitingForPreviousHost?: boolean
-  /** The automatic swap of an outdated Host (main/ipc.ts `maybeReplace`), as the status bar shows it: `swapping` while
-   *  it runs, `manual` once the button is the way (a Host without the handover, or a wait past 30 minutes). Absent:
-   *  neither. Set by main on what it gives the window, never by HostClient. */
-  replacement?: 'swapping' | 'manual'
+  /** The swap of an outdated Host (main/ipc.ts `maybeReplace`), as the status bar shows it: `swapping` while it runs,
+   *  `manual` once the button is the way (a Host without the handover, or a wait past 30 minutes), `offered` whenever
+   *  the Host is connected and older than the app and no swap is running (T15: "Restart now" is there at once, the
+   *  automatic swap waits for its moment all the same). Absent: none of these. Set by main on what it gives the
+   *  window, never by HostClient. */
+  replacement?: 'swapping' | 'manual' | 'offered'
+  /** A restart the owner asked for, while it is under way and until the window has shown how it ended (T15). Set by
+   *  main on what it gives the window, never by HostClient. */
+  restart?: HostRestartState
 }
+
+/** **A restart of the Host the owner asked for now** (T15), as the window shows it (core/host/restartView.ts reads it
+ *  into words). `waiting`: new starts are held, and `waiting` of the `working` Tasks are not at a safe point yet, with
+ *  `leftMs` of the wait left (0: it ran out, or "Restart anyway" cut it short). `swapping`: the old Host is handing
+ *  over and leaving, and the new one is coming up. `done`: the new Host answered; `resumed` is how many sessions the
+ *  old one handed over. `failed`: nothing was restarted, or the new Host did not come back (`not-back`); `tasks` is
+ *  what a Host without `restart` refused over. */
+export type HostRestartState =
+  | { phase: 'waiting'; working: number; waiting: number; leftMs: number }
+  | { phase: 'swapping' }
+  | { phase: 'done'; from: string | null; to: string | null; resumed: number }
+  | { phase: 'failed'; reason: 'quitting' | 'refused' | 'timeout' | 'no-host' | 'not-back'; tasks?: number }
 
 /** Putting the Host's own runtime in place (win32), as the window shows it (stage 3 task 2).
  *
@@ -1903,8 +1922,11 @@ export interface CoreApi {
     /** W1-B: the app-wide Job worker cap; null is no cap. */
     getMaxConcurrentWorkers(): Promise<number | null>
     setMaxConcurrentWorkers(n: number | null): Promise<void>
-    getHeavyJobsAtOnce(): Promise<number>
-    setHeavyJobsAtOnce(n: number): Promise<void>
+    /** The owner's heavy-jobs setting: a number, or 'auto' (sized from free memory at each read). */
+    getHeavyJobsAtOnce(): Promise<number | 'auto'>
+    setHeavyJobsAtOnce(n: number | 'auto'): Promise<void>
+    /** The heavy slots auto sizes to now, from available memory. */
+    getAutoHeavySlots(): Promise<number>
     /** This machine's memory and CPUs and the worker cap they support (what an unset limit schedules at). */
     getMachineSpecs(): Promise<MachineSpecs>
     /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts. */
@@ -2781,6 +2803,12 @@ export type RendererApi = CoreApi & {
      *  open, and half a minute of a stale "connected" is the silence this exists to end
      *  (docs/2026-09-22-host-unresponsive-recovery-design.md F1). */
     onStatus(cb: (s: HostStatus) => void): () => void
+    /** **Restart the Host now** (T15), whatever it is doing: new starts are held, the working Tasks get a bounded time
+     *  to reach a safe point, then every session is handed over to the Host this app starts. Progress arrives as
+     *  `HostStatus.restart`. Resolves with how it ended (`done` or `failed`); a call made while one is under way joins
+     *  it, resolves with the state it is in, and `force` cuts the wait short ("Restart anyway"). A Host without
+     *  HOST_FEATURE_RESTART gets today's handover retire, which it refuses while a Task works. */
+    restartNow(o?: { force?: boolean }): Promise<HostRestartState>
     /** Where putting the Host's own runtime in place stands (stage 3 task 2) — read once at mount. */
     runtimeInstall(): Promise<HostRuntimeInstallState>
     /** Every change of that, pushed as it happens; returns an unsubscribe. */
@@ -2985,8 +3013,12 @@ export interface HealthSnapshot {
   memAvailablePct: number
   /** Set when the OS gave no usable memory reading for this sample. */
   memUnknown?: true
-  /** Windows only: commit headroom, 100 * (commit limit - committed) / commit limit. Absent when unknown or not Windows. */
+  /** Windows only: commit headroom, 100 * (commit limit - committed) / commit limit, against the current commit limit.
+   *  For diagnosis: a system-managed pagefile grows on demand, so this alone is not strain. Absent when unknown or not Windows. */
   commitHeadroomPct?: number
+  /** Windows only: the same headroom against the commit limit the machine can still reach (RAM + the pagefiles at their
+   *  most); the load monitor judges commit strain by this one. Absent when unknown or not Windows. */
+  commitReachablePct?: number
   /** os.loadavg()[0] / logical CPUs */
   load1PerCpu: number
   /** Host event-loop delay, p99 over the sample window */

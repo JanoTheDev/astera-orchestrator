@@ -18,6 +18,13 @@ describe('autoLimitNote', () => {
     expect(s).toContain('until you restore')
     expect(autoLimitNote(auto, 'heavy', t)).toBeNull()
   })
+  it('formats the time with the formatter it is given', () => {
+    const auto: AutoLimits = { history: [], heavy: { cap: 1, cause: 'strain', at, detail: 'lag' } }
+    const seen: string[] = []
+    const s = autoLimitNote(auto, 'heavy', t, (iso) => (seen.push(iso), 'FORMATTED'))!
+    expect(seen).toEqual([at])
+    expect(s).toContain('FORMATTED')
+  })
   it('says a strain cap comes back by itself', () => {
     const auto: AutoLimits = { history: [], heavy: { cap: 1, cause: 'strain', at, detail: 'lag' } }
     expect(autoLimitNote(auto, 'heavy', t)).toContain('by itself')
@@ -48,6 +55,12 @@ describe('effectiveLimitNote', () => {
     expect(s).toContain('31 Oct 11:24')
     expect(s).toContain('memory was 6% free while 10 agents ran')
     expect(s).toContain('by itself')
+  })
+  it('formats the time with the formatter it is given, not the OS locale', () => {
+    const seen: string[] = []
+    const s = effectiveLimitNote(lowered('strain'), t, (iso) => (seen.push(iso), 'IN-APP-LANGUAGE'))!
+    expect(seen).toEqual([at])
+    expect(s).toContain('IN-APP-LANGUAGE')
   })
   it('says a crash or oom limit stays until restored', () => {
     for (const cause of ['crash', 'oom'] as const) expect(effectiveLimitNote(lowered(cause), t)).toContain('until you restore')

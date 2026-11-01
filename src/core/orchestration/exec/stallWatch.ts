@@ -32,7 +32,7 @@ import { isLost } from '../../recovery/candidates'
 import { editingByProject, isLeaseWaitGate, LEASE_WAIT_OPTIONS, projectKeyOf, sameFilesAs, serialFilesOf, workerCapOf, workersAgainstCap } from '../schedule'
 import { DROPPED_OPTIONS, isDroppedGate, plannerOverlapNotices } from '../overlap'
 import { coordinatorStarting, jobOf, runGatedForTask, type OrchState } from '../state'
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, isPlaceholderSessionId, type Dispatch, type Job, type JobRun, type Task } from '../types'
+import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Job, type JobRun, type Task } from '../types'
 import { outcomeOf } from '../view'
 import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import { workerStartInFlight } from './coordinatorRotate'
@@ -68,6 +68,25 @@ export const BACKOFF_MS = [2 * 60_000, 5 * 60_000, 10 * 60_000, 20 * 60_000]
 /** Tries of one stall before it is raised to the owner: the placements of a ready Task, the restarts of a coordinator,
  *  the retries of a lost Task. */
 export const TRIES = 4
+
+/** The placeholder session id of a worker start whose fork's dependency install waits for, or runs in, one of the
+ *  machine's heavy slots (command.ts `worker-start`, worktrees/setup.ts). Still `pending:`: the Dispatch counts against
+ *  the caps and the board shows it starting. Told apart so that it is read by its own bound, not the 2-minute one. */
+export const INSTALL_PLACEHOLDER_PREFIX = 'pending:install:'
+/** Whether this session id is a start waiting on its install (`INSTALL_PLACEHOLDER_PREFIX`). */
+export const isInstallingStart = (sessionId: string): boolean => sessionId.startsWith(INSTALL_PLACEHOLDER_PREFIX)
+/** How long after its `startedAt` such a start still counts as one in flight. Its install waits at most
+ *  SETUP_SLOT_WAIT_MS (30 min) for a slot and runs at most SETUP_TIMEOUT_MS (15 min), then the session starts within
+ *  command.ts's PENDING_START_WINDOW_MS (2 min); a test pins that this stays above that sum. A literal, as
+ *  coordinatorRotate.ts keeps its window: command.ts imports this file. */
+export const INSTALL_START_WINDOW_MS = 50 * 60_000
+/** A worker start of this Run is waiting on its install inside INSTALL_START_WINDOW_MS: not a lost or stuck start. */
+export const installStartInFlight = (s: Pick<OrchState, 'tasks' | 'dispatches'>, runId: string, nowMs: number): boolean => {
+  const mine = new Set(s.tasks.filter((t) => t.runId === runId).map((t) => t.id))
+  return s.dispatches.some(
+    (d) => mine.has(d.taskId) && d.endedAt === undefined && isInstallingStart(d.sessionId) && nowMs - Date.parse(d.startedAt) < INSTALL_START_WINDOW_MS
+  )
+}
 
 /** T11: a ready Task held back by another plan's lease this long: its coordinator is told, once. */
 export const LEASE_TELL_MS = 30 * 60_000
@@ -113,6 +132,11 @@ export interface StallProbe {
   /** Whether a check of this Task is queued or running (HostChecks.checking). Absent: a `validating` Task is never
    *  taken for a lost validation. */
   checking?(taskId: string): boolean
+  /** T19: new starts are on hold (startHold.ts, a restart's or the owner's). Nothing that starts a worker or a planner
+   *  is due meanwhile: a ready Task is held by it, as by a full cap (no `tell-start`, `place`, `tell-busy`), and no lost
+   *  Task is retried nor a planner restarted. `worker-start` and `jobs-plan` would refuse each, and each refusal would
+   *  spend a try toward the owner's escalation. A ready Task's stall counts from the lift. Absent: not held. */
+  startHeld?: boolean
 }
 
 export type StallRemedy = { key: string; runId: string } & (
@@ -277,7 +301,8 @@ export function stallRemedies(
       continue
     }
 
-    if (workerStartInFlight(s, run.id, nowMs)) continue
+    // A start in flight, its install's longer wait for a heavy slot included: not a Run whose coordinator is stuck
+    if (workerStartInFlight(s, run.id, nowMs) || installStartInFlight(s, run.id, nowMs)) continue
     const mine = new Set(s.tasks.filter((t) => t.runId === run.id).map((t) => t.id))
     const open = s.dispatches.filter((d) => mine.has(d.taskId) && !d.outcome && !d.endedAt).length
     let free = (job.concurrency ?? DEFAULT_CONCURRENCY) - open
@@ -326,7 +351,7 @@ export function stallRemedies(
     for (const t of candidates) {
       const since = Math.max(at.get(t.id) ?? 0, ...t.deps.map((d) => at.get(d) ?? 0))
       const clash = sameFilesAs(t, editing.get(project) ?? [])
-      const held = clash ? `same-files:${clash.task.id}` : free <= 0 ? 'plan-cap' : capFree <= 0 ? 'app-cap' : null
+      const held = clash ? `same-files:${clash.task.id}` : probe.startHeld ? 'start-hold' : free <= 0 ? 'plan-cap' : capFree <= 0 ? 'app-cap' : null
       const base = `ready:${t.id}:${since}:`
       if (held !== null) {
         seen(base + held, nowMs)
@@ -460,7 +485,7 @@ export function stallRemedies(
       }
       e = { ...e, step: 1, at: nowMs - PLANNER_RESTART_MS } // gone: nothing to nudge, restart now
     }
-    if (e.step === 1 && quiet >= PLANNER_RESTART_MS && nowMs - e.at >= PLANNER_RESTART_MS) {
+    if (e.step === 1 && quiet >= PLANNER_RESTART_MS && nowMs - e.at >= PLANNER_RESTART_MS && !probe.startHeld) {
       const preferred = job.plannerAccountId ?? job.coordinatorAccountId
       due.push({
         key,
@@ -493,7 +518,8 @@ export function stallRemedies(
   const untracked = s.tasks
     .filter((t) => t.status === 'dispatched' && !runGatedForTask(s, t) && !s.dispatches.some((d) => d.taskId === t.id))
     .map((t) => ({ runId: t.runId ?? '', taskId: t.id, dispatch: undefined as Dispatch | undefined }))
-  for (const seed of [...lostWithDriver(s), ...untracked]) {
+  // T19: held starts retry nothing; the stall starts over once the hold lifts, due at once
+  for (const seed of probe.startHeld ? [] : [...lostWithDriver(s), ...untracked]) {
     const run = s.runs.find((r) => r.id === seed.runId)
     const job = run && jobOf(s, run)
     const task = s.tasks.find((t) => t.id === seed.taskId)
@@ -558,9 +584,8 @@ export function stallRemedies(
   // then the owner. Working again (or unreadable) drops the stall.
   for (const d of s.dispatches) {
     if (d.outcome || d.endedAt || probe.busy(d.sessionId) !== false) continue
-    // Still starting (a `pending:` placeholder, T2: one waiting for a heavy slot to install can be for many minutes): no
-    // session yet, so nothing at a prompt, whatever the probe says of an id it does not hold
-    if (isPlaceholderSessionId(d.sessionId)) continue
+    // A start waiting on its install has no session yet, so no prompt to be idle at
+    if (isInstallingStart(d.sessionId)) continue
     // A rolled Dispatch waits for its account (Dispatch.resumes): not idle, held
     const roll = d.resumes?.at(-1)
     if (roll && roll.resumedAt === undefined) continue
@@ -667,6 +692,8 @@ export interface StallWatchDeps {
   adopt?(): Promise<Dispatch[]>
   /** accounts.json: the agent of an untracked Task's account, to start it again. Absent: the Task's provider. */
   accounts?(): Account[] | Promise<Account[]>
+  /** T19: the hold on new starts (startHold.ts startHeldNow), read once per look. Absent: never held. */
+  startHeld?(): boolean
   mayStart(): boolean
   log(m: string): void
   nowMs(): number
@@ -919,7 +946,8 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           ...usage,
           cap,
           alive: (id) => d.alive(id),
-          ...(d.checking && d.startValidation ? { checking: (id: string) => d.checking!(id) } : {})
+          ...(d.checking && d.startValidation ? { checking: (id: string) => d.checking!(id) } : {}),
+          ...(d.startHeld?.() === true ? { startHeld: true } : {})
         })
         memo = planned.memo
         for (const r of planned.due) {

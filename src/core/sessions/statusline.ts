@@ -36,7 +36,7 @@ function finish() {
   if (out) { try { fs.writeFileSync(out, data) } catch {} }
   if (orig && orig.trim()) {
     try {
-      const child = cp.spawn(orig, { shell: true, stdio: ['pipe', 'inherit', 'inherit'] })
+      const child = cp.spawn(orig, { shell: true, stdio: ['pipe', 'inherit', 'inherit'], windowsHide: true })
       child.on('error', () => process.exit(0))
       child.on('close', (code) => process.exit(typeof code === 'number' ? code : 0))
       child.stdin.on('error', () => {})

@@ -95,6 +95,7 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.info.hostUnresponsive': 'Not answering · {detail}',
   'settings.info.hostUnresponsiveWhat': 'New sessions are opening inside the app. Those end when the app closes.',
   'settings.info.hostRuntimeIncomplete': 'Some of the files the background service runs from are gone. Left alone it will stop answering at the next session. It is repaired on its own once it is holding nothing, and restarting now does the same.',
+  'settings.info.hostRestartHint': 'Restarting now holds new starts, waits for working Tasks to reach a safe point, then hands every session over to the new Host.',
   'settings.worktree.createLocation': 'Worktree creation location',
   'settings.worktree.change': 'Change…',
   'settings.worktree.hint':
@@ -209,7 +210,8 @@ export const settings: Record<keyof typeof ko, string> = {
   'settings.minWorkers.default': '{count} = half of {person}',
   'settings.minWorkers.saveFailed': 'Could not save the minimum agents: {detail}',
   'settings.heavyJobs.label': 'Heavy jobs at once',
-  'settings.heavyJobs.hint': 'Limits full test suites, Electron and dist builds, and Task checks machine-wide. 1 is safest on a laptop; more uses more CPU and memory.',
+  'settings.heavyJobs.hint': 'Limits full test suites, Electron and dist builds, and Task checks machine-wide. Leave it empty for Auto, which sizes it from free memory each time; a number is used as is.',
+  'settings.heavyJobs.auto': 'Auto (now {count} from free memory)',
   'settings.heavyJobs.saveFailed': 'Could not save the heavy jobs limit: {detail}',
   'settings.activityDigest.label': 'Activity summary every (minutes)',
   'settings.activityDigest.hint': 'How often to send a summary of what finished, failed or is waiting, to the desktop and Slack. Sent only when something happened. 0 turns it off.',

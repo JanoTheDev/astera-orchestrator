@@ -835,6 +835,40 @@ describe('createHostSpawner — createSession', () => {
     expect(h.spawned[0].opts.env.ASTERA_SESSION).toBe('sess-old')
   })
 
+  // T19: a worker a restart resumes mid-Task comes back as its own start had it (sessionRestore.ts startedWith)
+  it('resumes a claude worker on its model, effort and bypass, without the tools it was started without', async () => {
+    await fs.writeFile(path.join(profile, 'app-settings.json'), JSON.stringify({ agentPermissionMode: 'manual' }))
+    const h = rig()
+    await h.spawner!.createSession({
+      accountId: 'acc1', cwd: repo, rollAccountIds: [], resumeSessionId: 'native-1', sessionId: 'worker-1', initialPrompt: 'restarted',
+      model: 'claude-sonnet-5-5', effort: 'high', bypassPermissions: true, disallowedTools: ['AskUserQuestion'], rollPrompt: 'Continue and report.'
+    })
+    const args = JSON.stringify(h.spawned[0].args)
+    for (const flag of ['--model', 'claude-sonnet-5-5', '--effort', 'high', '--disallowedTools', 'AskUserQuestion', '--resume', 'native-1', '--dangerously-skip-permissions'])
+      expect(args).toContain(flag)
+    // The prompt after the resume, once; the bypass the worker had wins over the settings' manual
+    expect(args.split('restarted')).toHaveLength(2)
+    expect(h.registry.list()[0].meta).toMatchObject({ restore: { model: 'claude-sonnet-5-5', effort: 'high', bypassPermissions: true, rollPrompt: 'Continue and report.' } })
+  })
+
+  it('gives a codex resume its line as the resume phrase, and drops claude-only barred tools', async () => {
+    await fs.writeFile(path.join(profile, 'accounts.json'), JSON.stringify({ accounts: [
+      { id: 'acc2', label: 'two', configDir: path.join(dir, 'cfg2'), color: '#888', createdAt: NOW, provider: 'codex' }
+    ] }))
+    const h = rig({ findRollout: async () => null })
+    await h.spawner!.createSession({
+      accountId: 'acc2', cwd: repo, rollAccountIds: [], resumeSessionId: 'th-1', sessionId: 'worker-2', initialPrompt: 'The Host restarted, carry on.',
+      model: 'gpt-5.5', disallowedTools: ['AskUserQuestion']
+    })
+    const args = h.spawned[0].args
+    const list = typeof args === 'string' ? args : args.join(' ')
+    // `codex resume <id> <phrase>`: right after the id, not as a trailing prompt after the flags
+    expect(list).toMatch(/resume th-1 "?The Host restarted, carry on\./)
+    expect(list.split('The Host restarted')).toHaveLength(2)
+    expect(list).toContain('-m gpt-5.5')
+    expect(list).not.toContain('AskUserQuestion')
+  })
+
   it('reads the permission setting as a worker start does: manual means prompts on', async () => {
     await fs.writeFile(path.join(profile, 'app-settings.json'), JSON.stringify({ agentPermissionMode: 'manual' }))
     const h = rig()

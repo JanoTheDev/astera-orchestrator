@@ -212,6 +212,25 @@ describe('taskBoardsOf — reasons', () => {
     expect(reasonOf(one(failed), 'a')).toEqual({ kind: 'failed-retry', failures: 1, limit: FAILURE_LIMIT, noCoordinator: true })
   })
 
+  it('T10: failed with retries left in a hands-off plan with no coordinator: Astera retries it after its backoff', () => {
+    const once = [task('a', 'r1', { status: 'failed', consecutiveFailures: 1, updatedAt: T0 })]
+    expect(reasonOf(one(once, { handsOff: true }), 'a')).toEqual({
+      kind: 'failed-retry',
+      failures: 1,
+      limit: FAILURE_LIMIT,
+      noCoordinator: true,
+      retryAt: '2026-10-17T00:01:00.000Z'
+    })
+    const twice = [task('a', 'r1', { status: 'failed', consecutiveFailures: 2, updatedAt: T0 })]
+    expect(reasonOf(one(twice, { handsOff: true }), 'a')).toMatchObject({ retryAt: '2026-10-17T00:05:00.000Z' })
+    // with a coordinator slot it is the coordinator's to retry, as before
+    expect(reasonOf(one(once, { handsOff: true, autoDispatch: false }, { coordinatorSessionId: 'coord' }), 'a')).toEqual({
+      kind: 'failed-retry',
+      failures: 1,
+      limit: FAILURE_LIMIT
+    })
+  })
+
   it('gate open names the oldest open gate', () => {
     const s = one([task('a', 'r1', { status: 'blocked' })])
     s.gates = [

@@ -486,7 +486,15 @@ export function migrateOptionsOf(args: Record<string, unknown>): MigrateOptions 
 function cliSetupToken(a: MigrateLocalAccount, log: (m: string) => void): Promise<string | null> {
   log(`Approve a long-lived token for ${a.label} in the browser that opens (sign in there as that account)`)
   return new Promise((resolve) => {
-    const child = spawn('claude', ['setup-token'], { env: { ...process.env, CLAUDE_CONFIG_DIR: a.configDir }, stdio: ['inherit', 'pipe', 'inherit'], shell: process.platform === 'win32' })
+    // windowsHide is safe for a child that needs this terminal: it shares the terminal's console through the inherited
+    // stdio (no console is created for it, so there is nothing to hide), and it only hides the console Windows would
+    // otherwise create when the CLI holds none, a window nobody could type into. See hideChildConsoleWindows.
+    const child = spawn('claude', ['setup-token'], {
+      env: { ...process.env, CLAUDE_CONFIG_DIR: a.configDir },
+      stdio: ['inherit', 'pipe', 'inherit'],
+      shell: process.platform === 'win32',
+      windowsHide: true
+    })
     let out = ''
     child.stdout.on('data', (b: Buffer) => {
       out += b.toString()

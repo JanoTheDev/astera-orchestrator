@@ -68,6 +68,8 @@ import type { ProcRegistry } from './procRegistry'
 import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 import { readMaxConcurrentWorkers } from '../core/settings/maxConcurrentWorkers'
+import { readHeavyJobsAtOnce } from '../core/settings/heavyJobs'
+import { startHeldNow } from '../core/orchestration/startHold'
 import { machineSpecs } from '../core/settings/machineSpecs'
 // Coordinator rotation
 import { readFreshCoordinatorPct } from '../core/settings/freshCoordinator'
@@ -139,7 +141,7 @@ export function createHostDriving(d: {
   worktrees: Pick<HostWorktrees, 'fork' | 'integrate' | 'reap' | 'isRegistered'>
   /** B3: the loop's accounts, login and sync lang come from the checks. */
   checks: Pick<HostChecks, 'resumeSweep' | 'stopForeignValidations' | 'checking' | 'accounts' | 'loginStatus' | 'langNow' | 'lang'> &
-    Partial<Pick<HostChecks, 'startValidation'>>
+    Partial<Pick<HostChecks, 'startValidation' | 'startReview'>>
   /** The handover belt (N1): starts one open repair Dispatch that has no spec yet. */
   startRepair(a: { dispatchId: string }): void
   /** `sessionExitCode` answers the loop's `sessionGone` (limits pass L1); optional for the test fakes. */
@@ -220,14 +222,60 @@ export function createHostDriving(d: {
    *  gating them would interrupt the app's own work. */
   const unchecked = (s: OrchState): OrchState['tasks'] => {
     const appAttached = d.server.hasApp()
+    // T19: a review that waits for the hold on new starts is held, not stalled (`followHold`)
+    const held = startHeldNow(d.profileDir)
     return s.tasks.filter(
       (t) =>
         (t.status === 'validating' || t.status === 'reviewing') &&
         policyOf(s, t) === null &&
         !s.dispatches.some((x) => x.taskId === t.id && !x.outcome && !x.endedAt) &&
         !d.checks.checking(t.id) &&
+        !(held && t.status === 'reviewing') &&
         (!appAttached || (t.status === 'reviewing' && reviewerEnded(s.dispatches, t.id)))
     )
+  }
+
+  /** T19: **a review the hold on new starts kept from starting is started once the hold lifts** (exec/review.ts). On
+   *  every tick while the hold is on, each Task `reviewing` with no Dispatch open and no start of this Host's in flight
+   *  is noted (`heldReviews`); it is not armed for the restart Gate meanwhile (`unchecked`). On the first tick that
+   *  drives with the hold gone, the noted ones still waiting get their reviewer, and the resume sweep runs once, which
+   *  restarts a convergence Run's review that was refused between two ticks. `holdSeen` starts as the hold is at this
+   *  Host's start: the next Host of a restart starts held, and lifts the hold only once its sessions are back.
+   *
+   *  shortcut: what was noted lives in memory. A Task outside a convergence Run held across a restart meets the next
+   *  Host's load first, which gates it as an interrupted review (store.ts load, `interruptStalledTask`); a hands-off
+   *  plan answers that Gate `review-again` itself (autoAnswer.ts), and a review-again under the hold is noted here.
+   *  Keep the held reviews on disk if the Gate a person must answer ever matters. */
+  let holdSeen = startHeldNow(d.profileDir)
+  const heldReviews = new Set<string>()
+  const waitsForReviewer = (s: OrchState, id: string): boolean =>
+    s.tasks.some((t) => t.id === id && t.status === 'reviewing') &&
+    !s.dispatches.some((x) => x.taskId === id && !x.outcome && !x.endedAt) &&
+    !d.checks.checking(id)
+  const followHold = (): void => {
+    if (!d.orch.loaded()) return
+    if (startHeldNow(d.profileDir)) {
+      holdSeen = true
+      const s = d.orch.state()
+      for (const t of s.tasks) if (waitsForReviewer(s, t.id)) heldReviews.add(t.id)
+      return
+    }
+    // Lifted: the driver that drives next starts them (an app that drives starts its own)
+    if (!holdSeen || !mayStart()) return
+    holdSeen = false
+    try {
+      d.checks.resumeSweep('the hold on new starts was lifted')
+    } catch (err) {
+      log(`the resume sweep after the hold was lifted failed to start: ${String(err)}`)
+    }
+    const ids = [...heldReviews]
+    heldReviews.clear()
+    for (const id of ids) {
+      // The sweep's own starts are in flight now (`checking`), so none is started twice
+      if (!waitsForReviewer(d.orch.state(), id) || !d.checks.startReview) continue
+      log(`task=${id}: the hold on new starts was lifted — starting its reviewer`)
+      d.checks.startReview({ taskId: id })
+    }
   }
   /** Armed Tasks, by id: what each looked like when armed, and when. */
   const suspects = new Map<string, { status: string; updatedAt: string; armedAt: number }>()
@@ -420,10 +468,14 @@ export function createHostDriving(d: {
     deliverySetup: (cwd) => readDeliverySetup(cwd), // T32
     // W1-B. A damaged file reads as no cap: the spawn refuses on that file anyway (orch.ts, the same line).
     maxConcurrentWorkers: () => readMaxConcurrentWorkers(settingsPath).catch(() => machineSpecs().recommended),
+    // T13: a hold on new starts (a restart's, or the owner's) places nothing
+    startHeld: () => startHeldNow(d.profileDir),
     accounts: () => d.checks.accounts(),
     loginStatus: (id) => d.checks.loginStatus(id),
     lang: () => d.checks.langNow(),
     forkRunWorktree: (a) => d.worktrees.fork(a),
+    // T24: the lazy Run worktree's install takes one of the machine's heavy slots, beside the pass
+    installHeavy: () => ({ slots: () => readHeavyJobsAtOnce(settingsPath) }),
     worktreeGone: async (p) => (await defaultGateProbe(p)) === 'absent',
     integrate: (runRoot, merges, heads, opts) => d.worktrees.integrate(runRoot, merges, heads, opts),
     reap: reapWhileDriving,
@@ -492,6 +544,8 @@ export function createHostDriving(d: {
         activity: d.activity,
         ...(d.orch.adoptWorkers ? { adopt: () => d.orch.adoptWorkers!() } : {}),
         accounts: () => d.checks.accounts(),
+        // T19: no start nudge, retry or planner restart while new starts are held
+        startHeld: () => startHeldNow(d.profileDir),
         mayStart,
         log,
         nowMs: () => d.nowMs()
@@ -646,6 +700,7 @@ export function createHostDriving(d: {
       // handed that number to another process. The answer itself is not needed.
       if (!d.server.hasApp()) d.server.lastAppPid?.()
       await compute()
+      followHold()
       if (mayStart()) {
         await pass()
         await loop.nudge()

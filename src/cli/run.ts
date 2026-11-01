@@ -1416,7 +1416,9 @@ export async function main(): Promise<void> {
       // `--no-keepalive` silences that the same way it silences every other keepalive.
       noKeepalive: parsed.noKeepalive,
       // `host start --replace`: the person chooses to have an older protocol's Host leave (host.ts)
-      replace: parsed.args.replace === true
+      replace: parsed.args.replace === true,
+      // `host restart [--wait <minutes>] [--now]` (host.ts runHostRestart)
+      restart: { wait: parsed.args.wait, now: parsed.args.now === true }
     })
     // A failure is a `CliError` and goes out like every other one (review I1): `ok: false`, its code,
     // its nextSteps, and the `error:` sentence under `--human`. `host stop`'s refusal keeps its counts
@@ -1568,7 +1570,10 @@ export async function main(): Promise<void> {
       descriptors: makeDescriptors(process.platform),
       run: (command, cliArgs, env) =>
         new Promise((resolve) => {
-          const child = spawn(command, cliArgs, { env: { ...process.env, ...env }, stdio: [0, 2, 2], shell: process.platform === 'win32' })
+          // windowsHide is safe for a child that needs this terminal: it shares the terminal's console through the inherited
+          // stdio (no console is created for it, so there is nothing to hide), and it only hides the console Windows would
+          // otherwise create when the CLI holds none, a window nobody could type into. See hideChildConsoleWindows.
+          const child = spawn(command, cliArgs, { env: { ...process.env, ...env }, stdio: [0, 2, 2], shell: process.platform === 'win32', windowsHide: true })
           child.once('error', () => resolve(127))
           child.once('close', (code) => resolve(code ?? 1))
         })

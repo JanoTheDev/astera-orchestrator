@@ -176,6 +176,13 @@ export interface HostSpawner extends HostLocal, HostRollSpawner {
     sessionId?: string
     /** A restore's: when the session first started (SessionInfo.startedAt), so its row keeps its elapsed time. */
     startedAt?: number
+    /** T19: a restored worker's or replan planner's own start settings (sessionRestore.ts startedWith). Absent: the CLI's
+     *  model and effort, the bypass the settings say at this spawn, every tool, the rolling's default phrase. */
+    model?: string
+    effort?: string
+    bypassPermissions?: boolean
+    disallowedTools?: string[]
+    rollPrompt?: string
   }): Promise<SessionInfo>
   /** T1: the account a person's session starts on and the chain it rolls on (chooseSessionStart over the Host's usage
    *  guard and logins): none named is auto, a named one a preference. `release` once the session runs. */
@@ -806,17 +813,27 @@ export function createHostSpawner(d: HostSpawnerDeps): HostSpawner | null {
         const accountId = picked?.accountId ?? o.accountId
         if (accountId !== o.accountId) log(`session in ${o.cwd}: ${o.accountId} has no room, starting on ${accountId}`)
         // The folder is probed once here; spawnSession's own prepare reuses this answer.
-        await sessions.prepare({ account: accountIn(accounts, accountId), cwd: o.cwd, missing: `CWD_MISSING: ${o.cwd} does not exist` })
+        const account = accountIn(accounts, accountId)
+        await sessions.prepare({ account, cwd: o.cwd, missing: `CWD_MISSING: ${o.cwd} does not exist` })
+        // T19: `codex resume <id>` takes its phrase as its own argument (resumePrompt), as a worker's resume does
+        // (coordinator.ts startWorker); claude takes it as the prompt after `--resume <id>`.
+        const resumePhrase = o.resumeSessionId !== undefined && o.initialPrompt !== undefined && providerOf(account) === 'codex'
         const info = await spawnSession(
           {
             accountId,
             cwd: o.cwd,
             title: o.title ?? defaultSessionTitle(o.cwd),
-            ...(o.initialPrompt !== undefined ? { initialPrompt: o.initialPrompt } : {}),
+            ...(o.initialPrompt !== undefined ? (resumePhrase ? { resumePrompt: o.initialPrompt } : { initialPrompt: o.initialPrompt }) : {}),
             rollAccountIds: picked?.rollAccountIds ?? o.rollAccountIds,
             ...(o.resumeSessionId !== undefined ? { resumeSessionId: o.resumeSessionId } : {}),
             ...(o.sessionId !== undefined ? { sessionId: o.sessionId } : {}),
-            ...(o.startedAt !== undefined ? { startedAt: o.startedAt } : {})
+            ...(o.startedAt !== undefined ? { startedAt: o.startedAt } : {}),
+            ...(o.model !== undefined ? { model: o.model } : {}),
+            ...(o.effort !== undefined ? { effort: o.effort } : {}),
+            ...(o.bypassPermissions !== undefined ? { bypassPermissions: o.bypassPermissions } : {}),
+            // W6-B: a claude session's only (commands.ts); a codex one would carry it as nothing
+            ...(o.disallowedTools !== undefined && providerOf(account) === 'claude' ? { disallowedTools: o.disallowedTools } : {}),
+            ...(o.rollPrompt !== undefined ? { rollPrompt: o.rollPrompt } : {})
           },
           accounts,
           trace

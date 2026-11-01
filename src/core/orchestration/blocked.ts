@@ -26,6 +26,8 @@ import { afterNameOf, afterQueued, afterStandOf } from './after'
 // W8-D several plans in one repo
 import { jobNameOf } from './jobName'
 import { externalDepsOf } from './mainPlan'
+// T10: a hands-off plan's own retry of a failed Task (exec/failedRetry.ts)
+import { failedRetryAt } from './replan'
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
 
@@ -163,13 +165,20 @@ export function taskBoardsOf(
       return { kind: 'gate', gateId: gate.id, question: gate.question, ...(gate.kind ? { gateKind: gate.kind } : {}) }
     if (task.consecutiveFailures >= FAILURE_LIMIT)
       return { kind: 'failure-limit', failures: task.consecutiveFailures, limit: FAILURE_LIMIT }
-    if (task.status === 'failed')
+    if (task.status === 'failed') {
+      // T10: a hands-off plan with no coordinator retries it itself, after its backoff. handsOffOf (delivery.ts) as this
+      // renderer-safe module can read it, as activity.ts does: by `projectId` only (the folder match needs node)
+      const handsOff = job.handsOff ?? (job.projectId !== undefined ? s.projects.find((p) => p.id === job.projectId)?.handsOff : undefined) ?? false
+      const auto = handsOff && run.coordinatorSessionId === undefined && run.externalCoordinatorSessionId === undefined
+      const retryAt = auto ? failedRetryAt(task) : undefined
       return {
         kind: 'failed-retry',
         failures: task.consecutiveFailures,
         limit: FAILURE_LIMIT,
-        ...(run.coordinatorSessionId === undefined ? { noCoordinator: true as const } : {})
+        ...(run.coordinatorSessionId === undefined ? { noCoordinator: true as const } : {}),
+        ...(retryAt !== undefined ? { retryAt } : {})
       }
+    }
     if (task.status === 'reviewing') return { kind: 'awaiting-review' }
     if (task.status === 'dispatched') return { kind: 'stopped' }
     if (task.status === 'pending') {

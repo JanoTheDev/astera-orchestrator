@@ -5,19 +5,24 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   cliHostTarget,
+  handoverSessionCount,
   hostStatus,
   hostStopResult,
   hostStartTargets,
   otherProtocolHost,
   preparedRuntime,
+  restartProgressLine,
   runHostCommand,
-  startHostNotice
+  spawnHostDetached,
+  startHostNotice,
+  type HostRestartDeps
 } from './host'
 import { userDataDir, ensureHostKey, hostProof } from '../core/publicContract'
 import { pendingReportsDirIn } from '../core/orchestration/pendingReports'
 import { hostAddress } from '../host/address'
 import { startHostServer, type HostServerDeps } from '../host/server'
-import { HOST_PROTOCOL } from '../core/host/protocol'
+import { HOST_FEATURE_RESTART, HOST_PROTOCOL, RESTART_WAIT_MAX_MS, type ClientMessage, type HostMessage } from '../core/host/protocol'
+import { hostSpawnPlan } from '../core/host/spawn'
 import { HOST_STOP_WAIT_MS, HOST_UNRESPONSIVE_MS, SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
 import { encodeLine } from '../host/framing'
 import { EXIT_CODES } from '../core/orchestration/cliOutput'
@@ -920,6 +925,367 @@ describe('runHostCommand — host start --replace', () => {
       expect(newer.got.join('')).not.toContain('retire')
     } finally {
       await newer.close()
+    }
+  })
+})
+
+// T15: `astera host restart`, driven with a fake Host connection and a fake spawn — the real Host of this machine is
+// never asked to restart.
+describe('restartProgressLine', () => {
+  it('says how many workers are waited on and what is left of the wait', () => {
+    expect(restartProgressLine({ working: 3, waitingOn: ['a', 'b', 'c'], leftMs: 130_000 })).toBe(
+      'Holding new starts · waiting for 3 workers to reach a safe point (2:10 left)'
+    )
+    expect(restartProgressLine({ working: 1, waitingOn: ['a'], leftMs: 59_100 })).toBe(
+      'Holding new starts · waiting for 1 worker to reach a safe point (1:00 left)'
+    )
+  })
+
+  it('says so when every worker is at a safe point', () => {
+    expect(restartProgressLine({ working: 2, waitingOn: [], leftMs: 300_000 })).toBe('Holding new starts · every worker is at a safe point — handing over')
+  })
+
+  it('says who is cut short when the wait ran out or --now ended it', () => {
+    expect(restartProgressLine({ working: 2, waitingOn: ['a', 'b'], leftMs: 0 })).toBe('Handing over now · 2 workers not at a safe point yet are cut short')
+  })
+})
+
+describe('handoverSessionCount', () => {
+  it('counts the sessions and the chats of the handover file under the profile', () => {
+    const profile = 'C:\\Users\\me\\AppData\\Roaming\\astera'
+    const asked: string[] = []
+    const n = handoverSessionCount(profile, (f) => {
+      asked.push(f)
+      return JSON.stringify({ sessions: [{}, {}, {}], ptys: [{}], chats: [{}, {}] })
+    })
+    expect(n).toBe(5)
+    expect(asked).toEqual([path.join(profile, 'host', 'handover.json')])
+  })
+
+  it('is 0 for a missing file and for one that does not parse, and counts a handover an older Host wrote (no chats)', () => {
+    expect(handoverSessionCount('D:\\p', () => JSON.stringify({ sessions: [{}], ptys: [] }))).toBe(1)
+    expect(
+      handoverSessionCount('D:\\p', () => {
+        throw new Error('ENOENT')
+      })
+    ).toBe(0)
+    expect(handoverSessionCount('D:\\p', () => 'not json')).toBe(0)
+    expect(handoverSessionCount('D:\\p', () => 'null')).toBe(0)
+  })
+})
+
+describe('spawnHostDetached', () => {
+  it('starts the plan detached and hidden, and lets go of it', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-cli-home-'))
+    try {
+      const plan = hostSpawnPlan({ execPath: 'C:\\Astera\\Astera.exe', entryPath: 'C:\\Astera\\host.js', profileDir: home, logPath: path.join(home, 'host', 'host.log'), version: '2.0.0' })
+      const child = { on: vi.fn(), unref: vi.fn() }
+      const spawnFn = vi.fn(() => child)
+      spawnHostDetached({ plan, profileDir: home, spawnFn: spawnFn as never })
+      expect(spawnFn).toHaveBeenCalledTimes(1)
+      const [cmd, args, opts] = spawnFn.mock.calls[0] as unknown as [string, string[], { windowsHide: boolean; detached: boolean }]
+      expect(cmd).toBe('C:\\Astera\\Astera.exe')
+      expect(args).toEqual(['C:\\Astera\\host.js'])
+      expect(opts).toMatchObject({ windowsHide: true, detached: true })
+      expect(child.unref).toHaveBeenCalled()
+    } finally {
+      await fs.rm(home, { recursive: true, force: true })
+    }
+  })
+})
+
+type FakeHost = { emit(m: HostMessage): void; leave(): void }
+
+/** A connection as `connectHost` hands it back: what is called on it is kept in `sent`, and `onCall` plays the Host. */
+function fakeConn(a: { host: string; features: string[]; onCall?: (m: ClientMessage, host: FakeHost) => void }) {
+  const messages = new Set<(m: HostMessage) => void>()
+  const closers = new Set<() => void>()
+  const sent: ClientMessage[] = []
+  let left = false
+  const host: FakeHost = {
+    emit: (m) => messages.forEach((cb) => cb(m)),
+    leave: () => {
+      left = true
+      closers.forEach((cb) => cb())
+    }
+  }
+  return {
+    sent,
+    conn: {
+      hello: { host: a.host, pid: 7, startedAt: 'T', features: a.features },
+      call: (m: ClientMessage) => {
+        sent.push(m)
+        a.onCall?.(m, host)
+      },
+      onMessage: (cb: (m: HostMessage) => void) => {
+        messages.add(cb)
+        return () => messages.delete(cb)
+      },
+      onClose: (cb: () => void) => {
+        closers.add(cb)
+        if (left) cb()
+        return () => closers.delete(cb)
+      },
+      ref: () => {},
+      unref: () => {},
+      close: () => {}
+    }
+  }
+}
+
+describe('runHostCommand — host restart against a fake Host', () => {
+  const quickSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, Math.min(ms, 2)))
+  const noChild = (): never => ({ on: () => {}, unref: () => {} }) as never
+
+  /** The old Host answers `restart` as `steps` plays it (leaving when it says so); once a Host is "started" (or `appBack`), the new one answers. */
+  async function scenario(o: {
+    oldFeatures?: string[]
+    steps?: (host: FakeHost, m: ClientMessage) => void
+    appBack?: boolean
+    never?: boolean
+    deps?: Partial<HostRestartDeps>
+    options?: { wait?: unknown; now?: boolean }
+    handedOver?: number
+    spawnPlan?: HostRestartDeps['spawnPlan']
+  }) {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-cli-home-'))
+    const env = {} as NodeJS.ProcessEnv
+    const profileDir = userDataDir({ platform: process.platform, env, home })
+    const oldHost = fakeConn({
+      host: '1.0.0',
+      features: o.oldFeatures ?? ['proc', HOST_FEATURE_RESTART],
+      onCall: (m, host) => {
+        if (o.never) return
+        if (o.steps) o.steps(host, m)
+        else host.leave()
+      }
+    })
+    const newHost = fakeConn({ host: '2.0.0', features: ['proc', HOST_FEATURE_RESTART] })
+    let connects = 0
+    let spawned = false
+    const lines: string[] = []
+    const logPath = path.join(profileDir, 'host', 'host.log')
+    const plan = hostSpawnPlan({ execPath: 'C:\\Astera\\Astera.exe', entryPath: 'C:\\Astera\\host.js', profileDir, logPath, version: '2.0.0' })
+    const spawnFn = vi.fn(() => {
+      spawned = true
+      return { on: vi.fn(), unref: vi.fn() }
+    })
+    const planFor = vi.fn(() => ({ plan, logPath }))
+    const deps: HostRestartDeps = {
+      connect: (async () => {
+        if (connects++ === 0) return oldHost.conn
+        return o.appBack === true || spawned ? newHost.conn : { error: 'unreachable' }
+      }) as never,
+      spawnFn: spawnFn as never,
+      spawnPlan: (o.spawnPlan ?? planFor) as never,
+      answers: async () => false,
+      handedOver: () => o.handedOver ?? 0,
+      sleep: quickSleep,
+      write: (l) => lines.push(l),
+      graceMs: 0,
+      startMs: 200,
+      pollMs: 1,
+      ...o.deps
+    }
+    const result = await runHostCommand({ cmd: 'host-restart', env, platform: process.platform, home, restart: o.options, restartDeps: deps })
+    return { result, sent: oldHost.sent, lines, spawnFn, planFor, plan, cleanup: () => fs.rm(home, { recursive: true, force: true }) }
+  }
+
+  it('sends restart, prints the progress on stderr, waits for the old Host to leave and starts the new one from the CLI plan', async () => {
+    const s = await scenario({
+      handedOver: 12,
+      steps: (host) => {
+        host.emit({ t: 'restart-progress', working: 3, waitingOn: ['tsk_1', 'tsk_2', 'tsk_3'], leftMs: 130_000 })
+        host.emit({ t: 'restart-progress', working: 3, waitingOn: ['tsk_2'], leftMs: 120_000 })
+        host.emit({ t: 'restart-progress', working: 3, waitingOn: [], leftMs: 110_000 })
+        host.leave()
+      }
+    })
+    try {
+      expect(s.sent).toEqual([{ t: 'restart' }])
+      expect(s.lines).toEqual([
+        'Holding new starts · waiting for 3 workers to reach a safe point (2:10 left)',
+        'Holding new starts · waiting for 1 worker to reach a safe point (2:00 left)',
+        'Holding new starts · every worker is at a safe point — handing over',
+        'The Host is handing its sessions over and leaving',
+        'Starting the new Host',
+        'Restarted · 12 sessions resumed'
+      ])
+      expect(s.result).toEqual({ ok: true, body: { restarted: true, from: '1.0.0', to: '2.0.0', resumed: 12 } })
+      // The plan `hostSpawnPlanFor` makes, started detached and hidden.
+      expect(s.planFor).toHaveBeenCalledTimes(1)
+      expect(s.spawnFn).toHaveBeenCalledTimes(1)
+      const [cmd, args, opts] = s.spawnFn.mock.calls[0] as unknown as [string, string[], { windowsHide: boolean; detached: boolean }]
+      expect(cmd).toBe(s.plan.command)
+      expect(args).toEqual(s.plan.args)
+      expect(opts).toMatchObject({ windowsHide: true, detached: true })
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('does not repeat a line for a count that did not change, until ten seconds of the wait have gone', async () => {
+    const s = await scenario({
+      steps: (host) => {
+        for (const leftMs of [100_000, 98_000, 96_000, 90_000, 89_000]) host.emit({ t: 'restart-progress', working: 1, waitingOn: ['tsk_1'], leftMs })
+        host.leave()
+      }
+    })
+    try {
+      expect(s.lines.filter((l) => l.startsWith('Holding'))).toEqual([
+        'Holding new starts · waiting for 1 worker to reach a safe point (1:40 left)',
+        'Holding new starts · waiting for 1 worker to reach a safe point (1:30 left)'
+      ])
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('--now sends force: true', async () => {
+    const s = await scenario({ options: { now: true } })
+    try {
+      expect(s.sent).toEqual([{ t: 'restart', force: true }])
+      expect(s.result.ok).toBe(true)
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('--wait 5 sends waitMs 300000, and a wait above what the Host takes is cut to it', async () => {
+    const a = await scenario({ options: { wait: '5' } })
+    const b = await scenario({ options: { wait: 600 } })
+    try {
+      expect(a.sent).toEqual([{ t: 'restart', waitMs: 300_000 }])
+      expect(b.sent).toEqual([{ t: 'restart', waitMs: RESTART_WAIT_MAX_MS }])
+    } finally {
+      await a.cleanup()
+      await b.cleanup()
+    }
+  })
+
+  it.each([['0'], ['-3'], ['abc'], [true], ['']])('refuses --wait %s as INVALID_ARGUMENTS and sends nothing', async (wait) => {
+    const s = await scenario({ options: { wait } })
+    try {
+      expect(failed(s.result, 'host-restart').code).toBe('INVALID_ARGUMENTS')
+      expect(s.sent).toEqual([])
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('refuses a Host without the restart feature: nothing is sent, and it says what that Host can do', async () => {
+    const s = await scenario({ oldFeatures: ['proc', 'handover'] })
+    try {
+      const e = failed(s.result, 'host-restart')
+      expect(e.code).toBe('VERSION_MISMATCH')
+      expect(e.message).toContain('too old to restart')
+      expect(e.message).toContain('astera host stop')
+      expect(s.sent).toEqual([])
+      expect(s.spawnFn).not.toHaveBeenCalled()
+      expect(envelopeOf(s.result, 'host-restart').error.nextSteps).toContain('astera host stop')
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('does not start a Host when the app has already brought its own back', async () => {
+    const s = await scenario({ appBack: true, handedOver: 4 })
+    try {
+      expect(s.spawnFn).not.toHaveBeenCalled()
+      expect(s.planFor).not.toHaveBeenCalled()
+      expect(s.result).toEqual({ ok: true, body: { restarted: true, from: '1.0.0', to: '2.0.0', resumed: 4 } })
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('is TIMEOUT when the old Host never leaves, and starts nothing', async () => {
+    const s = await scenario({ never: true, deps: { exitMs: 30 } })
+    try {
+      expect(failed(s.result, 'host-restart')).toMatchObject({ code: 'TIMEOUT', details: { waitedMs: 30 } })
+      expect(s.spawnFn).not.toHaveBeenCalled()
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('is TIMEOUT when the old Host ended its connection but keeps the address', async () => {
+    const s = await scenario({ deps: { answers: async () => true, leaveMs: 20 } })
+    try {
+      expect(failed(s.result, 'host-restart').code).toBe('TIMEOUT')
+      expect(s.spawnFn).not.toHaveBeenCalled()
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('reads the handover once the old Host has left the address, and before the new one starts', async () => {
+    const order: string[] = []
+    let probes = 0
+    const s = await scenario({
+      deps: {
+        answers: async () => {
+          order.push('probe')
+          return probes++ < 2
+        },
+        handedOver: () => {
+          order.push('read')
+          return 3
+        },
+        spawnFn: ((..._a: unknown[]) => {
+          order.push('spawn')
+          return noChild()
+        }) as never,
+        startMs: 20
+      }
+    })
+    try {
+      // The new Host never answers here (this spawn is the test's own): only the order is looked at.
+      expect(order).toEqual(['probe', 'probe', 'probe', 'read', 'spawn'])
+      expect(s.result.ok).toBe(false)
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('reports a plan that cannot be made (no Host build) and starts nothing', async () => {
+    const s = await scenario({ spawnPlan: () => ({ error: { code: 'HOST_NOT_RUNNING', message: 'no Host build found among: D:\\x\\host.js' } }) })
+    try {
+      expect(failed(s.result, 'host-restart')).toMatchObject({ code: 'HOST_NOT_RUNNING', message: expect.stringContaining('no Host build found') })
+      expect(s.spawnFn).not.toHaveBeenCalled()
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('says where the log is when the new Host does not answer, and that the sessions are kept', async () => {
+    const s = await scenario({ deps: { spawnFn: noChild as never, startMs: 20 }, handedOver: 6 })
+    try {
+      const e = failed(s.result, 'host-restart')
+      expect(e.code).toBe('HOST_NOT_RUNNING')
+      expect(e.message).toContain('host.log')
+      expect(e.message).toContain('astera host start')
+      expect(e.details).toMatchObject({ resumed: 6 })
+    } finally {
+      await s.cleanup()
+    }
+  })
+
+  it('with no Host at all there is nothing to restart: HOST_NOT_RUNNING, no spawn', async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-cli-home-'))
+    try {
+      const spawnFn = vi.fn()
+      const r = await runHostCommand({
+        cmd: 'host-restart',
+        env: {},
+        platform: process.platform,
+        home,
+        restartDeps: { connect: (async () => ({ error: 'unreachable' })) as never, spawnFn: spawnFn as never }
+      })
+      expect(failed(r, 'host-restart').code).toBe('HOST_NOT_RUNNING')
+      expect(spawnFn).not.toHaveBeenCalled()
+    } finally {
+      await fs.rm(home, { recursive: true, force: true })
     }
   })
 })

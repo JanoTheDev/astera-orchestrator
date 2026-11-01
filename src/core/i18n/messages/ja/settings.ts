@@ -216,6 +216,7 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.roleModels.effortHint': '下は推論の深さです。Task 自身の深さが優先され、開始時にモデルが対応する段階に合わせて調整されます。',
   'settings.info.hostOutdated': 'バックグラウンドサービス {host} · アプリ {app} — すべてのセッションを閉じると自動で新しいバージョンに更新されます。今すぐ再起動するとすぐに更新されます。',
   'settings.info.hostRuntimeIncomplete': 'バックグラウンドサービスが使うファイルの一部がなくなっています。このままだと次のセッションで応答しなくなります。何も保持していないときに自動で修復され、今すぐ再起動しても同じです。',
+  'settings.info.hostRestartHint': '今すぐ再起動すると、新規開始を保留し、作業中の Task が安全な地点に着くのを待ってから、すべてのセッションを新しい Host に引き継ぎます。',
   'settings.maxWorkers.label': 'すべてのプランを合わせた最大エージェント数',
   'settings.maxWorkers.hint': '最大 100。空欄ならこのマシンの推奨値を使います。上限に達すると優先度の高いプランから空きを受け取り、同じなら交代で受け取ります。',
   'settings.maxWorkers.saveFailed': 'エージェントの上限を保存できませんでした: {detail}',
@@ -224,7 +225,8 @@ export const settings: Partial<Record<keyof typeof ko, string>> = {
   'settings.minWorkers.default': '{count} = {person} の半分',
   'settings.minWorkers.saveFailed': '最小エージェント数を保存できませんでした: {detail}',
   'settings.heavyJobs.label': '同時に実行する重いジョブ数',
-  'settings.heavyJobs.hint': 'フルテストスイート、Electron、dist ビルド、Task のチェックをマシン全体で同時に何件まで実行するかを決めます。ノート PC では 1 が最も安全で、増やすと CPU とメモリを多く使います。',
+  'settings.heavyJobs.hint': 'フルテストスイート、Electron、dist ビルド、Task のチェックをマシン全体で同時に何件まで実行するかを決めます。空欄なら自動で、その時点の空きメモリから決めます。数値を入れるとその値をそのまま使います。',
+  'settings.heavyJobs.auto': '自動 (現在は空きメモリから {count})',
   'settings.heavyJobs.saveFailed': '重いジョブの上限を保存できませんでした: {detail}',
   'settings.tabSummaries.hint': 'タブが終わると、Astera が短いカードを書きます: したこと、ファイル、チェックとレビュー、そしてリードエージェントのモデルによる 2〜3 文。カードは Task ボード、履歴、プランの概要に表示されます。',
   // MCP & skills finder, custom instructions

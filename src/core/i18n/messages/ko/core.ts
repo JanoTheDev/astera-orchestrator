@@ -271,6 +271,8 @@ export const core = {
   'jobs.convergence.gate.needsDecision':
     '검토가 코드 수정으로는 풀리지 않는 문제를 찾았습니다: {issues}\n어떻게 할지 답하세요. 그 답을 담은 수정 하나가 예산 밖에서 열립니다.',
   'jobs.checks.gate.unavailable': '검사를 할 수 없었습니다: {check}: {reason}',
+  'jobs.checks.gate.reviewEnded':
+    '검토를 실행할 수 없습니다: {reason}\n이 Task 를 다시 검토하려면 review-again 으로 답하세요. 끝난 일을 버리지 않고 워커의 보고와 검사 결과로 닫으려면 accept-as-done 으로 답하세요(task-update --status completed 도 됩니다).',
   'jobs.gate.noAccount': '{provider} 계정에 로그인되어 있지 않아 이 Task 를 시작할 수 없습니다',
   'jobs.gate.noAccountAnyProvider': '어떤 공급자의 계정에도 로그인되어 있지 않아 이 Task 를 시작할 수 없습니다',
   'jobs.gate.workerLostNoApp': '이 Task 의 워커가 복구해 줄 Astera 가 열려 있지 않은 동안 사라졌습니다(dispatch {dispatch}). 이 Gate 를 해결하면 다시 시작합니다.',

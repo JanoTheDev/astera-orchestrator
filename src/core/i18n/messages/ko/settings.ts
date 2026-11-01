@@ -116,6 +116,8 @@ export const settings = {
   'settings.info.hostUnresponsiveWhat': '새 세션은 앱 안에서 열리고 있습니다. 그 세션들은 앱을 끄면 함께 끝납니다.',
   // 런타임 파일이 사라진 Host. 지금은 멀쩡해 보여도 다음 세션에서 멎는다.
   'settings.info.hostRuntimeIncomplete': '백그라운드 서비스가 쓰는 파일 일부가 사라졌습니다. 이대로 두면 다음 세션에서 응답이 멈춥니다. 유지 중인 것이 없어지면 자동으로 고쳐지고, 지금 재시작해도 됩니다.',
+  // 오래된 Host 옆의 "지금 재시작" 이 무엇을 하는지 한 줄로 (T15).
+  'settings.info.hostRestartHint': '지금 재시작하면 새 시작을 보류하고, 작업 중인 Task 가 안전한 지점에 이르기를 기다린 뒤 모든 세션을 새 Host 로 넘깁니다.',
   'settings.worktree.createLocation': 'worktree 생성 위치',
   'settings.worktree.change': '변경…',
   'settings.worktree.hint':
@@ -243,7 +245,8 @@ export const settings = {
   'settings.minWorkers.default': '{count}개 = {person}개의 절반',
   'settings.minWorkers.saveFailed': '최소 에이전트 수를 저장하지 못했습니다: {detail}',
   'settings.heavyJobs.label': '동시에 실행할 무거운 작업 수',
-  'settings.heavyJobs.hint': '전체 테스트, Electron, dist 빌드, Task 검사를 기기 전체에서 동시에 몇 개까지 돌릴지 정합니다. 노트북에서는 1이 가장 안전하고, 늘리면 CPU와 메모리를 더 씁니다.',
+  'settings.heavyJobs.hint': '전체 테스트, Electron, dist 빌드, Task 검사를 기기 전체에서 동시에 몇 개까지 돌릴지 정합니다. 비워 두면 자동이며, 남은 메모리에서 그때그때 정합니다. 숫자를 넣으면 그 값을 그대로 씁니다.',
+  'settings.heavyJobs.auto': '자동 (지금 여유 메모리 기준 {count})',
   'settings.heavyJobs.saveFailed': '무거운 작업 한도를 저장하지 못했습니다: {detail}',
   'settings.activityDigest.label': '활동 요약 주기(분)',
   'settings.activityDigest.hint': '끝났거나 실패했거나 기다리는 일의 요약을 데스크톱과 Slack 에 보내는 주기입니다. 일이 있었을 때만 보냅니다. 0 이면 보내지 않습니다.',

@@ -8,6 +8,8 @@ import { openActivity, openPanel } from './navigation'
 import { NotificationBell } from './NotificationBell'
 import { setAccountsOpen } from './ActivityBar'
 import { openProjectSwitcher } from './ProjectSwitcher'
+import { hostRestartCanForce, hostRestartMessage, hostRestartOffered, hostRestartRunning } from '../../../../core/host/restartView'
+import type { HostStatus } from '../../../../core/types'
 import type { AppState } from '../../state/appState'
 import type { ShellState } from './useShell'
 
@@ -75,12 +77,25 @@ export function useCurrentBranch(path: string | null): string | null {
   return branch
 }
 
+/** A restart's progress as one status item: a spinner while it runs, amber when it failed (core/host/restartView.ts says it). */
+export function RestartProgressItem({ restart, t }: { restart: NonNullable<HostStatus['restart']>; t: AppState['t'] }): React.JSX.Element {
+  const m = hostRestartMessage(restart)
+  return (
+    <StatusBarItem tone={restart.phase === 'failed' ? 'warn' : undefined} icon={hostRestartRunning(restart) ? <Icon name="loading" size={14} /> : undefined}>
+      {t(m.key, m.params)}
+    </StatusBarItem>
+  )
+}
+
 export function StatusBar(p: StatusBarProps): React.JSX.Element {
   const { appVersion, counts, needsYouUnread, hostRestarting, hostRuntime, hostRuntimeNow, hostStatus, nextQueued, restartHost, shellAccount, shellUsage, t } = p
   const { branch } = p
   // An outdated Host waiting for its swap is still connected and still working; only the button replaces that word.
   const swapping = hostStatus?.replacement === 'swapping'
-  const hostOk = !!hostStatus?.connected && !hostStatus.unresponsive && !(hostStatus.outdated && hostStatus.replacement === 'manual')
+  // The Host's restart (T15): its progress, or the offer of one. The offer replaces the word "connected", as the manual one did.
+  const restart = hostStatus?.restart
+  const restartOffer = hostRestartOffered(hostStatus)
+  const hostOk = !!hostStatus?.connected && !hostStatus.unresponsive && !restartOffer && !(hostStatus.outdated && hostStatus.replacement === 'manual')
   const project = p.workspaceTree.find((x) => x.id === p.workspaceProjectId)?.name ?? p.currentProject?.split(/[\\/]/).filter(Boolean).pop()
   const five = shellUsage?.session?.usedPercent
   const week = shellUsage?.weekly?.usedPercent
@@ -114,7 +129,9 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
           </StatusBarItem>
         )}
         {/* The automatic swap (T16) drops the connection on purpose for a few seconds: one short word, not "offline". */}
-        {swapping ? (
+        {restart ? (
+          <RestartProgressItem restart={restart} t={t} />
+        ) : swapping ? (
           <StatusBarItem icon={<Icon name="loading" size={14} />}>{t('status.hostUpdating')}</StatusBarItem>
         ) : hostOk ? (
           <StatusBarItem title={hostStatus?.hostVersion ? t('shell.status.hostTitle', { version: hostStatus.hostVersion }) : t('shell.status.hostAbout')}>
@@ -138,19 +155,33 @@ export function StatusBar(p: StatusBarProps): React.JSX.Element {
             freeze the window with nothing on screen. Beside the other Host notices, for the same reason
             they are outside the session branches. */}
         <HostRuntimeNotice state={hostRuntime} nowMs={hostRuntimeNow} />
-        {hostStatus?.connected && hostStatus.outdated && hostStatus.replacement === 'manual' && (
+        {/* T15: offered whenever the Host is older than the app, not only after the swap has waited 30 minutes. */}
+        {restartOffer && hostStatus && (
+          <>
+            <span className="status-host-older">{t('status.hostRestartOffer', { host: hostStatus.hostVersion ?? '?', app: appVersion })}</span>
+            <span className="status-host-older" aria-hidden="true">·</span>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="status-host-outdated"
+              loading={hostRestarting}
+              onClick={() => void restartHost()}
+              title={t('status.hostRestartOfferTitle', { host: hostStatus.hostVersion ?? '?', app: appVersion })}
+            >
+              {hostRestarting ? t('settings.info.hostRestarting') : t('settings.info.hostRestartNow')}
+            </Button>
+          </>
+        )}
+        {/* The workers that have not reached a safe point need not be waited for: hand over now. */}
+        {hostRestartCanForce(restart) && (
           <Button
             variant="secondary"
             size="sm"
             className="status-host-outdated"
-            loading={hostRestarting}
-            onClick={() => void restartHost()}
-            title={t('status.hostOutdatedTitle', {
-              host: hostStatus.hostVersion ?? '?',
-              app: appVersion
-            })}
+            onClick={() => void window.api.host.restartNow({ force: true })}
+            title={t('status.hostRestartAnywayTitle')}
           >
-            {hostRestarting ? t('settings.info.hostRestarting') : t('status.hostOutdated')}
+            {t('status.hostRestartAnyway')}
           </Button>
         )}
         {/* The Host stopped answering. The same place and the same amber as the notice above, because

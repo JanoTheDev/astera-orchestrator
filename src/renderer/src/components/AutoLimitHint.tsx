@@ -26,13 +26,13 @@ export function useAutoLimits(): { auto: AutoLimits; refresh: () => void } {
 }
 
 export function AutoLimitHint({ kind }: { kind: 'workers' | 'heavy' }): React.JSX.Element | null {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const { auto, refresh } = useAutoLimits()
-  const note = autoLimitNote(auto, kind, t)
+  const note = autoLimitNote(auto, kind, t, (iso) => new Date(iso).toLocaleString(lang))
   const checks = kind === 'heavy' && auto.checksAsHeavy
   if (!note && !checks) return null
   const restore = (): void => {
-    window.api.settings.restoreAutoLimits().then(refresh, (err) =>
+    window.api.settings.restoreAutoLimit(kind).then(refresh, (err) =>
       toast.error(t('settings.autoLimit.restoreFailed', { detail: err instanceof Error ? err.message : String(err) }))
     )
   }

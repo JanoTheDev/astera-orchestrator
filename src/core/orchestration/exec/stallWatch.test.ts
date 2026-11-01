@@ -1,7 +1,14 @@
 // Stall watchdog (owner 2026-10-18): each stall detected from Host state alone and remedied once, a healthy plan left
 // alone, and nothing at all with the setting off.
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { liftStartHold, RESTART_HOLD_REASON, startHeldNow, writeStartHold } from '../startHold'
 import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, IDLE_NUDGE, IDLE_STALL_MS, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, VALIDATE_STALL_MS, createStallWatch, stallRemedies, type StallEntry, type StallWatchDeps, type StallProbe, type StallRemedy } from './stallWatch'
+import { INSTALL_START_WINDOW_MS, isInstallingStart } from './stallWatch'
+import { SETUP_SLOT_WAIT_MS, SETUP_TIMEOUT_MS } from '../../worktrees/setup'
+import { PENDING_START_WINDOW_MS } from '../command'
 import { startPauseOf } from '../usageGuard'
 import { createDispatchLoop, type DispatchLoopContext } from './dispatchLoop'
 import { emptyState, type OrchState } from '../state'
@@ -10,7 +17,6 @@ import type { Dispatch, Job, Task } from '../types'
 import { mergedIntoPlan } from '../finishedSessions'
 import { adoptLiveWorkers, type LiveWorker } from './adopt'
 import type { Account } from '../../types'
-import { INSTALLING_PREFIX } from '../command'
 
 const NOW = '2026-10-18T00:00:00.000Z'
 const T0 = Date.parse(NOW)
@@ -286,6 +292,39 @@ describe('stallRemedies', () => {
     const got = watch(s, every30s(10 * MIN)).filter((x) => x.startsWith('draft-pr'))
     expect(got).toEqual(['draft-pr:1'])
     expect(watch(s, [T0, T0 + DRAFT_STALL_MS - STALL_WATCH_MS]).filter((x) => x.startsWith('draft-pr'))).toEqual([])
+  })
+
+  // T2: a start whose fork's install waits for a heavy slot holds its `pending:install:` placeholder for many minutes
+  it('a worker start waiting on its install is in flight for INSTALL_START_WINDOW_MS, not a stuck coordinator or a lost start', () => {
+    const starting = (sessionId: string): OrchState =>
+      plan(
+        {
+          tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_2' })],
+          dispatches: [{ ...ended('tsk_1', '/wt-a'), sessionId, specPath: '', endedAt: undefined, outcome: undefined } as Dispatch]
+        },
+        { concurrency: 3 }
+      )
+    const busy: StallProbe = { ...idle, busy: (id) => (id === 'coord-1' ? true : null) }
+    // Within its window: nothing is done about the start, its Run or its busy coordinator
+    expect(watch(starting('pending:install:ab12cd34'), every30s(INSTALL_START_WINDOW_MS - MIN), busy)).toEqual([])
+    // A plain placeholder reads as a dead start after two minutes, so the Run is watched again
+    expect(watch(starting('pending:ab12cd34'), every30s(15 * MIN), busy)).toEqual(
+      expect.arrayContaining(['tell-start:tsk_2', 'tell-busy:coord-1', 'refresh:coord-1'])
+    )
+    // Past its own window the install placeholder is read the same way
+    const past = T0 + INSTALL_START_WINDOW_MS
+    expect(watch(starting('pending:install:ab12cd34'), every30s(15 * MIN).map((t) => t + past), busy)).toEqual(
+      expect.arrayContaining(['tell-start:tsk_2', 'tell-busy:coord-1', 'refresh:coord-1'])
+    )
+    expect(isInstallingStart('pending:install:ab12cd34')).toBe(true)
+    expect(isInstallingStart('pending:ab12cd34')).toBe(false)
+    // Nor is it a worker idle at its prompt, even where an unknown session reads as idle: it has no session yet
+    const alone = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: starting('pending:install:ab12cd34').dispatches })
+    expect(watch(alone, every30s(INSTALL_START_WINDOW_MS - MIN), idle)).toEqual([])
+  })
+
+  it('INSTALL_START_WINDOW_MS outlasts the longest install start: the slot wait, the install, then the session start', () => {
+    expect(INSTALL_START_WINDOW_MS).toBeGreaterThan(SETUP_SLOT_WAIT_MS + SETUP_TIMEOUT_MS + PENDING_START_WINDOW_MS)
   })
 
   it('a healthy plan gets nothing: its worker is working and nothing waits', () => {
@@ -567,26 +606,6 @@ describe('stallRemedies: a dispatched Task with no Dispatch', () => {
   })
 })
 
-describe('stallRemedies: a start waiting for a heavy slot to install (T2)', () => {
-  const installing = (startedAt = NOW): Dispatch =>
-    ({ ...ended('tsk_1', '/wt-child'), sessionId: `${INSTALLING_PREFIX}ab12cd34`, specPath: '/specs/tsk_1-dsp_tsk_1.md', startedAt, endedAt: undefined, outcome: undefined }) as Dispatch
-
-  it('is neither idle, lost nor untracked for the hour it may wait, whatever the probe says of its placeholder', () => {
-    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [installing()] })
-    // `idle` answers false (not busy) for every id, the placeholder's too: still no nudge, no retry, no escalation
-    expect(watch(s, every30s(60 * MIN))).toEqual([])
-    // An app-driven Run, which the watchdog itself retries a lost Task for
-    expect(watch({ ...s, jobs: [{ ...s.jobs[0], autoDispatch: true }], runs: [{ ...s.runs[0], coordinatorSessionId: undefined }] }, every30s(60 * MIN))).toEqual([])
-  })
-
-  it('holds its slot, and the plan’s other ready Task still gets the free one', () => {
-    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' }), task({ id: 'tsk_2' })], dispatches: [installing(new Date(T0 - 30 * MIN).toISOString())] })
-    expect(watch(s, every30s(5 * MIN))).toEqual(['tell-start:tsk_2', 'place:tsk_2'])
-    // With one slot it is the start in flight that holds it: nothing to tell or place
-    expect(watch({ ...s, jobs: [{ ...s.jobs[0], concurrency: 1 }] }, every30s(5 * MIN))).toEqual([])
-  })
-})
-
 describe('no silent stalls (T11)', () => {
   /** Runs the pure check every 30 s up to `to` and lists each remedy with the minute it came due. */
   const timeline = (s: OrchState, to: number, probe: StallProbe = idle): [string, number][] => {
@@ -726,5 +745,72 @@ describe('a lost validation', () => {
     await h.run(VALIDATE_STALL_MS)
     expect(started).toEqual([{ taskId: 'tsk_1', cwd: '/wt-t1' }])
     expect(h.lines).toEqual(['Restarted the checks of TSK_1: it was validating 5 min with no check running (try 1 of 4)'])
+  })
+})
+
+// T19: while start-hold.json exists nothing new starts (worker-start refuses), so the watchdog tells no coordinator to
+// start a ready Task and starts nothing itself. The profile is a temp folder: a drive-letter path on Windows.
+describe('the hold on new starts', () => {
+  const profiles: string[] = []
+  afterEach(() => {
+    for (const p of profiles.splice(0)) fs.rmSync(p, { recursive: true, force: true })
+  })
+  const heldProfile = async (): Promise<string> => {
+    const p = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-stallhold-'))
+    profiles.push(p)
+    await writeStartHold(p, { by: 'restart', reason: RESTART_HOLD_REASON, at: NOW })
+    expect(startHeldNow(p)).toBe(true)
+    return p
+  }
+  const held: StallProbe = { ...idle, startHeld: true }
+
+  it('a ready Task gets no start nudge and no start while held, and its stall counts from the lift', () => {
+    let memo = new Map<string, StallEntry>()
+    const got: [string, number][] = []
+    for (const t of every30s(30 * MIN)) {
+      const r = stallRemedies(plan(), t, memo, t - T0 < 20 * MIN ? held : idle)
+      memo = r.memo
+      for (const d of r.due) got.push([`${d.kind}:${label(d)}`, (t - T0) / MIN])
+    }
+    // lifted at 20 min: told 2 min later, started 2 min after that and again on the usual backoff, never during the hold
+    expect(got).toEqual([['tell-start:tsk_1', 22], ['place:tsk_1', 24], ['place:tsk_1', 29]])
+  })
+
+  it('a busy coordinator is not told what is ready, a lost Task is not retried and a planner not restarted while held', () => {
+    const busyWithWork: StallProbe = { ...held, busy: (id) => id === 'coord-1' }
+    expect(watch(plan(), every30s(60 * MIN), busyWithWork)).toEqual([])
+    const lost = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), outcome: undefined } as Dispatch] })
+    expect(watch(lost, every30s(60 * MIN), held)).toEqual([])
+    // lifted: retried at once (it has been lost for an hour)
+    let memo = new Map<string, StallEntry>()
+    for (const t of every30s(60 * MIN)) memo = stallRemedies(lost, t, memo, held).memo
+    expect(stallRemedies(lost, T0 + 60 * MIN + STALL_WATCH_MS, memo, idle).due.map((d) => `${d.kind}:${label(d)}`)).toEqual(['retry-lost:tsk_1'])
+    const planning = plan({ runs: [] }, { pendingStart: true, plannerSessionIds: ['pl'], planning: 'auto' })
+    expect(watch(planning, every30s(60 * MIN), { ...held, alive: () => false }).filter((x) => x.startsWith('restart-planner'))).toEqual([])
+  })
+
+  it('the loop tells no coordinator to start a ready Task while start-hold.json exists, and does once it is lifted', async () => {
+    const profile = await heldProfile()
+    const h = rig(plan())
+    h.ctx.sessionBusy = () => false
+    h.ctx.startHeld = () => startHeldNow(profile)
+    for (let t = 0; t <= 20 * MIN; t += STALL_WATCH_MS) await h.at(t)
+    expect(h.cmds).toEqual([])
+    expect(h.lines).toEqual([])
+    expect(await liftStartHold(profile)).toBe(true)
+    for (let t = 20 * MIN + STALL_WATCH_MS; t <= 26 * MIN; t += STALL_WATCH_MS) await h.at(t)
+    expect(String(h.cmds.find((c) => c.cmd === 'send')?.args.body)).toContain('astera worker-start --task tsk_1')
+    expect(h.cmds.filter((c) => c.cmd === 'worker-start')).toHaveLength(1)
+  })
+
+  it('the Host watchdog starts nothing while held: no lost-Task retry, no planner restart', async () => {
+    const profile = await heldProfile()
+    const lost = plan({ tasks: [task({ id: 'tsk_1', status: 'dispatched' })], dispatches: [{ ...ended('tsk_1', '/wt1'), outcome: undefined } as Dispatch] })
+    const h = watchRig(lost, undefined, undefined, undefined, undefined, { startHeld: () => startHeldNow(profile) })
+    await h.run(30 * MIN)
+    expect(h.cmds.filter((c) => c.cmd === 'worker-start')).toEqual([])
+    await liftStartHold(profile)
+    await h.run(31 * MIN)
+    expect(h.cmds.filter((c) => c.cmd === 'worker-start')).toHaveLength(1)
   })
 })

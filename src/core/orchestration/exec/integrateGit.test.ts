@@ -10,11 +10,12 @@ import {
   reapWorktree,
   refreshOnto,
   worktreeDeps,
-  type ForkSetup,
   type IntegrateContext,
   type ReapContext
 } from './integrateGit'
 import { createActionPresenceCheck } from '../../worktrees/presence'
+import { untilInstallQueues } from '../../worktrees/setup'
+import { heavySlot } from './validation'
 import { PROBE_TIMEOUT_MS } from '../../sessions/pathProbe'
 
 let repo: string, registry: WorktreeRegistry, logs: string[], ops: string[], reaped: string[]
@@ -60,28 +61,33 @@ describe('forkWorktree', () => {
   })
   it('runs the project setup command in the new worktree, and not when it is off', async () => {
     await fs.writeFile(path.join(repo, 'package-lock.json'), '{}'); gitSync(repo, ['add', '.']); gitSync(repo, ['commit', '-m', 'lock'])
-    const ran = await forkWorktree({ repoPath: repo, name: 'on' }, { registry, log: () => {}, setupCommand: 'touch ran.txt' })
+    const ran = await forkWorktree({ repoPath: repo, name: 'on' }, { registry, log: () => {}, setupCommand: `node -e "require('fs').writeFileSync('ran.txt','')"` })
     await expect(fs.stat(path.join(ran, 'ran.txt'))).resolves.toBeTruthy()
     const off = await forkWorktree({ repoPath: repo, name: 'off' }, { registry, log: () => {}, setupCommand: 'off' })
     await expect(fs.stat(path.join(off, 'ran.txt'))).rejects.toThrow()
   })
-  it('hands the setup to the caller with setupLater, which runs it under the heavy slot it gives (T2)', async () => {
-    let handed: ForkSetup | undefined
-    const wt = await forkWorktree(
-      { repoPath: repo, name: 'later', setupLater: (setup) => void (handed = setup) },
-      { registry, log: () => {}, setupCommand: `node -e "require('fs').writeFileSync('ran.txt','')"` }
-    )
-    // The fork answered with the git half done and nothing installed yet
-    await expect(fs.stat(path.join(wt, 'ran.txt'))).rejects.toThrow()
-    expect(handed).toBeTypeOf('function')
-    const asked: string[] = []
-    const r = await handed!({ slots: async () => 1, take: async (a) => (asked.push(`${a.kind} ${a.cwd}`), () => {}) })
-    expect(r.ran).toBe(true)
-    expect(asked).toEqual([`setup ${wt}`])
-    await expect(fs.stat(path.join(wt, 'ran.txt'))).resolves.toBeTruthy()
+  // T2: inside a worker start's install turn the install waits for one of the machine's heavy slots, after the fork turn
+  // is handed on, and says when it queues
+  it('inside an install turn, waits for a heavy slot outside the repo fork turn: a second fork goes ahead meanwhile', async () => {
+    const root = await tempDir('astera-fork-heavy-')
+    const at = { lock: path.join(root, 'lock'), queueDir: path.join(root, 'queue'), pollMs: 20 }
+    const holder = (await heavySlot({ ...at, cwd: path.join(root, 'held'), cmd: 'held' }))!
+    const setupCommand = `node -e "require('fs').writeFileSync('ran.txt','')"`
+    const start = (name: string) =>
+      untilInstallQueues({ slots: async () => 1, ...at }, () => forkWorktree({ repoPath: repo, name }, { registry, log: () => {}, setupCommand }))
+    const a = await start('a')
+    if (!('queued' in a)) throw new Error('a did not queue its install')
+    // a's install still waits for the slot, and b's git half has run all the same
+    const b = await start('b')
+    if (!('queued' in b)) throw new Error('b did not queue its install')
+    await expect(fs.stat(path.join(a.queued.dir, 'ran.txt'))).rejects.toThrow()
+    holder()
+    const [wa, wb] = await Promise.all([a.queued.rest, b.queued.rest])
+    expect([wa, wb]).toEqual([a.queued.dir, b.queued.dir])
+    for (const wt of [wa, wb]) await expect(fs.stat(path.join(wt, 'ran.txt'))).resolves.toBeTruthy()
   })
   it('logs a failing setup and still forks', async () => {
-    const wt = await forkWorktree({ repoPath: repo, name: 'bad' }, { registry, log: logTo(), setupCommand: 'echo nope; exit 2' })
+    const wt = await forkWorktree({ repoPath: repo, name: 'bad' }, { registry, log: logTo(), setupCommand: `node -e "console.log('nope');process.exit(2)"` })
     await expect(fs.stat(wt)).resolves.toBeTruthy()
     expect(logs.join('\n')).toMatch(/setup: .*failed.*exit 2.*nope/s)
   })
@@ -170,7 +176,8 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
   })
   // Owner spec 2026-10-18, part 2: a worker committed its node_modules link (a `node_modules/` rule does not match a
   // symlink), and the folder merged into has its own untracked one. git refuses that merge; it must go through.
-  it('an untracked node_modules symlink in the folder does not block the merge', async () => {
+  // skipIf(win32): creating a symlink there needs the symlink privilege (EPERM without Developer Mode or admin)
+  it.skipIf(process.platform === 'win32')('an untracked node_modules symlink in the folder does not block the merge', async () => {
     const target = await tempDir('astera-integrate-nm-')
     const a = await forkWorktree({ repoPath: repo, name: 'a' }, { registry, log: logTo() })
     await fs.symlink(target, path.join(a, 'node_modules'))

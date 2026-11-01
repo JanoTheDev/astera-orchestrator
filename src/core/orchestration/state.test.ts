@@ -43,6 +43,9 @@ import {
   interruptStalledTask,
   runGatedForTask,
   doneStatusOf,
+  answerReviewEnded,
+  checksPassedOf,
+  REVIEW_ENDED_ACCEPT_REASON,
   type OrchState
 } from './state'
 import { DELIVERY_MAX, FAILURE_LIMIT, canTransition, type Task, type Gate, type Dispatch, type CheckResult } from './types'
@@ -2257,6 +2260,42 @@ describe('blockForReview', () => {
     )
     expect(r.value.question).toContain('task-update')
     expect(r.value.question).toContain('completed')
+  })
+
+  it('T9: opens a review-ended Gate with the two options, in English by default and in the app’s language', () => {
+    const { s, taskId } = reviewingNoDispatch()
+    const r = unwrap<{ question: string; kind: string; options: string[] }>(blockForReview(s, { taskId, reason: 'no reviewer account' }, NOW) as never)
+    expect(r.value).toMatchObject({ kind: 'review-ended', options: ['review-again', 'accept-as-done'] })
+    expect(r.value.question.startsWith('The review could not run: no reviewer account\n')).toBe(true)
+    const ko = unwrap<{ question: string }>(blockForReview(s, { taskId, reason: 'x', lang: 'ko' }, NOW) as never)
+    expect(ko.value.question.startsWith('검토를 실행할 수 없습니다: x')).toBe(true)
+  })
+
+  it('T9: answerReviewEnded: review-again puts the Task back to reviewing, accept-as-done completes it only when its checks passed', () => {
+    const { s, taskId } = reviewingNoDispatch()
+    const blocked = unwrap<{ id: string }>(blockForReview(s, { taskId, reason: 'ended' }, NOW) as never)
+    const gateId = blocked.value.id
+    const again = unwrap<{ review: { taskId: string } | null }>(answerReviewEnded(blocked.state, { gateId, resolution: 'review-again' }, NOW) as never)
+    expect(again.value.review).toEqual({ taskId })
+    expect(again.state.tasks.find((t) => t.id === taskId)!.status).toBe('reviewing')
+    expect(again.state.gates.find((g) => g.id === gateId)).toMatchObject({ status: 'resolved', resolution: 'review-again' })
+
+    const done = unwrap<{ review: null }>(answerReviewEnded(blocked.state, { gateId, resolution: 'accept-as-done' }, NOW) as never)
+    const accepted = done.state.tasks.find((t) => t.id === taskId)!
+    expect(accepted.status).toBe('completed')
+    expect(accepted.completionOverride?.reason).toBe(REVIEW_ENDED_ACCEPT_REASON)
+
+    const failing: OrchState = { ...blocked.state, tasks: blocked.state.tasks.map((t) => (t.id === taskId ? { ...t, checks: [{ configId: 'c', name: 'c', status: 'failed' as const }] } : t)) }
+    const refused = answerReviewEnded(failing, { gateId, resolution: 'accept-as-done' }, NOW)
+    expect(refused.ok).toBe(false)
+    expect(failing.tasks.find((t) => t.id === taskId)!.status).toBe('blocked')
+  })
+
+  it('T9: checksPassedOf: a failed, timed-out or unavailable check fails the round, a skipped one does not', () => {
+    const c = (status: 'passed' | 'failed' | 'timed-out' | 'not-run' | 'error', skipped?: true) => ({ configId: 'c', name: 'c', status, ...(skipped ? { skipped } : {}) })
+    expect(checksPassedOf({})).toBe(true)
+    expect(checksPassedOf({ checks: [c('passed'), c('not-run', true)] })).toBe(true)
+    for (const bad of [c('failed'), c('timed-out'), c('error'), c('not-run')]) expect(checksPassedOf({ checks: [c('passed'), bad] }), bad.status).toBe(false)
   })
 })
 

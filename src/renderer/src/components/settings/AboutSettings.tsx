@@ -8,7 +8,8 @@ import { CliInstallRows } from '../CliInstallRows'
 import { formatCheckedAt } from '../../../../core/update/checkFeedback'
 import { AUTO_UPDATE } from '../../../../core/update/autoUpdate'
 import { isSourceStatus, modeHintKey, sourceCard } from '../../../../core/update/sourceView'
-import type { UpdateChannel, UpdateMode } from '../../../../core/types'
+import type { HostStatus, UpdateChannel, UpdateMode } from '../../../../core/types'
+import { hostRestartCanForce, hostRestartMessage, hostRestartRunning } from '../../../../core/host/restartView'
 import type { CrashReportsSetting } from '../../../../core/crash/report'
 import logoUrl from '../../assets/mark.svg'
 import { toast } from '../../lib/toast'
@@ -125,6 +126,12 @@ const hostUptime = (startedAt: string | null): string => {
   return minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h`
 }
 
+/** The Host row's line for a restart under way or just ended (core/host/restartView.ts reads it into words). */
+function RestartLine({ restart, t }: { restart: NonNullable<HostStatus['restart']>; t: GroupProps['t'] }): React.JSX.Element {
+  const m = hostRestartMessage(restart)
+  return <span className={restart.phase === 'failed' ? 'host-row-outdated' : undefined}>{t(m.key, m.params)}</span>
+}
+
 export function AboutSettings(p: GroupProps): React.JSX.Element | null {
   const {
     shown, only, accounts, appVersion, cli, hostHolding, hostRestarting, hostStatus, installUpdate, restartHost,
@@ -233,6 +240,8 @@ export function AboutSettings(p: GroupProps): React.JSX.Element | null {
                       })}
                     </span>
                   )}
+                  {/* T15: what the restart asked for is doing (the status bar's sentence, said here too). */}
+                  {hostStatus.restart ? <RestartLine restart={hostStatus.restart} t={t} /> : hostStatus.outdated && <span>{t('settings.info.hostRestartHint')}</span>}
                   {/* The files this Host runs from are missing some of what it needs. It is
                       running now and will stall at its next spawn, which is a state nobody
                       could see before (2026-09-22) — so it is said here, in the same amber,
@@ -282,9 +291,14 @@ export function AboutSettings(p: GroupProps): React.JSX.Element | null {
                 an unresponsive Host has no automatic replacement behind it, because every
                 rule that would replace one needs the Host to answer what it is holding
                 first (design F5). */}
-            {((hostStatus?.connected && (hostStatus.outdated || hostStatus.runtimeIncomplete)) || hostStatus?.unresponsive) && (
+            {((hostStatus?.connected && (hostStatus.outdated || hostStatus.runtimeIncomplete)) || hostStatus?.unresponsive) && !hostRestartRunning(hostStatus?.restart) && (
               <Button type="button" disabled={hostRestarting} onClick={() => void restartHost()}>
                 {hostRestarting ? t('settings.info.hostRestarting') : t('settings.info.hostRestartNow')}
+              </Button>
+            )}
+            {hostRestartCanForce(hostStatus?.restart) && (
+              <Button type="button" title={t('status.hostRestartAnywayTitle')} onClick={() => void window.api.host.restartNow({ force: true })}>
+                {t('status.hostRestartAnyway')}
               </Button>
             )}
           </div>

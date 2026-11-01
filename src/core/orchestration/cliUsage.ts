@@ -191,6 +191,15 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     summary: 'ask the running Host to retire',
     detail: 'Refused while the Host still holds sessions or running runs. It says how many.'
   },
+  'host-restart': {
+    summary: 'restart the Host now: hold new starts, wait for a safe point, hand sessions over',
+    detail:
+      'Holds new starts, waits for the working Tasks to reach a safe point (10 minutes unless --wait says otherwise), hands every session over and starts the next Host from this install, which resumes them. Progress goes to stderr. A Host too old to restart is refused with 9; `host stop` is what it can do.',
+    flags: [
+      { name: 'wait', value: '<minutes>', about: 'wait this long for the safe point (default 10, at most 60)' },
+      { name: 'now', about: 'hand over at once; the Tasks not at a safe point are cut short and resumed' }
+    ]
+  },
   'mcp-serve': {
     summary: 'serve Astera to an MCP client over stdio',
     detail:

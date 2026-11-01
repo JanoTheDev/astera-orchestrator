@@ -1,7 +1,7 @@
 // T21 (owner, 2026-10-18): "i want him to automatically answer the questions". The Host answers the open questions it
 // safely can (Gates, worker asks, coordinator escalations), from its own state first, else with the safe default; the
 // rest stay with the owner. Pure: dispatchLoop.ts answers through `questions-answer` and writes the feed line.
-import type { OrchState } from '../state'
+import { checksPassedOf, type OrchState } from '../state'
 import { projectOfJob } from '../projects'
 import type { Decision, Task } from '../types'
 import { isFailedWait } from '../replan'
@@ -10,6 +10,7 @@ import { isLeaseWaitGate } from '../schedule'
 import { readAppSettingsObject } from '../../settings/settingsObject'
 import { SCOPE_WHY, scopeAnswerOf, type ScopeContext } from './scopeDecider'
 import { MERGE_FAILED_GATE } from './transientGit'
+import { acceptedNotProvable, environmentOnlyIssues, isNotProvableAnswer, notProvableReviewAnswer } from './notProvable'
 
 /** One open question as `questions-list` returns it: a Gate (with its `kind`) or an ask / escalation (`source`). */
 export interface OpenQuestion {
@@ -155,9 +156,18 @@ function safeDefault(q: OpenQuestion, choices: string[], retried: boolean): Auto
 const ownersOnly = (q: OpenQuestion): boolean =>
   q.source === 'approval' || (q.source === 'escalation' && isFailedWait({ type: 'escalation', options: q.options }))
 
-/** Whether an earlier Gate on the question's Task was already answered with a retry. */
+/** Whether an earlier Gate on the question's Task was already answered with a retry. A Gate the Host wrote itself
+ *  (`kind`) counts only a retry of its own kind: a retry of a check that could not run is not the retry-once of a later
+ *  convergence-exhausted Gate. A question with no kind keeps counting any. */
 const retriedOf = (s: OrchState, q: OpenQuestion): boolean =>
-  s.gates.some((g) => g.taskId === q.taskId && g.id !== q.id && g.status === 'resolved' && /^retry/i.test(g.resolution ?? ''))
+  s.gates.some(
+    (g) =>
+      g.taskId === q.taskId &&
+      g.id !== q.id &&
+      (q.kind === undefined || g.kind === q.kind) &&
+      g.status === 'resolved' &&
+      /^retry/i.test(g.resolution ?? '')
+  )
 
 /** The open questions due an answer now, each with its answer. Asks wait out `ASK_GRACE_MS` for their coordinator. */
 export function autoAnswersDue(s: OrchState, open: OpenQuestion[], nowMs: number): AutoAnswer[] {
@@ -179,6 +189,9 @@ export type HandsOffStep =
   /** A refused escalation: its Task is held the same way, and the escalation is left open as the owner's question, so
    *  the owner answering it moves the Task on (state.ts `releaseHeld`). Not answered: a refusal is not the owner's call. */
   | { kind: 'hold'; id: string; decision: Omit<Decision, 'at'>; hold: { taskId: string; reason: string } }
+  /** A Gate left open for the owner on purpose (a second review-ended Gate whose checks failed): nothing is answered,
+   *  and the decision says why, once per Gate, so the feed is not silent about it. */
+  | { kind: 'left'; id: string; decision: Omit<Decision, 'at'> }
   | { kind: 'coordinator'; question: OpenQuestion }
 
 // The answers that say no to a guardrail case, in this order; else the refusal is written out (REFUSED_ANSWER)
@@ -254,10 +267,15 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
         const why = 'a guardrail: only the owner decides this, and the plan runs hands-off'
         return [{ kind: 'hold', id: q.id, decision: { kind: 'refused', taskId: q.taskId, question: asked, choice: firstLine(REFUSED_ANSWER, 200), why }, hold }]
       }
+      // T12: blockers that only need an environment this machine lacks are accepted as not provable here
+      const notProvable = notProvableReviewStepOf(s, q, asked)
+      if (notProvable) return [notProvable]
       const granted = grantOf(grantsOf(s, q), q.question)
       if (granted) return answer({ id: q.id, answer: grantedAnswer(granted), why: 'Host state' }, 'gate', `the owner granted ${granted} in advance`)
       return [{ kind: 'coordinator', question: q }]
     }
+    // T9: a check that could not run, or a review that ended without a report: infrastructure, settled here, not failed
+    if (q.kind === 'check-unavailable' || q.kind === 'review-ended') return infrastructureStepOf(s, q, answer)
     // T8: a merge into the plan branch git could not make: its text is git's output, never an owner-only question. The
     // Task is tried once more; after that the plan's coordinator decides
     if (q.kind === MERGE_FAILED_GATE) {
@@ -292,6 +310,42 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
     if (a) return answer(a, q.source === undefined ? 'gate' : 'escalation', a.why)
     return [{ kind: 'coordinator', question: q }]
   })
+}
+
+/** T9: whether an earlier Gate of the question's kind on the same Task was already answered `resolution`. */
+const answeredBefore = (s: OrchState, q: OpenQuestion, resolution: string): boolean =>
+  s.gates.some((g) => g.taskId === q.taskId && g.id !== q.id && g.kind === q.kind && g.status === 'resolved' && g.resolution === resolution)
+
+/**
+ * T9: the step for the two infrastructure Gates of a hands-off plan; neither is the code's fault, so neither fails the Task.
+ * - `check-unavailable`: `retry` the first time, `skip-check` once a retry was answered; never `mark-failed`.
+ * - `review-ended`: `review-again` the first time, `accept-as-done` the second, when the Task's checks passed. When they
+ *   did not, nothing is answered and the Gate stays with the owner (a `left` step, which records why).
+ */
+function infrastructureStepOf(
+  s: OrchState,
+  q: OpenQuestion,
+  answer: (a: AutoAnswer, kind: Decision['kind'], why: string) => HandsOffStep[]
+): HandsOffStep[] {
+  const options = q.options ?? []
+  const pick = (word: string): AutoAnswer | undefined => {
+    const option = options.find((o) => o.trim().toLowerCase() === word)
+    return option === undefined ? undefined : { id: q.id, answer: option, why: 'safe default' }
+  }
+  if (q.kind === 'check-unavailable') {
+    const skip = answeredBefore(s, q, 'retry')
+    const a = pick(skip ? 'skip-check' : 'retry')
+    return a
+      ? answer(a, 'gate', skip ? 'the check could not run (infrastructure, not the code), still unavailable after a retry: skipped, reason recorded' : 'the check could not run (infrastructure, not the code): retried once')
+      : [{ kind: 'coordinator', question: q }]
+  }
+  const again = answeredBefore(s, q, 'review-again')
+  if (again && !checksPassedOf(s.tasks.find((t) => t.id === q.taskId) ?? { checks: undefined }))
+    return [{ kind: 'left', id: q.id, decision: { kind: 'gate', ...(q.taskId ? { taskId: q.taskId } : {}), question: firstLine(q.question, 300), choice: 'left to the owner', why: 'review ended twice and checks failed' } }]
+  const a = pick(again ? 'accept-as-done' : 'review-again')
+  return a
+    ? answer(a, 'gate', again ? 'the reviewer ended twice without a report: accepted on the worker\'s report and its checks, reason recorded' : 'the reviewer ended without a report (infrastructure, not the code): reviewed again once')
+    : [{ kind: 'coordinator', question: q }]
 }
 
 /** #117: the message that hands a hands-off plan's open question to its coordinator. */
@@ -351,10 +405,35 @@ function scopeStepOf(s: OrchState, q: OpenQuestion): AutoAnswer | null {
   return text === null ? null : { id: q.id, answer: text, why: 'safe default' }
 }
 
+/** T12: the step for a hands-off plan's `review-needs-decision` Gate whose blocking issues all need an environment this
+ *  machine lacks: answered with the not-provable acceptance (the repair it opens reports `--not-provable`, and the next
+ *  review reads the answer as the owner's) and recorded as "accepted T: not provable here: …". null when another blocker
+ *  is there, or when the Task was accepted this way once already: a second time goes the usual way, not round a loop. */
+function notProvableReviewStepOf(s: OrchState, q: OpenQuestion, asked: string): HandsOffStep | null {
+  const task = s.tasks.find((t) => t.id === q.taskId)
+  const issues = environmentOnlyIssues(task)
+  if (!task || !issues) return null
+  if (s.gates.some((g) => g.taskId === task.id && g.id !== q.id && g.kind === REVIEW_NEEDS_DECISION && isNotProvableAnswer(g.resolution))) return null
+  const text = notProvableReviewAnswer(issues)
+  const note = issues.map((i) => `${i.title} (needs environment)`).join('; ')
+  return {
+    kind: 'answer',
+    answer: { id: q.id, answer: text, why: 'safe default' },
+    decision: {
+      kind: 'gate',
+      taskId: task.id,
+      question: asked,
+      choice: firstLine(acceptedNotProvable(task.title, note), 200),
+      why: 'the review found only what this machine cannot provide, and the plan runs hands-off'
+    }
+  }
+}
+
 /** T11: how long a hands-off plan with no live coordinator waits for its planner to answer a worker's question, before
  *  the question gets ESCALATION_DEFAULT_ANSWER. */
 export const PLANNER_ANSWER_WAIT_MS = 5 * 60_000
 
 /** T11: the answer a worker's question gets when neither a coordinator nor the plan's planner decided it in time. */
 export const ESCALATION_DEFAULT_ANSWER =
-  "Proceed with the option that keeps to your Task's spec and the plan's decisions; record the choice in your report."
+  "Proceed with the option that keeps to your Task's spec and the plan's decisions; record the choice in your report. " +
+  'When the blocker is a tool or OS this machine lacks, report succeeded with --not-provable "<command>: <why>".'

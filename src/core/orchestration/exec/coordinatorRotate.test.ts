@@ -148,6 +148,42 @@ describe('coordinator rotation', () => {
     expect(h.state().runs[0].coordinatorSessionId).toBe('coord-old')
   })
 
+  // T24: a start whose install waits for a heavy slot is `pending:install:` for up to 50 minutes, not 2
+  it('does not refresh or rotate while a worker start waits on its install, inside the install window, and does past it', async () => {
+    const installing = (agoMs: number): OrchState =>
+      plan([task({ id: 't1', status: 'completed' }), task({ id: 't2', deps: ['t1'], status: 'dispatched' })], {
+        dispatches: [
+          dispatch({
+            id: 'd2',
+            taskId: 't2',
+            sessionId: 'pending:install:ab12cd34',
+            cwd: process.platform === 'win32' ? 'C:\\Work Trees\\t2' : '/work trees/t2',
+            startedAt: new Date(NOW_MS - agoMs).toISOString(),
+            endedAt: undefined,
+            outcome: undefined,
+            workerState: 'ready'
+          })
+        ]
+      })
+    // 10 minutes in: past a plain start's 2-minute window, inside the install's
+    const waiting = rig(installing(10 * 60_000), { pct: 95 })
+    await waiting.rotation.rotate()
+    expect(waiting.startCoordinator).not.toHaveBeenCalled()
+    const asked = await waiting.ctx.handle('run-coordinator-refresh', { run: 'run_1', reason: 'stalled' })
+    expect(asked.status).toBe(409)
+    expect(JSON.stringify(asked.body)).toContain('worker-start in flight')
+    expect(waiting.state().runs[0].coordinatorSessionId).toBe('coord-old')
+    // A plain placeholder that old is a dead start, and no longer holds the refresh
+    const dead = rig(installing(10 * 60_000), { pct: 95 })
+    dead.ctx.getState().dispatches[0].sessionId = 'pending:ab12'
+    await dead.rotation.rotate()
+    expect(dead.startCoordinator).toHaveBeenCalledTimes(1)
+    // Past the install window it is a dead start too
+    const late = rig(installing(51 * 60_000), { pct: 95 })
+    await late.rotation.rotate()
+    expect(late.startCoordinator).toHaveBeenCalledTimes(1)
+  })
+
   it('briefs the fresh coordinator with the open Gates, their answers and the dispatches in flight', () => {
     const s = plan(
       [task({ id: 't1', status: 'completed' }), task({ id: 't2', status: 'blocked' }), task({ id: 't3', status: 'dispatched' })],

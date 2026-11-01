@@ -877,6 +877,14 @@ server blocks `check` and `inbox` as coordinator-only (403).
   Report `failed` only when the main job is not done, or a gap blocks what depends on the Task. A Task
   with gaps counts as a deviation, so a replan looks at what depends on it. The coordinator can record
   the same with `task-update --status completed --gaps "<text>"`.
+- **What this machine cannot run is not a failure either.** If the Task needs something proven that this
+  machine cannot run (OS-specific tooling such as a `.sh` build, `flock` or an `apt` dependency on Windows,
+  a missing service or device), do not report failed and do not retry it: prove the rest and report
+  `--outcome succeeded --not-provable "<command>: <why it cannot run here>"`. A hands-off plan accepts such
+  a Task with the note, records the decision in the activity feed and starts no replan for it; in other
+  plans it counts like `--gaps`. A hands-off plan also takes a failed report that only says a tool or OS
+  is missing here (`command not found`, `is not recognized as an internal or external command`, "Linux-only"),
+  over committed work, as succeeded with that note.
 - **A worker started for a review Dispatch does not change code.** Its spec file says so explicitly —
   read the requirement, the implementer's report, and the changed files, then judge; do not fix
   anything you find wrong. It still reports exactly once, `worker_done --outcome succeeded` or

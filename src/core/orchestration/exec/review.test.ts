@@ -51,9 +51,10 @@ function rig(o: RigOpts) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'astera-review-'))
   dirs.push(dir)
   const implCwd = path.join(dir, 'tree')
-  const specsDir = path.join(dir, 'specs')
+  // `<profile>/orch/specs`, as specsDirOf lays it out: the review's hold is read from the profile above it
+  const specsDir = path.join(dir, 'profile', 'orch', 'specs')
   fs.mkdirSync(implCwd)
-  fs.mkdirSync(specsDir)
+  fs.mkdirSync(specsDir, { recursive: true })
 
   // reviewing 에 닿은 Task — createJob → startJobRun → createTask → openDispatch(claude) → applyWorkerDone
   const planned = unwrap<{ id: string }>(
@@ -191,6 +192,63 @@ describe('createReviewStarter', () => {
     // Every state setState was handed, in order: none of them ever held a review Dispatch.
     expect(h.history().some((s) => s.dispatches.some((d) => d.review))).toBe(false)
     expect(h.task().status).toBe('blocked')
+  })
+
+  // T19: a reviewer is a new start, which start-hold.json holds
+  describe('the hold on new starts', () => {
+    /** The rig's specs folder as the app lays it out, `<profile>\orch\specs`, so the profile's hold is found from it. */
+    const holdIn = (specsDir: string): string => path.join(path.dirname(path.dirname(specsDir)), 'host', 'start-hold.json')
+
+    it('starts no reviewer while start-hold.json exists, leaves the Task reviewing, and reviews it once the hold lifts', async () => {
+      const h = rig({ accounts: [claude('c1'), codex('x1')], loggedIn: ['c1', 'x1'] })
+      const hold = holdIn(h.specsDir)
+      // On Windows this is a drive-letter path under %TEMP%, read through the profile the specs folder lives in
+      expect(hold.startsWith(path.dirname(path.dirname(h.specsDir)))).toBe(true)
+      fs.mkdirSync(path.dirname(hold), { recursive: true })
+      fs.writeFileSync(hold, JSON.stringify({ by: 'restart', reason: 'the Astera Host is restarting', at: NOW }))
+      await h.start({ taskId: h.taskId })
+      expect(h.startWorker).not.toHaveBeenCalled()
+      // Not a failure: no Gate, no review Dispatch ever committed, still reviewing
+      expect(h.task().status).toBe('reviewing')
+      expect(h.state().gates.filter((g) => g.taskId === h.taskId)).toEqual([])
+      expect(h.history().some((s) => s.dispatches.some((d) => d.review))).toBe(false)
+      expect(h.logs.join('\n')).toMatch(/on hold/)
+
+      fs.rmSync(hold)
+      await h.start({ taskId: h.taskId })
+      expect(h.startWorker).toHaveBeenCalledTimes(1)
+      expect(h.state().dispatches.filter((d) => d.review && !d.endedAt)).toHaveLength(1)
+    })
+
+    it('is asked again right before the review Dispatch commits, after the awaits in between', async () => {
+      const h = rig({ accounts: [claude('c1'), codex('x1')], loggedIn: ['c1', 'x1'] })
+      // A Windows profile, read through the context's own probe: the hold is set while the login lookups run
+      const profile = 'C:\\Users\\me\\AppData\\Roaming\\astera'
+      const asked: string[] = []
+      let calls = 0
+      const start = createReviewStarter({
+        getState: () => h.state(),
+        setState: async () => {
+          throw new Error('nothing may commit while held')
+        },
+        now: () => NOW,
+        log: () => {},
+        accounts: () => [claude('c1'), codex('x1')],
+        loginStatus: async () => true,
+        assertAllowedPath: async (p) => p,
+        startWorker: h.startWorker,
+        specsDir: path.win32.join(profile, 'orch', 'specs'),
+        startHeld: () => {
+          asked.push(path.win32.join(profile, 'host', 'start-hold.json'))
+          return ++calls > 1
+        }
+      })
+      await start({ taskId: h.taskId })
+      expect(calls).toBe(2)
+      expect(asked[0]).toBe('C:\\Users\\me\\AppData\\Roaming\\astera\\host\\start-hold.json')
+      expect(h.startWorker).not.toHaveBeenCalled()
+      expect(h.task().status).toBe('reviewing')
+    })
   })
 
   it('a reviewer that fails to start drops its Dispatch and gates the Task', async () => {

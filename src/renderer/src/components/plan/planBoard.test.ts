@@ -76,6 +76,9 @@ describe('reasonText', () => {
       { kind: 'failure-limit', failures: 3, limit: 3 },
       { kind: 'failed-retry', failures: 1, limit: 3 },
       { kind: 'failed-retry', failures: 1, limit: 3, noCoordinator: true },
+      // T10
+      { kind: 'failed-retry', failures: 1, limit: 3, noCoordinator: true, retryAt: '2026-10-17T00:04:00.000Z' },
+      { kind: 'failed-retry', failures: 2, limit: 3, noCoordinator: true, retryAt: '2026-10-16T23:59:00.000Z' },
       { kind: 'awaiting-review' },
       { kind: 'stopped' },
       { kind: 'deps', waitingOn: [{ id: 'x', title: 'X', status: 'ready' }] },
@@ -98,6 +101,17 @@ describe('reasonText', () => {
       const named = [...ko[key].matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort()
       expect(Object.keys(params ?? {}).sort(), key).toEqual(named)
     }
+  })
+
+  it('T10: a hands-off retry reads "retrying in N min (attempt n of 3)", then "retrying now"', () => {
+    expect(reasonText({ kind: 'failed-retry', failures: 1, limit: 3, noCoordinator: true, retryAt: '2026-10-17T00:03:30.000Z' }, now, label)).toEqual({
+      key: 'plan.steps.reason.failedRetryAuto',
+      params: { limit: 3, attempt: 2, minutes: 4 }
+    })
+    expect(reasonText({ kind: 'failed-retry', failures: 2, limit: 3, noCoordinator: true, retryAt: '2026-10-17T00:00:00.000Z' }, now, label)).toEqual({
+      key: 'plan.steps.reason.failedRetryAutoNow',
+      params: { limit: 3, attempt: 3 }
+    })
   })
 
   it('names the account and the time left; a past reset drops the time', () => {
