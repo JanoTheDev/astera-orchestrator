@@ -250,7 +250,7 @@ describe('snapshotFor', () => {
       {
         // 줄의 id 는 계획의 것이고, fireOrdinal 은 그 줄이 보여 주는 회차의 번호다
         id: 'job_r1', fireOrdinal: 1, foldedRunId: 'r1', objective: 'objective r1', outcome: 'running', done: 1, total: 2, eventCount: 3, wave: { at: 1, of: 1 },
-        concurrency: undefined, sharesProjectFolder: false,
+        concurrency: undefined, pushesBranch: true, sharesProjectFolder: false,
         // W9-C: the Job's age, on its row
         createdAt: '2026-08-18T00:00:00.000Z',
         tasks: [

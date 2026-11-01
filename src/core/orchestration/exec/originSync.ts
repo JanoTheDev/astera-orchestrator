@@ -132,7 +132,9 @@ export function createOriginSync(c: OriginSyncContext): { tick(): Promise<void> 
         c.log(`plan.synced run=${runId} incoming=${r.incoming} origin/${branch}=${r.tip}`)
         c.activity(runId, `Plan ${plan} synced with origin/${branch}: ${r.incoming} incoming commit(s)`)
         const pushed = await c.handle('run-draft-pr', { run: runId, synced: true })
-        c.log(`run=${runId}: plan branch push after the origin sync: ${pushed.status >= 400 ? `refused, retried later: ${JSON.stringify(pushed.body)}` : 'done'}`)
+        // 409: the push cadence has none due now (the final delivery pushes it); anything else is refused and tried again
+        const outcome = pushed.status < 400 ? 'done' : pushed.status === 409 ? 'not pushed now (push cadence), the delivery pushes it' : `refused, retried later: ${JSON.stringify(pushed.body)}`
+        c.log(`run=${runId}: plan branch push after the origin sync: ${outcome}`)
         return
       }
       case 'conflict': {

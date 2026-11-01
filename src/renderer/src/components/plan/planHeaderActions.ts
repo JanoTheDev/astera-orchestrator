@@ -10,7 +10,7 @@ import { canChat, planTalkView } from './planTalkModel'
 
 export type HeaderRow = Pick<
   JobRow,
-  'outcome' | 'archivedAt' | 'pendingStart' | 'schedule' | 'pr' | 'planned' | 'planReady' | 'autoApprove' | 'handsOff' | 'planProblems' | 'tasks'
+  'outcome' | 'archivedAt' | 'pendingStart' | 'schedule' | 'pr' | 'planned' | 'planReady' | 'autoApprove' | 'handsOff' | 'planProblems' | 'tasks' | 'pushesBranch'
 >
 
 export interface HeaderActions {
@@ -83,6 +83,8 @@ export interface PlanActions {
   mergePr?: { number?: number; url: string }
   /** Mark as merged (`run-mark-merged`): the plan is Unmerged and the owner merged it where git cannot see it. This computer's plans only. */
   markMerged: boolean
+  /** Push now (`run-draft-pr --now`): a running or completed plan whose plan branch Astera pushes (pr/push, not merge, not the owner's own pushing). This computer's plans only. */
+  pushNow: boolean
   /** The plan has an integration folder to reveal or open a terminal in (the caller finds it). */
   folder: boolean
 }
@@ -108,6 +110,7 @@ export function planActionsOf(row: PlanActionRow, local: boolean): PlanActions {
     ...(openPr ? { openPr } : {}),
     ...(mergePr ? { mergePr } : {}),
     markMerged: local && isUnmergedPlan(row as JobRow),
+    pushNow: local && row.pushesBranch === true && !archived && !notStarted && (row.outcome === 'running' || row.outcome === 'completed'),
     folder: worktrees
   }
 }

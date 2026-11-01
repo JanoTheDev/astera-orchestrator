@@ -188,3 +188,20 @@ describe('planActionsOf markMerged', () => {
     expect(act({}).markMerged).toBe(false)
   })
 })
+
+describe('planActionsOf pushNow', () => {
+  const act = (o: Partial<JobRow>, local = true) => planActionsOf(row({ pushesBranch: true, ...o }) as never, local)
+
+  it('offers Push now on a running or completed plan whose branch Astera pushes', () => {
+    expect(act({}).pushNow).toBe(true)
+    expect(act({ outcome: 'completed' }).pushNow).toBe(true)
+  })
+
+  it('hides it for merge-mode and owner-pushes plans (no pushesBranch), archived, not started, failed or paired-Runtime plans', () => {
+    expect(act({ pushesBranch: undefined }).pushNow).toBe(false)
+    expect(act({ archivedAt: 'x' }).pushNow).toBe(false)
+    expect(act({ pendingStart: true }).pushNow).toBe(false)
+    expect(act({ outcome: 'failed' }).pushNow).toBe(false)
+    expect(act({}, false).pushNow).toBe(false)
+  })
+})

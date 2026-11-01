@@ -200,6 +200,23 @@ export function PlanHeader({
       void window.api.github.refresh({ force: true })
     }
   }
+  // T11: Push now = run-draft-pr --now, at once whatever the push cadence; a 409 says why nothing was pushed
+  const [pushing, setPushing] = useState(false)
+  const pushNow = async (): Promise<void> => {
+    if (!run) return
+    setPushing(true)
+    try {
+      const reply = await door.command('run-draft-pr', { run: run.foldedRunId ?? runId, now: true })
+      if (reply.status >= 400) {
+        const error = (reply.body as { error?: unknown } | null)?.error
+        toast.error(t('plan.header.pushNowFailed', { reason: replyNote(reply, t as never, typeof error === 'string' ? error : String(reply.status)) }))
+      } else toast.success(t('plan.header.pushNowDone'))
+    } catch (err) {
+      toast.error(t('plan.header.pushNowFailed', { reason: err instanceof Error ? err.message : String(err) }))
+    } finally {
+      setPushing(false)
+    }
+  }
   const [markingMerged, setMarkingMerged] = useState(false)
   const markMerged = async (): Promise<void> => {
     if (!run) return
@@ -266,6 +283,9 @@ export function PlanHeader({
           : []),
         ...(deliveryActions.dismiss
           ? [{ id: 'dismiss', label: t('plan.delivery.dismiss'), icon: <Icon name="close" size={14} />, disabled: off || redelivering, onSelect: () => void dismissDelivery() }]
+          : []),
+        ...(planActs?.pushNow
+          ? [{ id: 'pushNow', label: t('plan.header.pushNow'), icon: <Icon name="arrowUp" size={14} />, disabled: off || pushing, onSelect: () => void pushNow() }]
           : []),
         ...(planActs?.markMerged
           ? [{ id: 'markMerged', label: t('plan.markMerged.menu'), icon: <Icon name="check" size={14} />, disabled: off || markingMerged, onSelect: () => void markMerged() }]
