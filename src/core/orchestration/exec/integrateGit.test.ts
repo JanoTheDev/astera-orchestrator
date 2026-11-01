@@ -627,6 +627,19 @@ describe('worktreeDeps', () => {
     expect(await d.removeWorktrees(['D:/gone', 'D:/ok', 'D:/stuck'])).toEqual({ failed: ['D:/stuck'], uncommitted: 0 })
     expect(tried).toEqual(['D:/ok', 'D:/stuck'])
   })
+  it('removeWorktrees after a push succeeds with a half removed folder (its .git link gone) among the rows', async () => {
+    const tried: string[] = []
+    const d = worktreeDeps({
+      integrate: async () => ({ kind: 'merged', uncommitted: 0 }),
+      reap: async (p) => { tried.push(p); return true },
+      log: logTo(),
+      presence: async (p) => (p.replace(/\\/g, '/') === 'D:/half/.git' ? 'missing' : 'present'),
+      git: cleanGit
+    })
+    expect(await d.removeWorktrees(['D:/half', 'D:/ok'])).toEqual({ failed: [], uncommitted: 0 })
+    expect(tried).toEqual(['D:/ok'])
+    expect(logs.join('\n')).toMatch(/skipping already removed worktree D:\/half/)
+  })
   // 폴더가 있는지는 비동기로 묻는다(presence.ts). 확인하지 못한 폴더는 없는 것이 아니다.
   it('mergeWorktrees does not drop a folder it could not reach: not merged, reported unchecked', async () => {
     const calls: unknown[] = []

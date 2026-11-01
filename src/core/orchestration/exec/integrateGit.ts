@@ -825,7 +825,10 @@ export function worktreeDeps(ctx: {
       const unchecked: string[] = []
       let uncommitted = 0
       for (const p of paths) {
-        const at = await presenceOf(p)
+        const found = await presenceOf(p)
+        // A folder without its `.git` link is a worktree half removed: counted as removed, as mergeWorktrees does
+        // (the Host-start sweep, worktrees/sweep.ts, moves it aside once its work is known to be on a branch)
+        const at = found === 'present' && (await presenceOf(path.join(p, '.git'))) === 'missing' ? 'missing' : found
         // **이미 없는 폴더는 실패가 아니다.** Dispatch 의 cwd 는 워크트리를 지운 뒤에도 상태에 남으므로
         // 그런 경로가 여기까지 온다 — reapWorktree 는 그것을 "앱 워크트리가 아니다" 로 거절하고 false 를
         // 내는데, 그것을 failed 에 담으면 사용자에게 "이 폴더를 지우지 못했습니다" 로 보고된다.
