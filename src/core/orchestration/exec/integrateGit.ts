@@ -751,7 +751,12 @@ export function worktreeDeps(ctx: {
   // The action lane (one call per root), and a refusal asked again: see askUntilAnswered.
   const presenceOf = (p: string): Promise<CheckResult> => askUntilAnswered(ctx.presence ?? defaultActionPresenceCheck, p)
   const sort = async (paths: string[]): Promise<{ alive: string[]; gone: string[]; unknown: string[] }> => {
-    const answers = await Promise.all(paths.map((p) => presenceOf(p)))
+    const folders = await Promise.all(paths.map((p) => presenceOf(p)))
+    // A folder that is there without its `.git` link is a worktree half removed (the link went, the files stayed):
+    // git cannot read it, so nothing in it can merge, and it counts as gone. Only a `.git` that answers missing says so.
+    const answers = await Promise.all(
+      folders.map(async (a, i) => (a === 'present' && (await presenceOf(path.join(paths[i]!, '.git'))) === 'missing' ? 'missing' : a))
+    )
     return {
       alive: paths.filter((_, i) => answers[i] === 'present'),
       gone: paths.filter((_, i) => answers[i] === 'missing'),
