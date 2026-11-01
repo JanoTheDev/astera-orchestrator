@@ -85,6 +85,34 @@ describe('jobs-view (remote runtime design §2.7, X1-05)', () => {
   })
 })
 
+describe('jobs-view consoles (T13)', () => {
+  it("gives a running plan's open console count and the reason each stays, and leaves out a session that is not alive", async () => {
+    const base = stateWith([{ id: 'p1', path: '/srv/repo' }], [{ objective: 'busy', cwd: '/srv/repo' }])
+    const t = base.tasks[0]
+    const dsp = (id: string, sessionId: string, over: object) =>
+      ({ id, taskId: t.id, sessionId, cwd: '/srv/repo', provider: 'claude', accountId: 'a', specPath: '', startedAt: NOW, retained: false, ...over }) as OrchState['dispatches'][number]
+    const s: OrchState = {
+      ...base,
+      tasks: [{ ...t, status: 'dispatched' }],
+      dispatches: [
+        dsp('d1', 'old', { endedAt: NOW, outcome: 'failed', workerState: 'stopped' }),
+        dsp('d2', 'new', { workerState: 'ready' }),
+        dsp('d3', 'dead', { endedAt: NOW, outcome: 'failed', workerState: 'stopped', taskId: 'other' })
+      ]
+    }
+    const h = await host(s, { alive: ['old', 'new'] })
+    const row = ((await h.ask('jobs-view', { project: 'p1' })).body as { snapshot: { runs: Array<{ consoles?: { count: number; list: Array<{ sessionId: string; reason: string }> } }> } }).snapshot.runs[0]
+    expect(row.consoles?.count).toBe(2)
+    expect(row.consoles?.list.map((c) => [c.sessionId, c.reason])).toEqual([['old', 'none'], ['new', 'working']])
+  })
+
+  it('has no consoles field when nothing is open', async () => {
+    const h = await host(stateWith([{ id: 'p1', path: '/srv/repo' }], [{ objective: 'quiet', cwd: '/srv/repo' }]))
+    const row = ((await h.ask('jobs-view', { project: 'p1' })).body as { snapshot: { runs: Array<{ consoles?: unknown }> } }).snapshot.runs[0]
+    expect(row.consoles).toBeUndefined()
+  })
+})
+
 describe('runs-timeline (remote runtime design Phase 6)', () => {
   it('pages the newest events first, with the journal rows, and a cursor for older ones', async () => {
     const s = stateWith([], [{ objective: 'j', cwd: '/srv/repo' }])

@@ -28,19 +28,41 @@ export function mergedIntoPlan(s: DoneState, task: Pick<Task, 'id' | 'runId' | '
   return s.tasks.some((t) => t.runId === task.runId && t.deps.includes(task.id) && s.dispatches.some((d) => d.taskId === t.id))
 }
 
-/** The Dispatches whose session the plan is done with: closed, not retained, the latest of their session, of a Task
- *  that has not failed and has no open Gate, and either a review (its verdict is recorded) or a worker whose Task is
- *  completed. A merge that needs an agent gets its own integration Task and session. Whether the plan still runs, and whether the owner typed into the
- *  session, is the caller's question. */
+/** The last worker (not review) Dispatch of each Task, in the order they were opened. */
+export function lastAttemptByTask(dispatches: readonly Dispatch[]): Map<string, Dispatch> {
+  const last = new Map<string, Dispatch>()
+  for (const d of dispatches) if (!d.review) last.set(d.taskId, d)
+  return last
+}
+
+/** An earlier attempt of a Task that has a newer one (T13): its console has nothing left to do. The caller has already
+ *  checked that `d` is the latest of its session, so a same-session repair (which reuses it) never gets here. */
+export const supersededAttempt = (d: Dispatch, last: ReadonlyMap<string, Dispatch>): boolean =>
+  !d.review && last.get(d.taskId)?.id !== d.id
+
+/** The Dispatches whose session the plan is done with: closed, not retained, the latest of their session, and either
+ *  - an earlier attempt of a Task that has a newer one (a retry), whatever the Task's state is now, except while the
+ *    Task converges, where `worker-release` refuses to end a worker; or
+ *  - of a Task that has not failed and has no open Gate, and a review (its verdict is recorded) or a worker whose Task
+ *    is completed. A merge that needs an agent gets its own integration Task and session.
+ *  Whether the plan still runs, and whether the owner typed into the session, is the caller's question. */
 export function sessionsDoneWith(s: DoneState): Dispatch[] {
   const latest = new Map<string, string>()
   for (const d of s.dispatches) latest.set(d.sessionId, d.id)
   const tasks = new Map(s.tasks.map((t) => [t.id, t]))
   const gated = new Set(s.gates.filter((g) => g.status === 'open').map((g) => g.taskId))
+  const last = lastAttemptByTask(s.dispatches)
+  const converging = (t: Task): boolean => {
+    const run = s.runs.find((r) => r.id === t.runId)
+    if (!run || !jobOf(s as OrchState, run)?.convergence) return false
+    return t.status === 'validating' || t.status === 'reviewing' || s.dispatches.some((x) => x.taskId === t.id && x.repair !== undefined && !x.endedAt)
+  }
   return s.dispatches.filter((d) => {
     if (d.retained || (!d.outcome && !d.endedAt) || latest.get(d.sessionId) !== d.id || isPlaceholderSessionId(d.sessionId)) return false
     const t = tasks.get(d.taskId)
-    if (!t || t.status === 'failed' || gated.has(t.id)) return false
+    if (!t) return false
+    if (supersededAttempt(d, last)) return !converging(t)
+    if (t.status === 'failed' || gated.has(t.id)) return false
     // `merging` is a worker whose work succeeded and is only landing: the app's merge or a merge Task of its own lands
     // it, never this session, so the console is closed then as well
     return d.review === true || t.status === 'completed' || t.status === 'merging'

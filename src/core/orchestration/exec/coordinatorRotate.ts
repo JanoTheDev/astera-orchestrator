@@ -18,8 +18,9 @@ import { policyOf } from '../convergence'
 import { runWaves, wavesDoneOf } from '../draftPr'
 import { isIntegrationTask } from '../integrate'
 import { sessionsDoneWith } from '../finishedSessions'
+import { openConsolesOf, PERSON_INPUT_KEEPS_MS } from '../openConsoles'
 import { attachCoordinator, coordinatorStarting, jobOf, OWNER_ANSWER_SUBJECT, placedByApp, type OrchState } from '../state'
-import { DEFAULT_CONCURRENCY, isPlaceholderSessionId, type JobRun } from '../types'
+import { DEFAULT_CONCURRENCY, isPlaceholderSessionId, type Dispatch, type JobRun } from '../types'
 import { outcomeOf } from '../view'
 import type { OrchServerDeps } from '../command'
 import { handsOffOf } from './plannerFeedback'
@@ -32,8 +33,10 @@ export const COORDINATOR_REFRESH_RETRY_MS = 60_000
 /** A finished worker whose release did not take is asked again this much later, up to this many times. */
 export const FINISHED_RELEASE_RETRY_MS = 60_000
 export const FINISHED_RELEASE_TRIES = 6
-/** Person input keeps a finished session open only this long. */
-export const PERSON_INPUT_KEEPS_MS = 10 * 60_000
+export { PERSON_INPUT_KEEPS_MS }
+/** T13: a worker, reviewer or merge console with no reason to stay open, idle this long, is closed. 2 × the silent-worker
+ *  minutes (8 by default). TODO: read the "workerSilentMinutes" setting once it exists in this branch. */
+export const IDLE_CONSOLE_CLOSE_MS = 16 * 60_000
 
 // ── Tab titles ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -286,6 +289,8 @@ export interface RotationContext {
   getState(): OrchState
   sessionAlive(sessionId: string): boolean
   lastPersonInputAt?(sessionId: string): number | null
+  /** true busy, false idle, null cannot tell. Optional: without it no idle console is closed. */
+  sessionBusy?(sessionId: string): boolean | null
   /** A feed line no commit makes (a release that gave up). Optional: without it a log line only. */
   activity?(runId: string, taskId: string, reason: string): void
   /** The session's statusLine context reading, 0-100, or null when it has none (a codex session). */
@@ -302,6 +307,33 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
   const refreshAt = new Map<string, number>()
   /** Release tries of a finished session, by Dispatch id. */
   const released = new Map<string, { tries: number; nextAt: number }>()
+  /** Since when a console with no reason has been seen idle, by session id. In memory: a restart counts again. */
+  const idleSince = new Map<string, number>()
+
+  /** The Dispatches of consoles that have had no reason and no work for IDLE_CONSOLE_CLOSE_MS (T13). */
+  const idleWithoutReason = (s: OrchState): Dispatch[] => {
+    if (!c.sessionBusy) return []
+    const now = c.nowMs()
+    const seen = new Set<string>()
+    const due: Dispatch[] = []
+    for (const run of s.runs) {
+      if (outcomeOf(s, run.id) !== 'running') continue
+      const consoles = openConsolesOf(s, run.id, c.sessionAlive, { typedAt: c.lastPersonInputAt, nowMs: now })
+      for (const k of consoles) {
+        // Only a worker, reviewer or merge console is closed here; a coordinator and a planner have their own ending
+        if (k.reason !== 'none' || k.dispatchId === undefined || c.sessionBusy(k.sessionId) !== false) continue
+        seen.add(k.sessionId)
+        const since = idleSince.get(k.sessionId) ?? now
+        idleSince.set(k.sessionId, since)
+        if (now - since >= IDLE_CONSOLE_CLOSE_MS) {
+          const d = s.dispatches.find((x) => x.id === k.dispatchId)
+          if (d) due.push(d)
+        }
+      }
+    }
+    for (const id of [...idleSince.keys()]) if (!seen.has(id)) idleSince.delete(id)
+    return due
+  }
 
   const rotate = async (): Promise<void> => {
     for (const run of c.getState().runs) {
@@ -335,7 +367,9 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
 
   const releaseFinished = async (): Promise<void> => {
     const s = c.getState()
-    for (const d of sessionsDoneWith(s)) {
+    const done = sessionsDoneWith(s)
+    const idle = idleWithoutReason(s).filter((d) => !done.includes(d))
+    for (const d of [...done, ...idle]) {
       const runId = s.tasks.find((t) => t.id === d.taskId)?.runId
       // A finished Run's workers are releaseIdleWorkers', under the coordinator's grace
       if (runId === undefined || outcomeOf(s, runId) !== 'running') continue
@@ -347,7 +381,7 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
       if (!c.mayStart()) return
       const tries = (tried?.tries ?? 0) + 1
       released.set(d.id, { tries, nextAt: c.nowMs() + FINISHED_RELEASE_RETRY_MS })
-      const what = `run=${runId}: the finished ${d.review ? 'reviewer' : 'worker'} ${d.sessionId} (dispatch ${d.id})`
+      const what = `run=${runId}: the ${idle.includes(d) ? 'idle (no reason to stay open)' : 'finished'} ${d.review ? 'reviewer' : 'worker'} ${d.sessionId} (dispatch ${d.id})`
       let failure: string | null = null
       try {
         const r = await c.handle('worker-release', { dispatch: d.id })
