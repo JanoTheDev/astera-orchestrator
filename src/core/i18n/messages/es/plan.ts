@@ -410,5 +410,22 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'discord.ws.cmd.status': 'El plan de este canal, o todos los planes abiertos',
   'discord.ws.cmd.approve': 'Aprueba y ejecuta el plan de este canal',
   'discord.ws.notAwaiting': 'Este plan no está esperando aprobación.',
-  'discord.ws.noAnswer': 'El Host no respondió.'
+  'discord.ws.noAnswer': 'El Host no respondió.',
+  // T14: the plan header's open-consoles chip and popover
+  'plan.consoles.one': '{count} consola',
+  'plan.consoles.many': '{count} consolas',
+  'plan.consoles.label': 'Consolas abiertas de este plan',
+  'plan.consoles.role.worker': 'worker',
+  'plan.consoles.role.reviewer': 'revisor',
+  'plan.consoles.role.merge': 'fusión',
+  'plan.consoles.role.coordinator': 'coordinador',
+  'plan.consoles.role.planner': 'planificador',
+  'plan.consoles.reason.working': 'trabajando en su Task',
+  'plan.consoles.reason.reviewing': 'revisando una Task',
+  'plan.consoles.reason.waiting-for-answer': 'esperando tu respuesta',
+  'plan.consoles.reason.retained': 'se mantiene para preguntas de seguimiento',
+  'plan.consoles.reason.person-typed': 'escribiste en ella',
+  'plan.consoles.reason.awaiting-retry': 'esperando un reintento',
+  'plan.consoles.reason.closing': 'cerrándose',
+  'plan.consoles.reason.none': 'se cierra pronto',
 }
