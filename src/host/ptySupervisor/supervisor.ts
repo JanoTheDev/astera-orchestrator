@@ -4,7 +4,7 @@
 import type { PtyOpenOptions } from '../../core/host/protocol'
 import { createPtyRing, type PtyRing } from '../ptyRing'
 import type { RegistryPty } from '../registry'
-import { RING_CHARS, SUPERVISOR_IDLE_MS, type FromSupervisor, type SupervisorPtyInfo, type ToSupervisor } from './protocol'
+import { RING_CHARS, SUPERVISOR_IDLE_MS, helloMatches, welcomeProof, type FromSupervisor, type SupervisorPtyInfo, type ToSupervisor } from './protocol'
 
 export interface SupervisorDeps {
   spawn(file: string, args: string[] | string, opts: PtyOpenOptions): RegistryPty
@@ -15,6 +15,8 @@ export interface SupervisorDeps {
   onIdle(): void
   /** A pty has ended, after the supervisor counted it out (the conhost reaper's cue). */
   exited?(): void
+  /** The profile's Host key, read when a connection says hello; null when there is none (every hello is refused). */
+  key(): string | null
   idleMs?: number
   ringChars?: number
   /** Test injection; setTimeout otherwise. Returns the cancel. */
@@ -44,7 +46,7 @@ interface Held {
 }
 
 export function createSupervisor(d: SupervisorDeps): {
-  connect(send: (m: FromSupervisor) => void): SupervisorConnection
+  connect(send: (m: FromSupervisor) => void, refuse?: () => void): SupervisorConnection
   liveCount(): number
 } {
   const ptys = new Map<string, Held>()
@@ -132,6 +134,7 @@ export function createSupervisor(d: SupervisorDeps): {
   }
 
   const receive = (c: Conn, m: ToSupervisor): void => {
+    if (m.t === 'hello') return // already said
     if (m.t === 'spawn') return spawn(c, m)
     if (m.t === 'list') return tell(c, { t: 'listed', ptys: [...ptys.values()].map((h) => ({ id: h.id, pid: h.pid, note: h.note, alive: h.alive })) })
     const h = ptys.get(m.id)
@@ -158,14 +161,32 @@ export function createSupervisor(d: SupervisorDeps): {
 
   checkIdle()
   return {
-    connect(send) {
+    connect(send, refuse) {
       const c: Conn = { send }
-      conns.add(c)
-      checkIdle()
+      let authed = false
+      let refused = false
       return {
-        // Nothing after the close: an attach then would take a pty's exit to a Host that is gone.
-        receive: (m) => void (conns.has(c) && receive(c, m)),
+        receive(m) {
+          if (refused) return
+          if (!authed) {
+            // Only a connection that proved the key counts as a Host or reaches a pty.
+            const key = d.key()
+            const ok = m.t === 'hello' && key !== null && typeof m.nonce === 'string' && m.nonce.length > 0 && m.nonce.length <= 256 && helloMatches(key, m.nonce, m.proof)
+            if (!ok) {
+              refused = true
+              d.log(`a connection was refused: its first line was ${m.t === 'hello' ? 'a hello with the wrong key' : String(m.t)}`)
+              return refuse?.()
+            }
+            authed = true
+            conns.add(c)
+            tell(c, { t: 'welcome', proof: welcomeProof(key, m.nonce) })
+            return checkIdle()
+          }
+          // Nothing after the close: an attach then would take a pty's exit to a Host that is gone.
+          if (conns.has(c)) receive(c, m)
+        },
         close() {
+          refused = true
           if (!conns.delete(c)) return
           for (const h of ptys.values()) h.attached.delete(c)
           checkIdle()

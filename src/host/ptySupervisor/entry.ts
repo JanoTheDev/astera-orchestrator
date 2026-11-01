@@ -2,16 +2,17 @@
 // has the whole picture). Listens on the profile's supervisor address; a second one started while the first listens
 // leaves at once. Logs to `<profile>/host/pty-supervisor.log`.
 import childProcess from 'node:child_process'
-import { mkdirSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import * as pty from 'node-pty'
+import { hostKeyPath } from '../../core/publicContract'
 import { hideAllChildConsoleWindows, hideForkedConsoleWindows, type ChildProcessProto } from '../../core/childWindows'
 import { createConhostReaper, reapWindowsConsoleHosts } from '../conhostReaper'
 import { createLineReader, encodeLine } from '../framing'
 import { logUncaughtExceptions, logUnhandledRejections, openHostLog } from '../log'
 import { killTree } from '../workspace/native'
-import { SUPERVISOR_IDLE_ENV, SUPERVISOR_IDLE_MS, SUPERVISOR_PROFILE_ENV, supervisorAddress, type ToSupervisor } from './protocol'
+import { HELLO_MS, SUPERVISOR_IDLE_ENV, SUPERVISOR_IDLE_MS, SUPERVISOR_PROFILE_ENV, supervisorAddress, type ToSupervisor } from './protocol'
 import { createSupervisor } from './supervisor'
 
 function main(): void {
@@ -50,6 +51,15 @@ function main(): void {
     },
     killTree: (pid) => killTree(pid),
     log: (m) => log.write(m),
+    // The Host made it before it bound (or its client did, before saying hello); read again at each hello.
+    key: () => {
+      try {
+        const text = readFileSync(hostKeyPath(profileDir), 'utf8').trim()
+        return /^[0-9a-f]{64}$/.test(text) ? text : null
+      } catch {
+        return null
+      }
+    },
     exited: () => reaper.exited(),
     idleMs: Number(process.env[SUPERVISOR_IDLE_ENV]) || SUPERVISOR_IDLE_MS,
     onIdle: () => leave('no pty and no Host')
@@ -57,9 +67,16 @@ function main(): void {
 
   const server = net.createServer((sock) => {
     sock.setEncoding('utf8')
-    const conn = supervisor.connect((m) => {
-      if (!sock.destroyed) sock.write(encodeLine(m))
-    })
+    // A connection that does not say hello in time is not a Host.
+    const helloTimer = setTimeout(() => sock.destroy(), HELLO_MS)
+    helloTimer.unref()
+    const conn = supervisor.connect(
+      (m) => {
+        if (m.t === 'welcome') clearTimeout(helloTimer)
+        if (!sock.destroyed) sock.write(encodeLine(m))
+      },
+      () => sock.destroy()
+    )
     const read = createLineReader({
       onMessage: (v) => conn.receive(v as ToSupervisor),
       onBadLine: (raw) => log.write(`a line that is not JSON: ${raw.slice(0, 80)}`),
@@ -67,7 +84,10 @@ function main(): void {
     })
     sock.on('data', read)
     sock.on('error', () => {})
-    sock.on('close', () => conn.close())
+    sock.on('close', () => {
+      clearTimeout(helloTimer)
+      conn.close()
+    })
   })
   const listen = (retried: boolean): void => {
     server.once('error', (err: NodeJS.ErrnoException) => {
