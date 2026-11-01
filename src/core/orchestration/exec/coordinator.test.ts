@@ -1347,3 +1347,25 @@ describe('startWorker owner instructions on a caller-assembled spec', () => {
     expect(out.endsWith(`## ${OWNER_HEADING}\n\nWorker only.\n`)).toBe(true)
   })
 })
+
+describe('typecheck and lint evidence (T17)', () => {
+  it('the worker brief requires the repo typecheck and lint on touched packages, quoted under Checks run', () => {
+    const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
+    expect(out).toContain('Before you report done, run the repository\'s own checks for every package you touched: its typecheck and its lint.')
+    expect(out).toContain('lefthook.yml')
+    expect(out).toContain("Quote each command with its result in your report under 'Checks run'")
+    expect(out).toContain('If a check cannot run here, say why.')
+  })
+  it('the review brief rejects a report without Checks run evidence, with the agreed issue wording', () => {
+    const out = buildReviewSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1', validated: true })
+    expect(out).toContain("## Evidence the checks ran")
+    expect(out).toContain("A report with no 'Checks run' section naming a typecheck and a lint")
+    expect(out).toContain('"No typecheck/lint evidence for <packages>"')
+    expect(out).toContain('do not run the checks yourself')
+  })
+  it('the evidence rule sits in the question the reviewer answers, before the verdict section', () => {
+    const out = buildReviewSpecFile({ ...{ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1', validated: true }, resultPath: 'C:/u/dsp.md.review.json' })
+    expect(out.indexOf('## Evidence the checks ran')).toBeGreaterThan(out.indexOf('## The one question you answer'))
+    expect(out.indexOf('## Evidence the checks ran')).toBeLessThan(out.indexOf('## Structured verdict'))
+  })
+})
