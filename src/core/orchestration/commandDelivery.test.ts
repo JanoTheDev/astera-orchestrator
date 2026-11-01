@@ -8,7 +8,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { pushBranch } from '../github/prCreate'
 import { handleCommand, type OrchServerDeps } from './command'
-import { emptyState, type OrchState } from './state'
+import { doneStatusOf, emptyState, type OrchState } from './state'
 import type { JobRun, Project, Task } from './types'
 import { HOST_CALLER } from '../host/driver'
 import { cleanAfterDelivery, DELIVERY_FIX_MARK, deliveryChecksOf, deliveryIssuesOf, deliveryMessage, deliveryOf, recordDelivery, setProjectDelivery } from './delivery'
@@ -128,6 +128,14 @@ describe('run-deliver (W6-H)', () => {
     expect(outcomeOf(ok.state(), 'r1')).toBe('completed')
   })
 
+  it('T10: a Task no open Task depended on, never merged into the plan branch, is merged by the delivery', async () => {
+    const h = setup({ project: { delivery: 'push', deliveryBranch: 'main' }, run: { worktree: '/wt/plan' }, tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2' })] })
+    expect(doneStatusOf(h.state(), h.state().tasks[1])).toBe('completed')
+    expect((await h.call('run-deliver', { run: 'r1' })).status).toBe(200)
+    expect(h.pushes[0].worktrees).toContain('/wt/t2')
+    expect(h.pushes[0].worktrees).not.toContain('/wt/t1') // folded: the plan branch brings it
+  })
+
   it('a conflicting branch at delivery leaves the Run failed with the conflict as its reason', async () => {
     const why = 'git merge-tree says x does not merge cleanly'
     const h = setup({ run: { worktree: '/wt/run' }, mergeFails: why })
@@ -168,11 +176,11 @@ describe('run-deliver (W6-H)', () => {
     expect(h.removed).toEqual([])
   })
 
-  it('T6: the plan branch of a merge plan is never pushed after a Task', async () => {
+  it('T6: the plan branch of a merge plan is never pushed after a Task, not even with --now', async () => {
     const h = setup({ project: { delivery: 'merge' }, run: { worktree: '/wt/plan' } })
-    expect(await h.call('run-draft-pr', { run: 'r1' })).toMatchObject({ status: 409, body: { error: expect.stringContaining('No plan-branch push is due') } })
+    expect(await h.call('run-draft-pr', { run: 'r1', now: true })).toMatchObject({ status: 409, body: { error: expect.stringContaining('No plan-branch push is due') } })
     const p = setup({ project: { delivery: 'push' }, run: { worktree: '/wt/plan' } })
-    expect((await p.call('run-draft-pr', { run: 'r1' })).body).not.toMatchObject({ error: expect.stringContaining('No plan-branch push is due') })
+    expect((await p.call('run-draft-pr', { run: 'r1', now: true })).body).not.toMatchObject({ error: expect.stringContaining('No plan-branch push is due') })
   })
 
   it('jobs-create --delivery merge and projects-set --delivery merge are accepted', async () => {
@@ -404,7 +412,7 @@ describe('run-draft-pr pushes the plan branch after a Task (T3, real git)', () =
       state: {
         ...emptyState(),
         projects: [project({ path: repo, delivery: 'push' })],
-        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: repo, projectId: 'p1', createdAt: NOW }],
+        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: repo, projectId: 'p1', createdAt: NOW, pushCadence: 'task' }],
         runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: wt } as JobRun],
         tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2', status: 'ready' })],
         dispatches: [{ id: 'd1', taskId: 't1', cwd: wt, accountId: 'a', endedAt: NOW, outcome: 'succeeded' } as never]
@@ -439,7 +447,7 @@ describe('a plan-branch push that keeps failing asks the owner (T4)', () => {
       state: {
         ...emptyState(),
         projects: [project({ delivery: 'push' })],
-        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: REPO, projectId: 'p1', createdAt: NOW }],
+        jobs: [{ id: 'job_1', objective: 'Fix auth', cwd: REPO, projectId: 'p1', createdAt: NOW, pushCadence: 'task' }],
         runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: '/wt/run' } as JobRun],
         tasks: [task(), task({ id: 't2', status: 'ready' })],
         dispatches: []
@@ -1098,7 +1106,7 @@ describe("a plan's own target branch (--delivery-branch)", () => {
 
   it('run-draft-pr opens the draft against the target branch', async () => {
     const h = prSetup({ deliveryBranch: 'release', tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2', status: 'ready' })] })
-    const r = await h.call('run-draft-pr', { run: 'r1' })
+    const r = await h.call('run-draft-pr', { run: 'r1', now: true })
     expect(r).toMatchObject({ status: 200 })
     expect(h.bases).toEqual(['release'])
   })

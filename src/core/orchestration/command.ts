@@ -104,6 +104,7 @@ import {
   DEFAULT_CONCURRENCY,
   MAX_CONCURRENT_WORKERS,
   FAILURE_LIMIT,
+  PUSH_CADENCES,
   canTransition,
   isPlaceholderSessionId,
   recomputeReady,
@@ -114,6 +115,7 @@ import {
   type JobSourceRef,
   type MessageType,
   type Project,
+  type PushCadence,
   type Task,
   type TaskStatus
 } from './types'
@@ -3946,6 +3948,7 @@ export async function handleCommand(
       const editsRunning =
         EDIT_KEYS.some((k) => args[k] !== undefined) ||
         args.deliveryBranch !== undefined ||
+        args.pushCadence !== undefined ||
         args.effort !== undefined ||
         (args.concurrency !== undefined && args.priority !== undefined)
       if (editsRunning && args.after === undefined) {
@@ -3967,12 +3970,15 @@ export async function handleCommand(
         // The plan's own target branch; an empty value (or null) clears it, back to its project's
         const branchArg = args.deliveryBranch
         if (branchArg !== undefined && branchArg !== null && typeof branchArg !== 'string') return bad('--delivery-branch needs a value')
+        // T10: when its plan branch is pushed while it runs (draftPr.ts draftPrDue)
+        const cadence = args.pushCadence
+        if (cadence !== undefined && !PUSH_CADENCES.includes(cadence as PushCadence)) return bad(`--push-cadence must be ${PUSH_CADENCES.join('|')}`)
         const named = s.runs.find((r) => r.id === id)
         const job = s.jobs.find((j) => j.id === id) ?? (named && jobOf(s, named))
         if (!job) return notFound(`unknown job or run: ${id}`)
         const given = (['concurrency', 'priority', ...EDIT_KEYS] as const).filter((k) => args[k] !== undefined)
         // The target branch is where the plan lands, so it changes when its delivery may
-        if (branchArg !== undefined) given.push('delivery')
+        if (branchArg !== undefined || cadence !== undefined) given.push('delivery')
         // --effort has no PlanSettingKey: it is refused when the plan has finished, like --concurrency
         for (const k of args.effort !== undefined ? [...given, 'concurrency' as const] : given) {
           const why = settingRefusalOf(s, job, k)
@@ -3990,6 +3996,7 @@ export async function handleCommand(
           ...(handsOff !== undefined ? { handsOff } : {}),
           ...(auto !== undefined ? { autoApprove: auto } : {}),
           ...(delivery !== undefined ? { delivery } : {}),
+          ...(cadence !== undefined ? { pushCadence: cadence as PushCadence } : {}),
           ...(args.effort === undefined ? (job.effort !== undefined ? { effort: job.effort } : {}) : isEffort(args.effort) ? { effort: args.effort } : {})
         }
         let state: OrchState = { ...s, jobs: s.jobs.map((j) => (j.id === job.id ? next : j)) }
@@ -7530,8 +7537,9 @@ export async function handleCommand(
       }
       // T4: `synced`: an origin sync merged into the plan branch, which is pushed with no new Task
       await readLandingOf(s, job, deps.github?.deliverySetup) // T32: draftPrDue reads what this read
-      const tasksDone = draftPrDue(s, run, undefined, { synced: args.synced === true })
-      if (tasksDone === null) return conflict("No plan-branch push is due: the plan's branch is pushed once per Task merged into it")
+      // T10: `now`, a person's "push now": at once, whatever the plan's push cadence
+      const tasksDone = draftPrDue(s, run, undefined, { synced: args.synced === true, now: args.now === true })
+      if (tasksDone === null) return conflict("No plan-branch push is due: the plan's push cadence (jobs-set --push-cadence) has none now; --now pushes anyway")
       const reply = await (async (): Promise<Reply> => {
         const t = githubTarget(deps, s, { run: id })
         if ('error' in t) return t.error
@@ -7611,7 +7619,7 @@ export async function handleCommand(
       // T4: consecutive failures count (a push that went through, or the owner's "Retry now", starts afresh); the fifth asks
       // the owner once, as a delivery does (`raiseDeliveryQuestion`), and a push that goes through answers that question
       const prev = run.branchPush
-      const bp = afterAttempt(prev?.state === 'delivered' || args.force === true ? undefined : prev, at, failed)
+      const bp = afterAttempt(prev?.state === 'delivered' || args.force === true || args.now === true ? undefined : prev, at, failed)
       const tasksPushed = failed === undefined ? tasksDone : prev?.tasksDone
       let cur = deps.getState()
       cur = { ...cur, runs: cur.runs.map((r) => (r.id === id ? { ...r, branchPush: { ...bp, ...(tasksPushed !== undefined ? { tasksDone: tasksPushed } : {}) } } : r)) }

@@ -41,7 +41,7 @@ const setup = (o: { gh?: (args: string[]) => Partial<GhResult> | undefined; task
   const box: { state: OrchState } = {
     state: {
       ...emptyState(),
-      jobs: [{ id: 'job_1', objective: 'Refactor auth', cwd: repo, createdAt: NOW }],
+      jobs: [{ id: 'job_1', objective: 'Refactor auth', cwd: repo, createdAt: NOW, pushCadence: 'task' }],
       runs: [{ id: 'r1', jobId: 'job_1', ordinal: 1, createdAt: NOW, worktree: WT, ...o.run } as JobRun],
       tasks: o.tasks ?? [task()],
       dispatches: o.dispatches ?? []

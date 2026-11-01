@@ -5480,8 +5480,10 @@ describe('handleCommand — convergence', () => {
     await call(deps, 'task-create', { spec: 's', account: 'accA' })
     const s0 = deps.getState()
     const id = s0.tasks[0].id
+    // T10: an open dependent, so its work goes onto the plan branch now
+    await call(deps, 'task-create', { spec: 's2', account: 'accA', deps: [id] })
     await deps.setState({
-      ...s0,
+      ...deps.getState(),
       runs: s0.runs.map((r) => ({ ...r, worktree: 'D:/wt-run' })),
       dispatches: [{ id: 'dsp_x', taskId: id, provider: 'claude', accountId: 'accA', sessionId: 'w-x', cwd: 'D:/wt-x', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'failed', workerState: 'failed', retained: false }]
     })

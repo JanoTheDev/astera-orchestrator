@@ -575,6 +575,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
       { name: 'hands-off', value: '<on|off>', about: 'run without asking; from a person only' },
       { name: 'delivery', value: '<pr|push|merge|manual>', about: 'how the plan lands; refused once delivery has started' },
       { name: 'delivery-branch', value: '<branch>', about: "the plan's target branch, ahead of its project's; empty clears it; refused once delivery has started" },
+      // T10 push cadence
+      { name: 'push-cadence', value: '<end|wave|task>', about: 'when its plan branch is pushed while it runs: end (the default) only at the final delivery, wave at most once per finished wave, task after every task; refused once delivery has started' },
       { name: 'effort', value: '<low|medium|high|xhigh|max|none>', about: "reasoning effort for the plan's workers whose Task sets none; none clears it" },
       // T3 workspaces
       { name: 'project', value: '<projectId>', about: 'file a plan not started yet under another project of its workspace; alone' }
