@@ -130,6 +130,9 @@ export function reasonText(
         : { key: 'plan.reason.sameFiles', params: { task: reason.waitingOn.title, path: reason.path } }
     case 'next':
       return { key: 'plan.reason.next' }
+    // T8: what the loop's last pass held it on
+    case 'hold':
+      return { key: `plan.reason.hold.${reason.hold}` }
     // W6-G: "Paused: Max at 93% of its 5-hour limit, resumes ~14:20"
     case 'usage-paused': {
       const account = accountLabel(reason.accountId)

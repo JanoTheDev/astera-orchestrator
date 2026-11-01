@@ -179,6 +179,8 @@ export function createHostDriving(d: {
   usageGuard?: DispatchLoopContext['usageGuard']
   /** Stall watchdog: the Host's activity log, which its feed lines go into. Absent (test fakes): no watchdog. */
   activity?: DispatchLoopContext['activity']
+  /** T8: the loop's holds, on every change, for the apps' boards (`slot-holds`). Absent (test fakes): kept in this process. */
+  holdsChanged?: DispatchLoopContext['holdsChanged']
   /** Told every change of `report()` (limits pass L3), in the same turn as the change. A throw is
    *  logged and costs nothing else (constraint 14). */
   onReport?(r: HostDriverReport): void
@@ -524,7 +526,8 @@ export function createHostDriving(d: {
     mayStart,
     log,
     nowMs: () => d.nowMs(),
-    ...(d.usageGuard ? { usageGuard: d.usageGuard } : {})
+    ...(d.usageGuard ? { usageGuard: d.usageGuard } : {}),
+    ...(d.holdsChanged ? { holdsChanged: d.holdsChanged } : {})
   })
 
   // T12 silent workers: when each pty last printed, by pty id (the registry's own clock is the person's input only)

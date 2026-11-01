@@ -23,7 +23,7 @@ import { t } from '../../i18n'
 import { accountToDispatchOn } from '../../accounts/dispatchAccount'
 import { autoOrderOf, withAutoOrder, type AutoAccountsGuard } from '../../accounts/autoAccountOrder'
 import { providerOf } from '../../providers/meta'
-import type { Account } from '../../types'
+import type { Account, SlotHold, SlotHoldKind } from '../../types'
 import type { DeliverySetup } from '../deliveryChoices'
 import { nameForRun, nameForTask } from '../../worktrees/naming'
 import { jobNameOf } from '../jobName'
@@ -48,7 +48,8 @@ import { jobActive, slotsToFill, type Slot } from '../schedule'
 import { coordinatorStarting, jobOf, landMerge, type OrchState } from '../state'
 import { createMergingWatch } from './mergingWatch'
 import { isJobActive } from '../lifecycle'
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Job, type JobRun, type Task } from '../types'
+import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Decision, type Dispatch, type Job, type JobRun, type Task } from '../types'
+import { slotHolds } from '../blocked'
 import { deliveryEnded, isTerminal, outcomeOfTasks, tasksOwnedBy } from '../running'
 import { worktreeRefusal } from '../planner'
 import { isSamePath } from '../../files/tree'
@@ -287,9 +288,17 @@ export interface DispatchLoopContext {
   mayStart(): boolean
   /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
   usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'> & Partial<Pick<UsageGuard, 'view' | 'pauseAt' | 'autoAccounts'>>
+  /** T8: where each held ready Task's hold is kept for the board (blocked.ts `taskBoardsOf`). Defaults to `slotHolds`. */
+  holds?: Map<string, SlotHold>
+  /** T8: told each change of `holds`, so a board in another process (the app, while the Host drives) shows them too. */
+  holdsChanged?(holds: ReadonlyMap<string, SlotHold>): void
   log(m: string): void
   nowMs(): number
 }
+
+/** T8: an open Dispatch with no word from its worker (start, resume, message) for this long, and a session not busy, no
+ *  longer holds its folder: a leftover of a lost or idle session must not stop refreshes, merges and syncs for good. */
+export const STALE_DISPATCH_MS = 30 * 60_000
 
 /** How one placed slot ended (`placeSlot`). `gate` is a slot that cannot start until a person acts,
  *  `wait` one that starts later on its own (an integration step first), `refused` a `worker-start` that
@@ -299,7 +308,8 @@ type SlotEnd =
   | { kind: 'refused'; reply: { status: number; body: unknown } }
   | { kind: 'leaving'; reply: { status: number; body: unknown } }
   | { kind: 'gate'; reason: string; why: string }
-  | { kind: 'wait'; why: string }
+  /** `hold`: what the board says while it waits (T8, blocked.ts) */
+  | { kind: 'wait'; why: string; hold: SlotHoldKind }
 
 export interface DispatchLoop {
   run(): Promise<void>
@@ -658,6 +668,25 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   const refreshedTo = new Map<string, Set<string>>()
   /** Dep folders already merged into a run root, by `root\0folder\0head` (the slot's dep merge). */
   const mergedTips = new Set<string>()
+  /** T8: the open Dispatches stale this long, said once each (`workingNow`). */
+  const staleSaid = new Set<string>()
+  /** T8: whether an open Dispatch's worker is working in its folder now: its session alive, and busy or heard from
+   *  within STALE_DISPATCH_MS. Asked only of Dispatches in a folder a merge or refresh wants (integrate.ts runsWorkingIn). */
+  const workingNow =
+    (s: OrchState) =>
+    (d: Dispatch): boolean => {
+      if (!c.sessionAlive(d.sessionId)) return false
+      if (c.sessionBusy(d.sessionId) === true) return true
+      let last = Date.parse(d.startedAt)
+      for (const r of d.resumes ?? []) if (r.resumedAt !== undefined) last = Math.max(last, Date.parse(r.resumedAt))
+      for (const m of s.messages) if (m.dispatchId === d.id) last = Math.max(last, Date.parse(m.createdAt))
+      if (!(c.nowMs() - last > STALE_DISPATCH_MS)) return true
+      if (!staleSaid.has(d.id)) {
+        staleSaid.add(d.id)
+        log(`dispatch=${d.id} in ${d.cwd}: no activity for over ${STALE_DISPATCH_MS / 60_000} minutes and its session is idle; it no longer holds that folder`)
+      }
+      return false
+    }
   // A feed line of the existing `watchdog` kind (payload.reason): a kind of its own would need the feed's renderer too
   const planActivity = (runId: string, reason: string): void => c.activity?.(watchdogActivity(c.getState(), runId, reason))
   /** T32: the line saying how a plan whose saved delivery cannot work on its folder lands instead; it carries the
@@ -682,7 +711,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * off `anchorId`), and the plan waits for it; only when that Task fails is the owner asked. `ready`: nothing (more) to
    * merge. A worker in the Run worktree is never merged under: the refresh waits for it.
    */
-  type Refreshed = { kind: 'ready' } | { kind: 'wait'; why: string } | { kind: 'gate'; reason: string }
+  type Refreshed = { kind: 'ready' } | { kind: 'wait'; why: string; busy?: true } | { kind: 'gate'; reason: string }
   /** T7: the Runs a refresh merges into now. The background refresh and a pass's own (before a Task starts) never merge
    *  into one worktree side by side: the later one waits for the next pass. */
   const refreshing = new Set<string>()
@@ -706,8 +735,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     const due = deliveriesBefore(s, run, job).filter((d) => !done.has(d.sha))
     if (due.length === 0) return { kind: 'ready' }
     const mine = jobNameOf(job)
-    if (workingInRunRoot(s, runId))
-      return { kind: 'wait', why: `plan ${mine} is refreshed onto plan ${jobNameOf(due[0].job)}'s delivery first, and a worker is still working in ${worktree}` }
+    if (workingInRunRoot(s, runId, workingNow(s)))
+      return { kind: 'wait', busy: true, why: `plan ${mine} is refreshed onto plan ${jobNameOf(due[0].job)}'s delivery first, and a worker is still working in ${worktree}` }
     for (const d of due) {
       const plan = jobNameOf(d.job)
       let r: Refresh
@@ -1494,7 +1523,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       detachedSince.delete(runId)
       return null
     }
-    return { kind: 'wait', why: 'the project folder is not on a branch right now (detached HEAD); it is tried again' }
+    return { kind: 'wait', hold: 'detached', why: 'the project folder is not on a branch right now (detached HEAD); it is tried again' }
   }
 
   /** T24: a Run worktree's fork. With `installHeavy` it answers once the folder's install queues for a heavy slot, and
@@ -1527,7 +1556,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (settled) void settled.then(again)
       else setTimeout(again, INSTALL_LOOK_AGAIN_MS).unref?.()
     }
-    return { kind: 'wait', why: `its plan worktree ${dir} is installing its dependencies (or waits for a heavy slot to), and it starts once that ends` }
+    return { kind: 'wait', hold: 'install', why: `its plan worktree ${dir} is installing its dependencies (or waits for a heavy slot to), and it starts once that ends` }
   }
 
   const placeSlot = async (slot: Slot, accounts: Account[], loggedIn: Set<string>): Promise<SlotEnd> => {
@@ -1593,7 +1622,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           : null
       const chain = auto ? (auto0 ? auto.order : withAutoOrder(picked.chain, auto.order, auto.over)) : picked.chain
       const usage = usageChoice(chain, (id) => guard.pauseOf(id))
-      if (!usage.ok) return { kind: 'wait', why: usagePauseWhy(usage.pause) }
+      if (!usage.ok) return { kind: 'wait', hold: 'usage', why: usagePauseWhy(usage.pause) }
       if (usage.accountId !== undefined) accountId = usage.accountId
     }
     // **한 Run 은 두 방식 중 하나로만 돈다.** 섞지 않는 이유는 병합 대상이다 — 병합은
@@ -1742,9 +1771,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           reason: t(c.lang(), 'jobs.integration.taskFailed', { task: held.id }),
           why: `its integration task ${held.id}, merging origin into the plan branch, failed`
         }
-      if (held) return { kind: 'wait', why: `it waits for integration task ${held.id} (${held.status}), which merges origin into the plan branch` }
+      if (held) return { kind: 'wait', hold: 'origin-sync', why: `it waits for integration task ${held.id} (${held.status}), which merges origin into the plan branch` }
       const fresh = await refreshRun(slot.runId, slot.taskId)
-      if (fresh.kind === 'wait') return fresh
+      // T8: a refresh waiting for the plan folder to be free never holds a start: the Task starts on the plan branch as
+      // it is, and the refresh runs on a later pass (refreshRunningPlans)
+      if (fresh.kind === 'wait' && fresh.busy) log(`scheduler: task=${slot.taskId} starts before its plan's refresh: ${fresh.why}`)
+      else if (fresh.kind === 'wait') return { ...fresh, hold: 'refresh-conflict' }
       if (fresh.kind === 'gate') return { kind: 'gate', reason: fresh.reason, why: fresh.reason }
       state = c.getState()
     }
@@ -1766,15 +1798,16 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         log(
           `scheduler: task=${slot.taskId} waits for integration task=${existing.id} (${existing.status})`
         )
-        return { kind: 'wait', why: `it waits for its integration task ${existing.id} (${existing.status}) to finish` }
+        return { kind: 'wait', hold: 'integration', why: `it waits for its integration task ${existing.id} (${existing.status}) to finish` }
       }
       // Run 뿌리에서 도는 워커가 있으면 합치지 않는다 — 그 워커가 읽은 트리를 그
       // 아래에서 갈아치우는 일이고, 그 실패는 조용하다(integrate.ts 에 이유가 있다).
       // 다음 상태 변경에 다시 본다. 그 워커가 끝나는 것 자체가 상태 변경이다.
-      if (workingInRunRoot(state, slot.runId)) {
+      if (workingInRunRoot(state, slot.runId, workingNow(state))) {
         log(`scheduler: task=${slot.taskId} waits — a worker is still working in ${runRoot}`)
         return {
           kind: 'wait',
+          hold: 'run-root-busy',
           why: `the worktrees it depends on must be merged into ${runRoot} first, and a worker is still working there`
         }
       }
@@ -1855,6 +1888,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // 한 바퀴 더 돌 때 스스로 슬롯이 된다(deps 가 이미 전부 completed 이므로 ready 다).
         return {
           kind: 'wait',
+          hold: 'integration',
           why: `the worktrees it depends on must be merged first, so an integration task was made for that (${String((created.body as { id?: unknown } | null)?.id ?? '')}); it runs first`
         }
       }
@@ -1866,11 +1900,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // 병합을 밟는다 — 한 폴더에 병렬 워커를 두지 않는다는 Task 배치 규칙의 이유가 그대로
     // 여기에도 있다. 뒤의 것은 다음 상태 변경에 다시 본다(앞의 것이 끝나는 것 자체가 상태
     // 변경이다).
-    if (isIntegrationTask(task) && workingInRunRoot(state, slot.runId)) {
+    if (isIntegrationTask(task) && workingInRunRoot(state, slot.runId, workingNow(state))) {
       log(
         `scheduler: integration task=${slot.taskId} waits — a worker is still working in ${runRoot}`
       )
-      return { kind: 'wait', why: `it merges into ${runRoot}, and a worker is still working there` }
+      return { kind: 'wait', hold: 'run-root-busy', why: `it merges into ${runRoot}, and a worker is still working there` }
     }
 
     const limit = jobOf(state, run)?.concurrency ?? DEFAULT_CONCURRENCY
@@ -1950,17 +1984,17 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     // W1-B: the app-wide cap filled between slotsToFill and here (a coordinator's worker took the room).
     // Nothing for a person to fix, so no Gate: the next pass after a worker ends places it.
     if (reply.status === 409 && (reply.body as { atCapacity?: unknown })?.atCapacity === true)
-      return { kind: 'wait', why: 'the app-wide worker cap is reached' }
+      return { kind: 'wait', hold: 'cap', why: 'the app-wide worker cap is reached' }
     // A review or repair took the Run's last slot between slotsToFill and here (they are counted, never
     // refused). Nothing for a person to fix, so no Gate: the next pass after a Dispatch closes places it.
     if (reply.status === 409 && (reply.body as { atRunLimit?: unknown })?.atRunLimit === true)
-      return { kind: 'wait', why: 'the run is at its concurrency limit' }
+      return { kind: 'wait', hold: 'cap', why: 'the run is at its concurrency limit' }
     // W5-C: the plan was held from launching between slotsToFill and here. A person's choice, so no Gate.
     if (reply.status === 409 && (reply.body as { held?: unknown })?.held === true)
-      return { kind: 'wait', why: 'the plan is held from launching new workers' }
+      return { kind: 'wait', hold: 'held', why: 'the plan is held from launching new workers' }
     // W6-G: the account crossed `usagePauseAt` between the check above and here. It resumes on its own.
     if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined)
-      return { kind: 'wait', why: String((reply.body as { error?: unknown }).error) }
+      return { kind: 'wait', hold: 'usage', why: String((reply.body as { error?: unknown }).error) }
     if (reply.status >= 400) {
       const detached = detachedWait(slot.runId, JSON.stringify(reply.body))
       return detached ?? { kind: 'refused', reply }
@@ -1978,6 +2012,34 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   // CLI 가 지나는 검사(회로 차단, 열린 Dispatch, 실패 롤백)를 앱만 건너뛰는 두 번째 문이 생긴다.
   let scheduling = false
   let scheduleAgain = false
+  const holds = (): Map<string, SlotHold> => c.holds ?? slotHolds
+  /** T8: a wait is kept as the Task's hold for the board (its `since` kept while the kind stays); any other ending, and a
+   *  Task no longer ready, clears it. */
+  const holdsChanged = (): void => {
+    try {
+      c.holdsChanged?.(holds())
+    } catch (e) {
+      log(`scheduler: the held tasks could not be passed on: ${String(e)}`)
+    }
+  }
+  const forgetHold = (taskId: string): void => {
+    if (holds().delete(taskId)) holdsChanged()
+  }
+  const noteHold = (taskId: string, end: SlotEnd): void => {
+    if (end.kind !== 'wait') return forgetHold(taskId)
+    const m = holds()
+    const was = m.get(taskId)
+    if (was?.hold === end.hold && was.detail === end.why) return
+    m.set(taskId, { hold: end.hold, detail: end.why, since: was?.hold === end.hold ? was.since : new Date(c.nowMs()).toISOString() })
+    holdsChanged()
+  }
+  const dropEndedHolds = (s: OrchState): void => {
+    const m = holds()
+    if (m.size === 0) return
+    let dropped = false
+    for (const id of m.keys()) if (s.tasks.find((x) => x.id === id)?.status !== 'ready') dropped = m.delete(id) || dropped
+    if (dropped) holdsChanged()
+  }
   /** Who waits for `scheduling` to drop: a `dispatchOne` that arrived during a pass. */
   let idleWaiters: Array<() => void> = []
   const wakeIdle = (): void => {
@@ -2018,6 +2080,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // **운전자에게 먼저 묻는다**(설계 §4.3) — 앱에서는 서버가 서 있는가(예전의 `if (!orch) return`),
         // Host 에서는 지금 Host 가 모는가다. 바퀴마다 묻는 이유는 아래 슬롯마다 묻는 것과 같다.
         if (!c.mayStart()) return
+        dropEndedHolds(c.getState())
         // A finished Task lands on its plan branch first (mergeWaves), so a dependent its merge readies is placed in
         // this same lap, not at the next tick
         await mergeWaves()
@@ -2082,6 +2145,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           // 서 있게 되고, 하나의 문제가 전부를 세우지 않는다는 이 루프의 전제가 거짓이 된다.
           try {
             const end = await placeSlot(slot, accounts, loggedIn)
+            noteHold(slot.taskId, end)
             // **떠나는 Host 의 거절은 Gate 가 아니다**(R15). 물러나는 Host 는 retire 가 온 순간부터 모든
             // 시작을 거절하고, worker-start 는 그것을 `retry` 를 실은 409 로 답한다 — "이 Task 를 못
             // 띄운다" 가 아니라 "나중에, 다음 운전자에게 같은 명령을" 이다. **이 활성화를 통째로 멈춘다**
@@ -2094,6 +2158,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
             else if (end.kind === 'refused')
               await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: JSON.stringify(end.reply.body) }))
           } catch (e) {
+            forgetHold(slot.taskId)
             await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: String(e) }))
           }
         }
@@ -2210,6 +2275,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!c.mayStart()) return refuse('this process stopped placing Jobs while the task was being placed')
       const slot: Slot = { runId: task.runId, taskId, accountIds: task.accountIds as string[] }
       const end = await placeSlot(slot, accounts, loggedIn)
+      noteHold(taskId, end)
       if (end.kind === 'started') {
         log(`scheduler: task=${taskId} placed on request`)
         const body = (end.reply.body ?? {}) as Record<string, unknown>

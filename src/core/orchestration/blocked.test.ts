@@ -396,3 +396,23 @@ describe('taskBoardsOf — a plan not yet delivered (T9)', () => {
     expect(taskBoardsOf(two({ pr: { at: T0, url: 'https://x/pr/2', number: 2 } })).get('t2')?.reason).toEqual({ kind: 'next' })
   })
 })
+
+// T8: the dispatch loop's last hold of a ready Task, said instead of "next"
+describe('taskBoardsOf — a hold the dispatch loop recorded (T8)', () => {
+  const hold = { hold: 'install' as const, detail: 'its plan worktree is installing', since: T0 }
+
+  it('a slotted Task the loop held says the hold, not next', () => {
+    const s = one([task('a', 'r1')])
+    expect(taskBoardsOf(s, {}, undefined, new Map([['a', hold]])).get('a')?.reason).toEqual({ kind: 'hold', ...hold })
+    expect(taskBoardsOf(s, {}, undefined, new Map()).get('a')?.reason).toEqual({ kind: 'next' })
+  })
+
+  it('a real reason still comes first: the plan cap, a gate, a Task no longer ready', () => {
+    const holds = new Map([['b', hold]])
+    const capped = one([task('a', 'r1', { status: 'dispatched' }), task('b', 'r1')], { concurrency: 1 })
+    capped.dispatches = [dispatch('d1', 'a')]
+    expect(taskBoardsOf(capped, {}, undefined, holds).get('b')?.reason).toMatchObject({ kind: 'plan-cap' })
+    const done = one([task('b', 'r1', { status: 'completed' })])
+    expect(taskBoardsOf(done, {}, undefined, holds).get('b')?.reason).toBeUndefined()
+  })
+})

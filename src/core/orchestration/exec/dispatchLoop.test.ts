@@ -29,8 +29,9 @@ import { needsInput } from '../sessionIndex'
 import { outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
 import type { Decision, Dispatch, Job, Message, Task } from '../types'
+import { acceptSlotHolds, taskBoardsOf } from '../blocked'
 import { FAILURE_LIMIT } from '../types'
-import type { Account } from '../../types'
+import type { Account, SlotHold } from '../../types'
 import { installPending, installSettled, installTurn } from '../../worktrees/setup'
 import { makeRepo } from '../../worktrees/testRepo'
 
@@ -4049,5 +4050,172 @@ describe('a slow delivery, branch push, origin sync or refresh never holds the p
     await new Promise((r) => setTimeout(r, 50))
     expect(tidies).toBe(seen)
     expect(h.logs.filter((l) => l.includes('passes in a row were asked for during the tidy'))).toHaveLength(1)
+  })
+})
+
+// T8: a ready Task whose deps are done starts, or the board says the true reason it does not
+describe('ready Tasks start or show the true blocker (T8)', () => {
+  const LATER = new Date(NOW_MS + 1000).toISOString()
+  /** A worker of the plan (tsk_w) has its Dispatch open in the plan folder /wt1; plan A delivered `shaA` after it began. */
+  const withWorkerAndDelivery = (h: ReturnType<typeof rig>, over: Partial<Dispatch> = {}): void => {
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [...s.jobs.map((j) => ({ ...j, title: 'B' })), { id: 'job_A', title: 'A', objective: 'a', cwd: '/p', createdAt: NOW }],
+      runs: [...s.runs, { id: 'run_A', jobId: 'job_A', ordinal: 1, createdAt: NOW, worktree: '/wtA', delivery: { at: LATER, sha: 'shaA', branch: 'main' } }],
+      tasks: [...s.tasks, task({ id: 'tsk_w', status: 'dispatched' }), task({ id: 'tsk_A', runId: 'run_A', jobId: 'job_A', status: 'completed' })],
+      dispatches: [
+        { id: 'dsp_w', taskId: 'tsk_w', provider: 'claude', accountId: 'accA', sessionId: 'sess_w', cwd: '/wt1', specPath: 'x', startedAt: NOW, workerState: 'ready', retained: false, ...over }
+      ]
+    })
+  }
+  const started = (h: ReturnType<typeof rig>): string[] => h.startWorker.mock.calls.map(([a]) => a.taskId)
+
+  it('a refresh pending on a worker in the plan folder does not stop an independent ready Task from starting', async () => {
+    const h = rig({ concurrency: 3 })
+    withWorkerAndDelivery(h)
+    h.ctx.sessionBusy = () => true
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(started(h).sort()).toEqual(['tsk_1', 'tsk_2'])
+    // The refresh still waits for the folder
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('a Dispatch whose session is gone does not count as working in the plan folder: the refresh runs, the Task starts', async () => {
+    const h = rig({ concurrency: 3 })
+    withWorkerAndDelivery(h)
+    h.ctx.sessionAlive = (id) => id !== 'sess_w'
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalled()
+    expect(started(h)).toContain('tsk_1')
+  })
+
+  it('an idle Dispatch not heard from for over 30 minutes does not count either, and is said once', async () => {
+    const h = rig({ concurrency: 3 })
+    withWorkerAndDelivery(h, { startedAt: new Date(NOW_MS - 31 * 60_000).toISOString() })
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalled()
+    expect(h.logs.filter((l) => l.startsWith('dispatch=dsp_w in /wt1: no activity'))).toHaveLength(1)
+  })
+
+  it('a reviewer in the plan folder does not hold it', async () => {
+    const h = rig({ concurrency: 3 })
+    withWorkerAndDelivery(h, { review: true })
+    h.ctx.sessionBusy = () => true
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalled()
+  })
+
+  it('a push waiting for the owner (branchPush needs-owner) does not stop placing', async () => {
+    const h = rig()
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, branchPush: { state: 'needs-owner' as const, attempts: 5 } })) })
+    await h.loop.run()
+    await h.settle()
+    expect(started(h)).toEqual(['tsk_1'])
+  })
+
+  describe('each hold is recorded for the board', () => {
+    const boardOf = (h: ReturnType<typeof rig>, holds: Map<string, SlotHold>, id = 'tsk_1') => taskBoardsOf(h.state(), {}, undefined, holds).get(id)?.reason
+    const withHolds = (h: ReturnType<typeof rig>): Map<string, SlotHold> => {
+      const holds = new Map<string, SlotHold>()
+      h.ctx.holds = holds
+      return holds
+    }
+
+    it('install wait', async () => {
+      const h = rig()
+      const holds = withHolds(h)
+      h.ctx.installHeavy = () => ({ slots: async () => 1 })
+      h.ctx.installPending = (d) => d === '/wt1'
+      h.ctx.installSettled = () => undefined
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'install', since: NOW })
+      // It ends: the Task starts and its hold is gone
+      h.ctx.installPending = () => false
+      await h.loop.run()
+      await h.settle()
+      expect(holds.has('tsk_1')).toBe(false)
+      expect(started(h)).toEqual(['tsk_1'])
+    })
+
+    it('an origin sync with its integration Task open', async () => {
+      const h = rig({ concurrency: 3 })
+      const holds = withHolds(h)
+      const merge = task({ id: 'tsk_sync', parentId: 'tsk_1', status: 'dispatched', spec: `${ORIGIN_SYNC_MARK} origin/main moved on` })
+      h.setState({ ...h.state(), tasks: [...h.state().tasks, merge] })
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'origin-sync' })
+    })
+
+    it('deps to merge while a worker works in the plan folder', async () => {
+      const h = rig({ concurrency: 3 })
+      const holds = withHolds(h)
+      const s = h.state()
+      h.setState({
+        ...s,
+        tasks: [...s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, deps: ['tsk_d'] } : t)), task({ id: 'tsk_d', status: 'completed' }), task({ id: 'tsk_w', status: 'dispatched' })],
+        dispatches: [
+          { id: 'dsp_d', taskId: 'tsk_d', provider: 'claude', accountId: 'accA', sessionId: 'sess_d', cwd: '/wt-d', specPath: 'x', startedAt: NOW, workerState: 'stopped', outcome: 'succeeded', endedAt: NOW, retained: false },
+          { id: 'dsp_w', taskId: 'tsk_w', provider: 'claude', accountId: 'accA', sessionId: 'sess_w', cwd: '/wt1', specPath: 'x', startedAt: NOW, workerState: 'ready', retained: false }
+        ]
+      })
+      h.ctx.sessionBusy = () => true
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'run-root-busy' })
+      // The independent one starts
+      expect(started(h)).toEqual(['tsk_2'])
+    })
+
+    it('worker-start answering 409 (the app-wide cap)', async () => {
+      const h = rig()
+      const holds = withHolds(h)
+      h.ctx.handle = async (cmd, args) => (cmd === 'worker-start' ? { status: 409, body: { atCapacity: true } } : h.real(cmd, args))
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'cap', detail: 'the app-wide worker cap is reached' })
+    })
+
+    it('usage pause', async () => {
+      const h = rig()
+      const holds = withHolds(h)
+      h.ctx.usageGuard = { refresh: async () => {}, pauseOf: () => ({ accountId: 'accA', window: 'five_hour', percent: 95, resetsAt: null }) }
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'usage' })
+    })
+
+    it("reaches the board of another process: the Host loop's holds, pushed as slot-holds, are the app fold's", async () => {
+      const h = rig()
+      withHolds(h)
+      // The socket between them: what the Host broadcasts, as the app parses it (drivingWiring.ts, main/ipc.ts)
+      const appHolds = new Map<string, SlotHold>()
+      h.ctx.holdsChanged = (held) => acceptSlotHolds(JSON.parse(JSON.stringify({ t: 'slot-holds', holds: Object.fromEntries(held) })).holds, appHolds)
+      h.ctx.handle = async (cmd, args) => (cmd === 'worker-start' ? { status: 409, body: { atCapacity: true } } : h.real(cmd, args))
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, appHolds)).toMatchObject({ kind: 'hold', hold: 'cap', detail: 'the app-wide worker cap is reached' })
+      // The hold ends in the Host: the app's board loses it too
+      h.ctx.handle = h.real
+      await h.loop.run()
+      await h.settle()
+      expect(started(h)).toEqual(['tsk_1'])
+      expect(appHolds.size).toBe(0)
+    })
   })
 })
