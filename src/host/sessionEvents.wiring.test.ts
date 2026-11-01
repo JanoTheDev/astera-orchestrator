@@ -41,7 +41,7 @@ describe('the Host wires its session events', () => {
   })
 
   it('stops it with the Host, beside the rolling that feeds it', () => {
-    const leave = src.slice(src.indexOf('const leave = (why?: string): void => {'))
+    const leave = src.slice(src.indexOf('const leave = (why?: string'))
     expect(leave.slice(0, 4000)).toMatch(/rollingWiring\?\.dispose\(\)[^]*?sessionEvents\?\.dispose\(\)/)
   })
 })

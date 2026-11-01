@@ -85,7 +85,7 @@ describe('log sites (stage 3, task 3)', () => {
   })
 
   it('the Host awaits the in-flight log writes (capped), then flushes the rest, before it exits', () => {
-    const leave = blockAfter(read('host/index.ts'), 'const leave = (why?: string): void => {')
+    const leave = blockAfter(read('host/index.ts'), 'const leave = (why?: string')
     const awaited = /await[\s\S]{0,120}?\bflushAll\s*\(\s*\)/.exec(leave)
     expect(awaited).not.toBeNull()
     const syncAt = leave.search(/flushAllLogsSync\s*\(\s*\)/)
