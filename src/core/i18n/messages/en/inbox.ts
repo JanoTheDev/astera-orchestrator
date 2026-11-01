@@ -95,6 +95,7 @@ export const inbox: Record<keyof typeof ko, string> = {
   'activity.line.linked': '{title}: linked {parts}',
   'activity.line.prFailed': '{title}: PR failed: {error}',
   'activity.line.prOpened': '{title}: PR opened',
+  'activity.line.landedOutside': '{title}: landed outside Astera',
   'activity.line.prOpenedNum': '{title}: PR #{n} opened',
   'activity.line.planAwaiting': '{title}: plan ready for your approval',
   'activity.line.planRevised': '{title}: plan revised, ready for your approval',

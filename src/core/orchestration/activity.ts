@@ -121,6 +121,8 @@ export interface ActivityPayload {
   status?: TaskStatus
   from?: TaskStatus
   category?: TaskCategory
+  // run.pr: the plan's branch landed in the base outside Astera (set on the change that settled it)
+  landedOutside?: true
   // dispatch.*
   review?: boolean
   outcome?: Outcome
@@ -382,7 +384,9 @@ export function deriveActivity(prev: OrchState, next: OrchState): ActivityDraft[
       const was = before.get(r.id)
       if (was === undefined || was === r || same(was.pr, r.pr)) continue
       const at = where(r.id)
-      push('run.pr', at, { title: at.job ? jobNameOf(at.job) : r.id, ...(r.pr !== undefined ? { pr: r.pr } : {}) })
+      // the plan's work reached the base outside Astera: said once, on the change that settled it (not on later PR moves)
+      const outside = r.pr?.landedOutside === true && was.pr?.landedOutside !== true
+      push('run.pr', at, { title: at.job ? jobNameOf(at.job) : r.id, ...(r.pr !== undefined ? { pr: r.pr } : {}), ...(outside ? { landedOutside: true as const } : {}) })
     }
     // W6-H: the push landed
     for (const r of next.runs) {

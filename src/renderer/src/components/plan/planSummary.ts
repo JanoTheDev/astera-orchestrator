@@ -16,6 +16,8 @@ export type SummaryDelivery =
   | { kind: 'review' }
   | { kind: 'dismissed' }
   | { kind: 'deliveredBy'; title: string }
+  // the delivery ended on GitHub or outside Astera: the Run's deliveryState.note (landedOnGitHub, landedOutside)
+  | { kind: 'landedOutside' | 'closedOnGitHub' }
 
 export interface PlanSummary {
   total: number
@@ -86,7 +88,11 @@ export function planSummaryOf(row: SummaryRow, nowMs: number): PlanSummary {
   const d = row.delivery?.state === 'pending' ? undefined : row.delivery
   const delivery: SummaryDelivery | undefined = d
     ? { kind: d.state as Exclude<typeof d.state, 'pending'>, ...(d.reason !== undefined ? { reason: d.reason } : {}) }
-    : row.deliveredBy
+    : row.pr?.landedOutside
+      ? { kind: 'landedOutside' }
+      : row.pr?.landed === 'closed'
+        ? { kind: 'closedOnGitHub' }
+        : row.deliveredBy
       ? { kind: 'deliveredBy', title: row.deliveredBy.title }
       : row.awaitingReview
         ? { kind: 'review' }

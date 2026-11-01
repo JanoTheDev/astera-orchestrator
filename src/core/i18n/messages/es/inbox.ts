@@ -93,6 +93,7 @@ export const inbox: Partial<Record<keyof typeof ko, string>> = {
   'activity.line.linked': '{title}: vinculado {parts}',
   'activity.line.prFailed': '{title}: falló el PR: {error}',
   'activity.line.prOpened': '{title}: PR abierto',
+  'activity.line.landedOutside': '{title}: llegó fuera de Astera',
   'activity.line.prOpenedNum': '{title}: PR #{n} abierto',
   'activity.line.planAwaiting': '{title}: plan listo para tu aprobación',
   'activity.line.planRevised': '{title}: plan revisado, listo para tu aprobación',

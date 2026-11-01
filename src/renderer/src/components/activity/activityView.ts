@@ -73,7 +73,9 @@ export function lineOf(e: ActivityEvent, accountLabel: (id: string) => string, l
       return { text: m('activity.line.linked', { parts: parts.join(', ') || m('activity.links.nothing') }), tone: 'info' }
     }
     case 'run.pr':
-      return p.pr?.error
+      return p.landedOutside
+        ? { text: m('activity.line.landedOutside'), tone: 'ok' }
+        : p.pr?.error
         ? { text: m('activity.line.prFailed', { error: p.pr.error }), tone: 'bad' }
         : p.pr?.note // W7-E (#80): no remote, no failure
           ? { text: m('activity.line.titled', { reason: p.pr.note }), tone: 'info' }

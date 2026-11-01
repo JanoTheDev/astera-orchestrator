@@ -124,6 +124,8 @@ export const plans: Partial<Record<keyof typeof ko, string>> = {
   'plan.summary.delivery.review': 'レビュー待ち',
   'plan.summary.delivery.dismissed': '却下 · 未納品',
   'plan.summary.delivery.deliveredBy': '{plan} が納品',
+  'plan.summary.delivery.landedOutside': 'Astera外で反映',
+  'plan.summary.delivery.closedOnGitHub': 'GitHubで閉じられました',
   'plan.summary.draft': '下書き',
   'plan.summary.areas': '領域',
   'plan.header.openPr': 'PR を開く',

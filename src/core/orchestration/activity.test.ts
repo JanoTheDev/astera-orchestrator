@@ -129,6 +129,14 @@ describe('deriveActivity', () => {
     expect(pr).toMatchObject([{ type: 'run.pr', runId: 'r1', payload: { title: 'Plan A', pr: { number: 9 } } }])
   })
 
+  it('a plan settled as landed outside Astera says so once; later PR moves do not say it again', () => {
+    const landed = deriveActivity(state({ runs: [run({ pr: { at: T0, number: 9, url: 'u' } })] }), state({ runs: [run({ pr: { at: T0, number: 9, url: 'u', landed: 'merged', landedOutside: true } })] }))
+    expect(landed).toMatchObject([{ type: 'run.pr', payload: { landedOutside: true, pr: { landedOutside: true } } }])
+    const later = deriveActivity(state({ runs: [run({ pr: { at: T0, landed: 'merged', landedOutside: true } })] }), state({ runs: [run({ pr: { at: T0, landed: 'merged', landedOutside: true, attributed: 'abc' } })] }))
+    expect(later).toMatchObject([{ type: 'run.pr' }])
+    expect(later[0].payload.landedOutside).toBeUndefined()
+  })
+
   it('a fresh coordinator: "Coordinator refreshed (wave 3)", once per refresh', () => {
     const first = { at: T0, reason: 'wave 3', from: 'c1', to: 'c2', wave: 3 }
     const lines = deriveActivity(state(), state({ runs: [run({ coordinatorRefreshes: [first] })] }))
