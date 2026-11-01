@@ -91,6 +91,7 @@ import { sameLogin } from '../core/accounts/duplicateLogins'
 import { descriptorOf } from '../core/providers/descriptor'
 import { readGeneratorSettings } from '../core/understanding/generatorSettings'
 import { readRoleModelSettings } from '../core/orchestration/roleModels'
+import { reviewTranscriptEntryId } from '../core/orchestration/taskDetail'
 import { readVoiceSettings } from '../core/intents/speech'
 import { transcribe } from '../core/intents/transcribe'
 import { parseWithCoordinator } from '../core/intents/parseRun'
@@ -4519,6 +4520,11 @@ export function registerIpc(
     )
   })
   ipcMain.handle('history.preview', (_e, entryId) => core.history.preview(entryId))
+  // T26: a finished review's transcript, read-only. The renderer names the Dispatch; the path never leaves main.
+  ipcMain.handle('orch.reviewTranscript', async (_e, dispatchId: unknown) => {
+    const id = orch && typeof dispatchId === 'string' ? reviewTranscriptEntryId(orch.deps.getState(), dispatchId) : null
+    return id === null ? null : core.history.preview(id).catch(() => null)
+  })
   ipcMain.handle('history.refresh', () => core.history.refresh())
   // 숨긴 프로젝트의 **기록을 지운다** — 설정 화면의 정리. 지우는 것은 세션 트랜스크립트뿐이고
   // 사용자의 프로젝트 폴더에는 어떤 경로로도 닿지 않는다.

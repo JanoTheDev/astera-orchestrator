@@ -808,6 +808,10 @@ export interface ResumeEntry {
   toAccountId?: string
 }
 
+/** How a review ended: accepted, rejected for blocking issues (or by outcome), held for a decision no code change makes,
+ *  or its verdict file could not be read. */
+export type ReviewVerdict = 'passed' | 'rejected' | 'needs-decision' | 'failed'
+
 export interface Dispatch {
   id: string
   taskId: string
@@ -879,6 +883,11 @@ export interface Dispatch {
   /** 이 Dispatch 가 구현이 아니라 검토인가. 한 Task 에 구현 Dispatch 와 검토 Dispatch 가 함께
    *  붙으므로, worker_done 이 도착했을 때 어느 쪽인지 아는 유일한 방법이다. */
   review?: boolean
+  /** A review Dispatch only: how its verdict landed (applyReviewResult). Absent while it runs, or when it ended without one. */
+  verdict?: ReviewVerdict
+  /** A review Dispatch only: this round's normalised issues, copied from the same change that sets `Task.reviewIssues`
+   *  (which keeps the latest round only). Written for a convergence Run, the only Run that reads issues. */
+  reviewIssues?: ReviewIssue[]
   /** 이 Dispatch 가 구현이 아니라 수리인가, 그리고 왜. review 와 배타적이다. 직전 시도는 retryOf 가
    *  가리킨다 — attempt = Dispatch 라는 기존 모델 그대로다(설계 D4) */
   repair?: RepairReason

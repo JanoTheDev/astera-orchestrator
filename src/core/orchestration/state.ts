@@ -19,6 +19,7 @@ import {
   type Message,
   type MessageType,
   type Outcome,
+  type ReviewVerdict,
   type RepairReason,
   type Project,
   type Decision,
@@ -1590,14 +1591,28 @@ export function applyReviewResult(
   if (!task) return gone(`unknown task: ${a.taskId}`)
   if (task.status !== 'reviewing') return err(`task is not reviewing: ${task.status}`)
   const lang: Lang = a.lang ?? 'en'
+  const policy = policyOf(s, task)
+  // This round's issues and verdict, kept on its own review Dispatch: Task.reviewIssues holds the latest round only.
+  const issues =
+    policy !== null && a.issues !== 'malformed'
+      ? normalizeIssues({ outcome: a.outcome, subject: a.subject, body: a.body, issues: a.issues, policy, newId })
+      : undefined
+  const blocking = (issues ?? []).filter((i) => i.blocking)
+  // T3: a blocking issue no code change fixes stops the loop (below, above the attempt count)
+  const nonCode = blocking.filter((i) => i.needs !== undefined && i.needs !== 'code')
+  const verdict: ReviewVerdict =
+    policy === null
+      ? a.outcome === 'succeeded' ? 'passed' : 'rejected'
+      : issues === undefined ? 'failed' : blocking.length === 0 ? 'passed' : nonCode.length > 0 ? 'needs-decision' : 'rejected'
   const nextDispatch: Dispatch = {
     ...dispatch,
     outcome: a.outcome,
     endedAt: now,
-    workerState: a.outcome === 'succeeded' ? 'stopped' : 'failed'
+    workerState: a.outcome === 'succeeded' ? 'stopped' : 'failed',
+    verdict,
+    ...(issues !== undefined ? { reviewIssues: issues } : {})
   }
   const closed: OrchState = { ...s, dispatches: replace(s.dispatches, nextDispatch) }
-  const policy = policyOf(s, task)
 
   if (policy === null) {
     // ---- 지금까지의 경로. 문구까지 그대로다 ----
@@ -1640,15 +1655,7 @@ export function applyReviewResult(
     if (!g.ok) return err(g.error)
     return ok(g.state, 'accepted')
   }
-  const issues = normalizeIssues({
-    outcome: a.outcome,
-    subject: a.subject,
-    body: a.body,
-    issues: a.issues,
-    policy,
-    newId
-  })
-  const blocking = issues.filter((i) => i.blocking)
+  if (issues === undefined) return err('review issues missing') // unreachable: the malformed case returned above
   const recorded: Task = { ...task, reviewIssues: issues }
   if (blocking.length === 0) {
     const to = doneStatusOf(s, task)
@@ -1674,7 +1681,6 @@ export function applyReviewResult(
   }
   // T3: a blocking issue no code change fixes stops the loop here, above the attempt count: another repair would fail
   // on it the same way. A person (or a hands-off plan's decider) answers, and that answer opens one repair (gate-resolve).
-  const nonCode = blocking.filter((i) => i.needs !== undefined && i.needs !== 'code')
   if (nonCode.length > 0) {
     const g = createGate(
       { ...closed, tasks: replace(closed.tasks, { ...recorded, result: a.body }) },

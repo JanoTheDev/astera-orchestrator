@@ -5,20 +5,115 @@
 // and the two actions; a finished Task adds its result and gaps (taskDoneView) and "Ask about this task".
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
-import type { JobTask } from '../../../../core/types'
+import type { JobTask, TranscriptPreview } from '../../../../core/types'
 import { useI18n } from '../../i18n/I18nProvider'
 import { postPlanFeedback, type ActionUi } from '../../lib/jobActions'
 import { replyNote, type OrchDoor } from '../../lib/orchDoor'
-import { Button, Field, Icon, IconButton } from '../ui'
+import { Button, Chip, Field, Icon, IconButton } from '../ui'
+import { TranscriptPreviewModal } from '../TranscriptPreviewModal'
 import { TaskEditModal } from './TaskEditModal'
 import { TaskActionButtons, type OnTaskAction } from './TaskActionMenu'
 import type { TaskActionId } from './taskActions'
 import { taskActionKey, taskActionOf } from './planCommands'
 import { doneViewOf, foldReport } from './taskDoneView'
+import { ISSUES_SHOWN, reviewRowsOf, reviewingElapsed, type ReviewRow, type TaskReview } from './reviewList'
 import { attemptStateOf, feedbackTextOf, loadTaskInfo, taskEditOf, type TaskInfo } from './taskEdit'
 
 /** The actions this detail shows as buttons; Retry/Continue/Restart, Ask about it and Edit are its own buttons. */
 const DETAIL_ACTIONS: readonly TaskActionId[] = ['start', 'ask', 'stop', 'holdWorker', 'unholdWorker', 'stopAutoFix', 'acceptFailed', 'cancelFailed']
+
+/** T26: "Reviewing · m:ss", counted up once a second from the running reviewer's start. */
+export function ReviewingBadge({ startedAt }: { startedAt: string }): React.JSX.Element {
+  const { t } = useI18n()
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return (
+    <Chip tone="info" className="plan-reviewing">
+      <Icon name="refresh" size={14} />
+      {t('plan.review.badge', { elapsed: reviewingElapsed(startedAt, now) })}
+    </Chip>
+  )
+}
+
+const VERDICT_TONE = { passed: 'ok', rejected: 'danger', 'needs-decision': 'warn', failed: 'danger', running: 'info', stopped: 'neutral' } as const
+
+function ReviewItem({ row, onOpen }: { row: ReviewRow; onOpen: (id: string) => void }): React.JSX.Element {
+  const { t } = useI18n()
+  const [all, setAll] = useState(false)
+  const shown = all ? row.issues : row.issues.slice(0, ISSUES_SHOWN)
+  return (
+    <li className="plan-review">
+      <div className="plan-review-head">
+        <Chip tone={VERDICT_TONE[row.state]}>{t(row.label)}</Chip>
+        <span className="plan-review-model">{row.model}</span>
+        <time dateTime={row.startedAt}>{new Date(row.startedAt).toLocaleString()}</time>
+        {row.endedAt !== undefined && <time dateTime={row.endedAt}>{new Date(row.endedAt).toLocaleTimeString()}</time>}
+        <span className="plan-review-elapsed">{row.elapsed}</span>
+        {row.transcript && (
+          <Button variant="ghost" size="sm" className="plan-link" icon={<Icon name="show" size={14} />} onClick={() => onOpen(row.id)}>
+            {t('plan.review.openTranscript')}
+          </Button>
+        )}
+      </div>
+      {shown.length > 0 && (
+        <ul className="plan-review-issues">
+          {shown.map((i, n) => (
+            <li key={n}>
+              {i.severity.toUpperCase()} {i.title}
+              {i.blocking && <> · {t('plan.review.blocking')}</>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {row.folded > 0 && (
+        <Button variant="ghost" size="sm" className="plan-link" aria-expanded={all} onClick={() => setAll((v) => !v)}>
+          {t(all ? 'plan.done.showLess' : 'plan.done.showAll')}
+        </Button>
+      )}
+    </li>
+  )
+}
+
+/** T26: the Task's reviews, newest first, each with its verdict, issues and (once finished) its transcript, read-only. */
+function ReviewSection({ reviews }: { reviews: readonly TaskReview[] }): React.JSX.Element | null {
+  const { t } = useI18n()
+  const [now, setNow] = useState(() => Date.now())
+  const [preview, setPreview] = useState<TranscriptPreview | null>(null)
+  const [failed, setFailed] = useState(false)
+  const running = reviews.some((r) => r.endedAt === undefined)
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [running])
+  if (reviews.length === 0) return null
+  const open = (id: string): void => {
+    setFailed(false)
+    void window.api.orch.reviewTranscript(id).then(
+      (p) => (p === null ? setFailed(true) : setPreview(p)),
+      () => setFailed(true)
+    )
+  }
+  return (
+    <section className="plan-task-part" aria-label={t('plan.review.title')}>
+      <h4 className="plan-task-head">{t('plan.review.title')}</h4>
+      <ol className="plan-reviews">
+        {reviewRowsOf(reviews, now).map((row) => (
+          <ReviewItem key={row.id} row={row} onOpen={open} />
+        ))}
+      </ol>
+      {failed && (
+        <p className="warn" role="alert">
+          {t('plan.review.transcriptFailed')}
+        </p>
+      )}
+      {preview !== null && createPortal(<TranscriptPreviewModal preview={preview} onClose={() => setPreview(null)} />, document.body)}
+    </section>
+  )
+}
 
 export function TaskDetail({
   door,
@@ -235,6 +330,7 @@ export function TaskDetail({
             </div>
           )}
           {reportBlock}
+          <ReviewSection reviews={info.reviews} />
           {info.attempts.length > 0 && (
             <section className="plan-task-part" aria-label={t('plan.task.attempts')}>
               <h4 className="plan-task-head">{t('plan.task.attempts')}</h4>

@@ -5,6 +5,7 @@
 import type { Task } from '../../../../core/orchestration/types'
 import { isTerminal } from '../../../../core/orchestration/running'
 import type { OrchDoor } from '../../lib/orchDoor'
+import type { TaskReview } from './reviewList'
 
 /** The fields the edit form offers, by their `task-update` argument name. */
 export const EDIT_FIELDS = ['title', 'spec', 'prompt', 'criteria', 'deps', 'kind', 'difficulty', 'effort', 'affectedPaths'] as const
@@ -134,10 +135,11 @@ export interface TaskAttempt {
 export const attemptStateOf = (a: Pick<TaskAttempt, 'outcome' | 'endedAt'>): 'succeeded' | 'failed' | 'stopped' | 'running' =>
   a.outcome ?? (a.endedAt !== undefined ? 'stopped' : 'running')
 
-/** Everything the expanded row shows of a Task: its full record, its attempts and its Run's outcome. */
+/** Everything the expanded row shows of a Task: its full record, its attempts, its reviews and its Run's outcome. */
 export interface TaskInfo {
   task: Task
   attempts: TaskAttempt[]
+  reviews: TaskReview[]
   outcome?: string
 }
 
@@ -147,7 +149,7 @@ export interface TaskInfo {
 export async function loadTaskInfo(door: Pick<OrchDoor, 'command'>, id: string): Promise<TaskInfo | null> {
   const got = await door.command('tasks-get', { id })
   if (got.status >= 400) return null
-  const detail = got.body as { runId?: string; jobId?: string; attempts?: TaskAttempt[] }
+  const detail = got.body as { runId?: string; jobId?: string; attempts?: TaskAttempt[]; reviews?: TaskReview[] }
   const scope = detail.runId ?? detail.jobId
   if (scope === undefined) return null
   const [list, run] = await Promise.all([
@@ -157,5 +159,5 @@ export async function loadTaskInfo(door: Pick<OrchDoor, 'command'>, id: string):
   const task = list.status < 400 && Array.isArray(list.body) ? (list.body as Task[]).find((t) => t.id === id) : undefined
   if (task === undefined) return null
   const outcome = run !== null && run.status < 400 ? (run.body as { outcome?: unknown }).outcome : undefined
-  return { task, attempts: detail.attempts ?? [], ...(typeof outcome === 'string' ? { outcome } : {}) }
+  return { task, attempts: detail.attempts ?? [], reviews: detail.reviews ?? [], ...(typeof outcome === 'string' ? { outcome } : {}) }
 }

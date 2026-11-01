@@ -1,8 +1,8 @@
 // `taskDetailOf` (MCP design §3b): one Task with its attempts, for the MCP get_task tool.
 import { describe, it, expect } from 'vitest'
-import { taskDetailOf } from './taskDetail'
+import { reviewTranscriptEntryId, taskDetailOf } from './taskDetail'
 import { emptyState, type OrchState } from './state'
-import type { Dispatch, Gate, Task } from './types'
+import type { Dispatch, Gate, ReviewIssue, Task } from './types'
 
 const NOW = '2026-10-01T00:00:00.000Z'
 
@@ -107,5 +107,55 @@ describe('taskDetailOf', () => {
 
   it('has no openQuestionId when nothing is open', () => {
     expect('openQuestionId' in taskDetailOf(stateWith([task('t1')]), 't1')!).toBe(false)
+  })
+
+  it('lists each review with its model, verdict and its own round of issues', () => {
+    const issue = (title: string, blocking: boolean): ReviewIssue => ({ id: title, severity: blocking ? 'high' : 'low', blocking, title, description: '' })
+    const s = stateWith(
+      [task('t1')],
+      [
+        dispatch('w', 't1'),
+        dispatch('r2', 't1', {
+          review: true,
+          model: 'opus',
+          startedAt: '2026-10-01T00:10:00Z',
+          endedAt: '2026-10-01T00:12:00Z',
+          verdict: 'passed',
+          reviewIssues: [issue('nit', false)],
+          nativeSessionId: 'n2'
+        }),
+        dispatch('r1', 't1', {
+          review: true,
+          effort: 'high',
+          startedAt: '2026-10-01T00:05:00Z',
+          endedAt: '2026-10-01T00:07:00Z',
+          verdict: 'rejected',
+          reviewIssues: [issue('bug', true)]
+        }),
+        dispatch('r3', 't1', { review: true, startedAt: '2026-10-01T00:20:00Z', nativeSessionId: 'n3' })
+      ]
+    )
+    const reviews = taskDetailOf(s, 't1')!.reviews
+    expect(reviews.map((r) => r.id)).toEqual(['r1', 'r2', 'r3'])
+    expect(reviews[0]).toMatchObject({ effort: 'high', verdict: 'rejected', issues: [{ title: 'bug', severity: 'high', blocking: true }], transcript: false })
+    expect(reviews[1]).toMatchObject({ model: 'opus', verdict: 'passed', issues: [{ title: 'nit', blocking: false }], transcript: true })
+    // a running review: no end, no verdict, and nothing to open yet
+    expect(reviews[2]).toMatchObject({ issues: [], transcript: false })
+    expect('verdict' in reviews[2]).toBe(false)
+    expect(reviews.every((r) => !('sessionId' in r) && !('transcriptPath' in r))).toBe(true)
+  })
+
+  it('names a finished review transcript by account and native session, and nothing else', () => {
+    const s = stateWith(
+      [task('t1')],
+      [
+        dispatch('done', 't1', { review: true, endedAt: NOW, nativeSessionId: 'n1', accountId: 'a1' }),
+        dispatch('running', 't1', { review: true, nativeSessionId: 'n2' }),
+        dispatch('unbound', 't1', { review: true, endedAt: NOW }),
+        dispatch('work', 't1', { endedAt: NOW, nativeSessionId: 'n3' })
+      ]
+    )
+    expect(reviewTranscriptEntryId(s, 'done')).toBe('a1:n1')
+    for (const id of ['running', 'unbound', 'work', 'nope']) expect(reviewTranscriptEntryId(s, id)).toBeNull()
   })
 })

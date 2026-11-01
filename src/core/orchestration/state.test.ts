@@ -3545,6 +3545,43 @@ describe('applyReviewResult — convergence', () => {
     expect(r.state.gates.at(-1)?.question).toContain('could not be parsed')
   })
 
+  it('two review rounds keep their own issues and verdicts on their review Dispatches', () => {
+    const { s, taskId, reviewId } = reviewing()
+    const r1 = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 'r1', body: 'b', issues: [high], repair: SAME }, LATER) as never)
+    const repair = r1.state.dispatches.find((d) => d.repair)!
+    const back = unwrap(applyWorkerDone(r1.state, { taskId, dispatchId: repair.id, outcome: 'succeeded', subject: 's2', body: 'b2' }, LATER) as never)
+    const opened2 = unwrap<Dispatch>(
+      openReviewDispatch(back.state, { taskId, provider: 'claude', accountId: 'accC', sessionId: 'rev2', cwd: 'D:/p', specPath: '' }, LATER) as never
+    )
+    const r2 = unwrap(applyReviewResult(opened2.state, { taskId, dispatchId: opened2.value.id, outcome: 'succeeded', subject: 'ok', body: 'b', issues: [low], repair: SAME }, EVEN_LATER) as never)
+    const first = r2.state.dispatches.find((d) => d.id === reviewId)!
+    const second = r2.state.dispatches.find((d) => d.id === opened2.value.id)!
+    expect(first.verdict).toBe('rejected')
+    expect(first.reviewIssues?.map((i) => [i.title, i.blocking])).toEqual([['Session race', true]])
+    expect(second.verdict).toBe('passed')
+    expect(second.reviewIssues?.map((i) => [i.title, i.blocking])).toEqual([['naming', false]])
+    // the Task keeps the latest round only, as before
+    expect(r2.state.tasks.find((t) => t.id === taskId)?.reviewIssues?.map((i) => i.title)).toEqual(['naming'])
+  })
+
+  it('records needs-decision and failed verdicts, and a plain Run records a verdict with no issues', () => {
+    const a = reviewing()
+    const env = { severity: 'high' as const, title: 'env', needs: 'environment' as const }
+    const nd = unwrap(applyReviewResult(a.s, { taskId: a.taskId, dispatchId: a.reviewId, outcome: 'failed', subject: 'e', body: 'b', issues: [env], repair: SAME }, LATER) as never)
+    expect(nd.state.dispatches.find((d) => d.id === a.reviewId)?.verdict).toBe('needs-decision')
+    const m = reviewing()
+    const bad = unwrap(applyReviewResult(m.s, { taskId: m.taskId, dispatchId: m.reviewId, outcome: 'succeeded', subject: 'o', body: 'b', issues: 'malformed', repair: SAME }, LATER) as never)
+    const badReview = bad.state.dispatches.find((d) => d.id === m.reviewId)!
+    expect(badReview.verdict).toBe('failed')
+    expect(badReview.reviewIssues).toBeUndefined()
+    const plain = reviewing({}, { convergence: undefined })
+    const noPolicy = { ...plain.s, jobs: plain.s.jobs.map((j) => ({ ...j, convergence: undefined })) }
+    const rej = unwrap(applyReviewResult(noPolicy, { taskId: plain.taskId, dispatchId: plain.reviewId, outcome: 'failed', subject: 's', body: 'no' }, LATER) as never)
+    const rejReview = rej.state.dispatches.find((d) => d.id === plain.reviewId)!
+    expect(rejReview.verdict).toBe('rejected')
+    expect('reviewIssues' in rejReview).toBe(false)
+  })
+
   it('라운드 상한에 닿았는데 아직 blocking 이면 소진 Gate 다', () => {
     const { s, taskId, reviewId } = reviewing({}, { convergence: { maxReviewRounds: 1 } })
     const r = unwrap(applyReviewResult(s, { taskId, dispatchId: reviewId, outcome: 'failed', subject: 'race', body: 'b', issues: [high], repair: SAME }, LATER) as never)
