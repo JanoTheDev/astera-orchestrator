@@ -64,7 +64,7 @@ export function parseGitAiNote(text: string): GitAiNote | null {
 export function gitAiInstalled(exec: typeof execFile = execFile): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      exec('git-ai', ['--version'], { timeout: 5_000 }, (err) => resolve(!err))
+      exec('git-ai', ['--version'], { timeout: 5_000, windowsHide: true }, (err) => resolve(!err))
     } catch {
       resolve(false)
     }
