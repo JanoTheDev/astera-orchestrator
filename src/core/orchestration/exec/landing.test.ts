@@ -293,12 +293,15 @@ describe('a merged Task never stays merging', () => {
     const h = rig(runWt, [task({ id: 'tsk_A', status: 'merging' }), task({ id: 'tsk_M', parentId: 'tsk_A', status: 'completed' })])
     const logs: string[] = []
     h.ctx.log = (m) => logs.push(m)
-    h.ctx.handle = () => new Promise(() => {})
+    const real = h.ctx.handle
+    let askedAt: number | undefined
+    h.ctx.handle = (cmd, args) => (cmd === 'task-update' ? ((askedAt = Date.now()), new Promise(() => {})) : real(cmd, args))
     vi.useFakeTimers({ now: Date.parse(NOW), toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     h.ctx.nowMs = () => Date.now()
     let ended = false
     void h.loop.nudge().then(() => (ended = true))
-    await vi.advanceTimersByTimeAsync(119_000)
+    while (askedAt === undefined) await vi.advanceTimersByTimeAsync(1_000)
+    await vi.advanceTimersByTimeAsync(askedAt + 119_000 - Date.now())
     expect(ended).toBe(false)
     await vi.advanceTimersByTimeAsync(2_000)
     expect(ended).toBe(true)
@@ -314,10 +317,12 @@ describe('a merged Task never stays merging', () => {
     await h.done('tsk_A')
     const logs: string[] = []
     h.ctx.log = (m) => logs.push(m)
-    h.ctx.integrate = () => new Promise(() => {})
+    let pinnedAt: number | undefined
+    h.ctx.integrate = () => ((pinnedAt = Date.now()), new Promise(() => {}))
     vi.useFakeTimers({ now: Date.parse(NOW), toFake: ['setTimeout', 'clearTimeout', 'Date'] })
     h.ctx.nowMs = () => Date.now()
     void h.loop.nudge() // pinned in the merge of tsk_A
+    while (pinnedAt === undefined) await vi.advanceTimersByTimeAsync(1_000)
     await vi.advanceTimersByTimeAsync(60_000)
     // Another Task whose merge Task completed, after the pass began
     const at = new Date(Date.now()).toISOString()
@@ -327,7 +332,8 @@ describe('a merged Task never stays merging', () => {
     })
     await h.loop.run()
     expect(h.get('tsk_B').status).toBe('merging')
-    await vi.advanceTimersByTimeAsync(LANDING_STALE_MS - 60_000 + 1)
+    // Under 5 minutes old itself, so it is the new pass that records it, not the merging watch
+    await vi.advanceTimersByTimeAsync(pinnedAt + LANDING_STALE_MS + 1 - Date.now())
     await h.loop.run()
     expect(h.get('tsk_B').status).toBe('completed')
     expect(logs.filter((l) => l.includes('is abandoned'))).toHaveLength(1)
