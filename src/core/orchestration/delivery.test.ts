@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { deliveryBranchOf, deliveryOf, parseDelivery, setJobDelivery, setJobDeliveryBranch, setProjectDelivery } from './delivery'
+import { buildDeliveryFixSpec, deliveryBranchOf, deliveryFixOf, deliveryOf, parseDelivery, setJobDelivery, setJobDeliveryBranch, setProjectDelivery } from './delivery'
 import { emptyState, type OrchState } from './state'
 import type { Job } from './types'
 
@@ -54,5 +54,33 @@ describe("a plan's target branch", () => {
   it('refuses a value that cannot name a branch, and an unknown plan', () => {
     for (const bad of ['', '  ', 'a b', '-x']) expect(setJobDeliveryBranch(state(), 'job_1', bad).ok).toBe(false)
     expect(setJobDeliveryBranch(state(), 'job_9', 'main').ok).toBe(false)
+  })
+})
+
+describe('T15: the fix Task of a refused push', () => {
+  const output = 'lefthook: pre-push\nstorybook typecheck: src/Ask.tsx(3,1): error TS2375: ask: undefined'
+
+  it('quotes the hook output and tells the worker to run the hook, the typecheck and the lint', () => {
+    const spec = buildDeliveryFixSpec({ runRoot: '/wt-run', branch: 'main', reason: output, n: 1, code: 'push-refused' })
+    expect(spec).toContain(output)
+    expect(spec).toContain('git hook run pre-push')
+    expect(spec).toMatch(/typecheck/)
+    expect(spec).toMatch(/lint/)
+    expect(spec).toContain('/wt-run')
+  })
+
+  it('works in its own worktree when the plan has no plan branch', () => {
+    const spec = buildDeliveryFixSpec({ branch: 'main', reason: output, n: 2, code: 'push-refused' })
+    expect(spec).not.toContain('at undefined')
+    expect(spec).toContain('worktree')
+  })
+
+  it('a hands-off plan with no plan worktree still gets a fix Task', () => {
+    const s: OrchState = {
+      ...state(),
+      jobs: [{ ...state().jobs[0], handsOff: true }],
+      runs: [{ id: 'run_1', jobId: 'job_1', ordinal: 1, createdAt: NOW }]
+    }
+    expect(deliveryFixOf(s, s.runs[0])).toBe('fix')
   })
 })
