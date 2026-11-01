@@ -62,6 +62,16 @@ export function integrateAllOutcomeOf(reply: CommandReply): IntegrateAllOutcome 
 
 type T = (key: MessageKey, params?: MessageParams) => string
 
+/** How long a plan-node action waits for the Host's answer before it says so. Main's own deadline (15 s) answers first
+ *  when it can; this one is for a call that never settles, so the button is never silent. */
+export const DOOR_DEADLINE_MS = 20_000
+class DoorTimeout extends Error {}
+const withDeadline = <R>(p: Promise<R>, ms: number): Promise<R> =>
+  new Promise<R>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new DoorTimeout()), ms)
+    p.then(resolve, reject).finally(() => clearTimeout(timer))
+  })
+
 /** Builds the commands over the page's state. Not a hook: it holds no state of its own. */
 export function planCommands({
   t,
@@ -100,6 +110,11 @@ export function planCommands({
   setAnswering: (v: string | null) => void
   setAnswer: (v: string) => void
 }) {
+  /** door.command that always settles, and a throw's toast that says why (no Host link, no answer) instead of "Could not do that". */
+  const call = (cmd: string, args: Record<string, unknown>): Promise<CommandReply> => withDeadline(door.command(cmd, args), DOOR_DEADLINE_MS)
+  const failToast = (err: unknown): void => {
+    toast.error(err instanceof DoorTimeout ? t('jobs.node.noAnswer') : t('jobs.node.failedWhy', { detail: errText(err) }))
+  }
   /** 계정을 고른다 — 스케줄러(src/core/orchestration/exec/dispatchLoop.ts 의 runScheduler)와 같은 방법이다: 계정 목록과
    *  로그인 여부를 병렬로 확인한 뒤 defaultAccountIdOf(그 규칙을 정하는 단 하나의 함수)에게
    *  넘긴다. 로그인 조회를 계정마다 차례로 기다리면 계정 수만큼 느려지므로 Promise.all 로 편다. */
@@ -241,14 +256,14 @@ export function planCommands({
         toast.error(t('session.resume.noLoggedInAccounts'))
         return
       }
-      const reply = await door.command('worker-start', {
+      const reply = await call('worker-start', {
         taskId,
         agent: provider,
         account: accountId
       })
       if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.node.failed')))
-    } catch {
-      toast.error(t('jobs.node.failed'))
+    } catch (err) {
+      failToast(err)
     } finally {
       setBusy(null)
     }
@@ -305,13 +320,13 @@ export function planCommands({
       return
     setBusy(taskId)
     try {
-      const reply = await door.command('task-update', {
+      const reply = await call('task-update', {
         id: taskId,
         convergence: 'off'
       })
       if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.node.failed')))
-    } catch {
-      toast.error(t('jobs.node.failed'))
+    } catch (err) {
+      failToast(err)
     } finally {
       setBusy(null)
     }
@@ -324,13 +339,13 @@ export function planCommands({
   const restartTask = async (taskId: string): Promise<void> => {
     setBusy(taskId)
     try {
-      const reply = await door.command('task-update', {
+      const reply = await call('task-update', {
         id: taskId,
         status: 'ready'
       })
       if (reply.status >= 400) toast.error(replyNote(reply, t as never, t('jobs.node.failed')))
-    } catch {
-      toast.error(t('jobs.node.failed'))
+    } catch (err) {
+      failToast(err)
     } finally {
       setBusy(null)
     }

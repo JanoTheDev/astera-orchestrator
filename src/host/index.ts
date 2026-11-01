@@ -63,6 +63,7 @@ import { makeDescriptors } from '../core/providers/descriptor'
 import { readRange } from '../core/git/range'
 import { createHostOrch } from './orch'
 import { composeHostDriving } from './drivingWiring'
+import { hostSessionAlive } from './driving'
 // W6-G
 import { createUsageGuard } from '../core/orchestration/usageGuard'
 import { readAccountMaxSessions } from '../core/settings/accountMaxSessions'
@@ -86,6 +87,7 @@ import {
   restartFeedLine,
   restartWaitingOn,
   restoreSessions,
+  endOrphanedReplans,
   sessionRestoreFileIn,
   trackLiveSessions,
   withoutResumed,
@@ -1567,6 +1569,19 @@ async function main(): Promise<void> {
     } else restoreDone()
   } else restoreDone()
   // T13: once the sessions are back (or there were none), a restart's hold goes (sessionRestore.ts liftRestartHold).
+  // After a crash (no handover) a replan's planner died with the old Host and nothing here holds it: end it at once.
+  if (!left.handover)
+    void restored
+      .then(async () => {
+        await orch.ready()
+        await endOrphanedReplans({
+          state: orch.state(),
+          alive: (id) => hostSessionAlive(registry, procs, id),
+          handle: (cmd, args) => orch.handle(cmd, args),
+          log: (m) => log.write(m)
+        })
+      })
+      .catch((err) => log.write(`session restore: orphaned replans could not be ended: ${String(err)}`))
   void restored
     .then(async () => {
       if (await liftRestartHold(profileDir, () => restartHeld)) log.write('restart: the hold on new starts is lifted')

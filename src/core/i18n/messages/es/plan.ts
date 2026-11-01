@@ -75,6 +75,8 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'jobs.node.gateQuestion': 'Por qué queda en espera',
   'jobs.node.failed': 'No se pudo completar esta acción',
   'jobs.node.stopFailed': 'No se pudo detener el agente: {detail}',
+  'jobs.node.noAnswer': 'La app no recibió respuesta del Host. No se cambió nada.',
+  'jobs.node.failedWhy': 'No se pudo completar esta acción: {detail}',
   'jobs.changes.show': 'Mostrar archivos cambiados',
   'jobs.changes.hide': 'Ocultar archivos cambiados',
   'jobs.changes.failed': 'No se pudieron leer los archivos cambiados: {message}',

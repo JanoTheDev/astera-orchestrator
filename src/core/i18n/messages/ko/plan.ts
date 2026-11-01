@@ -123,6 +123,8 @@ export const plan = {
   'jobs.node.gateQuestion': '왜 세워 두는지',
   'jobs.node.failed': '이 동작을 하지 못했습니다',
   'jobs.node.stopFailed': '에이전트를 멈추지 못했습니다: {detail}',
+  'jobs.node.noAnswer': '앱이 Host 에서 응답을 받지 못했습니다. 아무것도 바뀌지 않았습니다.',
+  'jobs.node.failedWhy': '이 작업을 하지 못했습니다: {detail}',
   'jobs.changes.show': '바뀐 파일 보기',
   'jobs.changes.hide': '바뀐 파일 접기',
   'jobs.changes.failed': '바뀐 파일을 읽지 못했습니다: {message}',

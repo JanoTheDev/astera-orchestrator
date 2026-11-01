@@ -102,6 +102,8 @@ export const plan: Record<keyof typeof ko, string> = {
   'jobs.node.gateQuestion': 'Why it is held',
   'jobs.node.failed': 'Could not do that',
   'jobs.node.stopFailed': 'Could not stop the agent: {detail}',
+  'jobs.node.noAnswer': 'The app got no answer from the Host. Nothing was changed.',
+  'jobs.node.failedWhy': 'Could not do that: {detail}',
   'jobs.changes.show': 'Show changed files',
   'jobs.changes.hide': 'Hide changed files',
   'jobs.changes.failed': 'Could not read the changed files: {message}',
