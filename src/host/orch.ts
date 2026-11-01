@@ -446,6 +446,9 @@ export interface HostOrch extends OrchCall {
   /** Runs the drain once, if it has not run in this Host's life (C6): for a Host that was `'app'` at
    *  its load and becomes `'host'` later. Re-reads the queue. Answers whether it ran. */
   drainOnce(): Promise<boolean>
+  /** T3: resolves once the last commit is on disk (`OrchestrationStore.flush`). Commits no longer wait for the disk, so
+   *  the Host's way out awaits this. Rejects only when the last write fails again. */
+  flush(): Promise<void>
 }
 
 export function createHostOrch(a: {
@@ -1004,9 +1007,12 @@ export function createHostOrch(a: {
         // The public event log moves with memory and the subscribers (SDK 1d): an event never names a state a read
         // cannot see yet. A disk write that then fails leaves memory moved all the same, and the events with it.
         recordEvents(prev, next)
-        await saving
+        // T3: not awaited. A commit holds the command chain, and waiting out a whole-state fsync there made every other
+        // command wait for it too (59-120 s per planner command in the field). The store logs a failed write and writes
+        // the newest state again at the next save, and the Host's way out awaits `flush`.
+        saving.catch(() => {})
         a.onState(next, committed)
-        // J1: journaled after the commit landed (the spec's accepted crash window), with who made it (J4,
+        // J1: journaled after the commit is in memory (the spec's accepted crash window), with who made it (J4,
         // P5) and its version under this Host's life as the key (J6, P1).
         journalSafely('recording a commit', () => a.journal?.committed({ prev, next, version: committed, actor }))
         recordFinishedRuns(prev, next)
@@ -1824,6 +1830,7 @@ export function createHostOrch(a: {
 
   return {
     ready,
+    flush: () => store.flush(),
     runningRuns: () => runningRunCount(store.get()),
     state: () => store.get(),
     // Atomic: the snapshot and the registration happen in one synchronous step, so no commit falls

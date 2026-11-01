@@ -69,8 +69,10 @@ let dir: string
 beforeEach(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-hostorch-'))
   logs = []
+  made = []
 })
 afterEach(async () => {
+  await flushed()
   await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 })
 
@@ -88,8 +90,13 @@ const seed = async (): Promise<{ jobId: string; taskId: string }> => {
 }
 
 let logs: string[] = []
-const orchOver = (over: Partial<Parameters<typeof createHostOrch>[0]> = {}): ReturnType<typeof createHostOrch> =>
-  createHostOrch({
+/** T3: a commit no longer waits for the disk, so a test that reads the file flushes the Hosts it made first. */
+let made: ReturnType<typeof createHostOrch>[] = []
+const flushed = async (): Promise<void> => {
+  await Promise.all(made.map((o) => o.flush().catch(() => {})))
+}
+const orchOver = (over: Partial<Parameters<typeof createHostOrch>[0]> = {}): ReturnType<typeof createHostOrch> => {
+  const orch = createHostOrch({
     profileDir: dir,
     version: '9.9.9',
     now: () => NOW,
@@ -103,6 +110,9 @@ const orchOver = (over: Partial<Parameters<typeof createHostOrch>[0]> = {}): Ret
     sessions: { listSessions: async () => [], readSession: async () => ({ cols: 80, rows: 24, screen: [], scrollback: [] }), sendSession: async () => {}, readChat: async () => [], sendChat: async () => {}, serial: (_id, run) => run() },
     ...over
   })
+  made.push(orch)
+  return orch
+}
 
 describe('createHostOrch', () => {
   it('파일에 있던 Job 을 그대로 답한다', async () => {
@@ -484,6 +494,7 @@ describe('createHostOrch', () => {
       sessionId: 'rev1'
     })
     expect(r.status).toBe(200)
+    await flushed()
     const saved = JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8')) as OrchState
     // 판정이 기록됐다: 검토 Dispatch 가 닫혔고, Task 는 사람을 기다린다.
     expect(saved.dispatches.find((d) => d.id === rev.value.id)?.endedAt).toBe(NOW)
@@ -532,6 +543,7 @@ describe('createHostOrch', () => {
     // 못 한 것은 본문이 말한다 — 조용히 성공으로 넘어가지 않는다.
     expect((r.body as { retryOnceFailed?: string }).retryOnceFailed).toMatch(/APP_REQUIRED/)
     // 그리고 실제로 일어난 일(Gate 해제)은 남아 있다.
+    await flushed()
     const saved = JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8')) as OrchState
     expect(saved.gates[0].status).toBe('resolved')
     expect(logs.some((l) => l.includes('repairOnce') && l.includes('APP_REQUIRED'))).toBe(true)
@@ -1268,8 +1280,10 @@ describe('요청 영수증', () => {
     const next = f(JSON.parse(await fs.readFile(file, 'utf8')) as OrchState)
     await fs.writeFile(file, JSON.stringify(next), 'utf8')
   }
-  const savedState = async (): Promise<OrchState> =>
-    JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8')) as OrchState
+  const savedState = async (): Promise<OrchState> => {
+    await flushed()
+    return JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8')) as OrchState
+  }
 
   // === 1단계 — 무엇이 영수증을 남기는가 ===
 
@@ -2629,6 +2643,7 @@ describe('GitHub writes and request receipts (MCP P2-B)', () => {
     expect(first.status).toBe(200)
     expect(answer(second)).toBe(answer(first))
     expect(second.replayed).toBe(true)
+    await flushed()
     const saved = JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8')) as OrchState
     expect(saved.jobs, 'the retry made a second Job').toHaveLength(2)
     expect(g.ghCalls, 'the retry read the issue again').toHaveLength(1)
@@ -3654,6 +3669,7 @@ describe('the Host handles exits (S2)', () => {
     expect(d?.endedAt).toBe(NOW)
     expect(d?.workerState).toBe('failed')
     expect(orch.state().tasks.find((t) => t.id === taskIds[0])?.status).toBe('dispatched')
+    await flushed()
     const saved = JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8')) as OrchState
     expect(saved.dispatches[0].endedAt).toBe(NOW)
   })

@@ -418,6 +418,13 @@ async function main(): Promise<void> {
         .close()
         .catch((err) => log.write(`the server did not close cleanly: ${String(err)}`))
         .finally(async () => {
+          // T3: the last commits on disk, now that no command can make another: commits no longer wait for the write.
+          // Capped like the workspaces, so a stuck disk cannot hold the way out; the store logged what failed.
+          await disposeWithin(
+            orch.flush().catch((err) => log.write(`the orchestration state could not be written on the way out: ${String(err)}`)),
+            DISPOSE_CAP_MS,
+            () => log.write(`the orchestration state was still being written after ${DISPOSE_CAP_MS / 1000} s; leaving anyway`)
+          )
           // The journal's handle, once no command can reach a commit any more: the spawns have settled and
           // the server has closed. Never throws.
           hostJournal.close()
