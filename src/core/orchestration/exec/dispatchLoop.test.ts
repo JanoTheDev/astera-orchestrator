@@ -952,6 +952,26 @@ describe('createDispatchLoop', () => {
     expect(told[0].body).toContain('tsk_3 (tsk_3) is ready and has no worker')
   })
 
+  // A slot's dep merge that went through is not asked again when its start then waits (a held plan came back every pass).
+  it('a slot dep merge that succeeded is not repeated on the next pass when the start waits', async () => {
+    const h = rig({ concurrency: 2 })
+    h.setState({
+      ...h.state(),
+      tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_3', deps: ['tsk_1'] })],
+      dispatches: [
+        { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded', git: { head: 'abc123' } } as Dispatch
+      ]
+    })
+    const merges: string[][] = []
+    h.ctx.integrate = async (_root, paths) => (merges.push(paths), { kind: 'merged', uncommitted: 0 })
+    h.ctx.isRegisteredWorktree = () => false // no wave merge for it: the slot's own merge is the one asked
+    h.ctx.handle = async (cmd, args) => (cmd === 'worker-start' ? { status: 409, body: { held: true } } : h.real(cmd, args))
+    await h.loop.nudge()
+    await h.loop.nudge()
+    await h.loop.nudge()
+    expect(merges).toEqual([['/wt-child']])
+  })
+
   it('usage resumed tells nothing while this process may not start work', async () => {
     const h = rig({ coordinatorMail: true })
     h.ctx.mayStart = () => false

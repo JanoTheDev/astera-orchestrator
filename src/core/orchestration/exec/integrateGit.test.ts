@@ -209,6 +209,25 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
     expect((await integrateWorktrees(repo, [a], { reap: false }, ctx())).kind).toBe('merged')
     expect(reaped).toEqual([])
   })
+  // The same dep merge asked again every pass (draft-PR fold, dep merge, reuse merge) ran git merge each time.
+  it('a worktree already merged is not merged again, however often it is asked, and is logged once', async () => {
+    const a = await worked('a')
+    const merges: string[][] = []
+    const spy: typeof git = (args, o) => {
+      if (args.includes('merge')) merges.push(args)
+      return git(args, o)
+    }
+    for (let i = 0; i < 5; i++) expect((await integrateWorktrees(repo, [a], { reap: false }, ctx({ git: spy }))).kind).toBe('merged')
+    expect(merges).toHaveLength(1)
+    expect(logs.filter((l) => l.includes('already in'))).toHaveLength(1)
+    expect(logs.filter((l) => l.startsWith('scheduler: merged'))).toHaveLength(1)
+  })
+  it('a worktree already merged is still reaped when clean', async () => {
+    const a = await worked('a')
+    await integrateWorktrees(repo, [a], { reap: false }, ctx())
+    await integrateWorktrees(repo, [a], {}, ctx())
+    expect(reaped).toEqual([a])
+  })
   // Rule 1.
   it('never merges into a folder that is not a reachable repository', async () => {
     const a = await worked('a'); const gone = path.join(repo, 'missing')

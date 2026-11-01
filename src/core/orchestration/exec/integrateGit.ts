@@ -339,6 +339,17 @@ const human = (key: MessageKey, params: MessageParams): Integration => ({
   message: { key, params }
 })
 
+/** Keys already logged by this process: a skipped merge is said once per (folder, branch) per Host run, not on every
+ *  pass. shortcut: keyed by ref, not tip (a branch that moved on and is skipped again stays silent), and cleared whole
+ *  at the cap; the line is a log line, nothing reads it. */
+const loggedOnce = new Set<string>()
+function logOnce(key: string, line: string, log: (m: string) => void): void {
+  if (loggedOnce.has(key)) return
+  if (loggedOnce.size >= 2000) loggedOnce.clear()
+  loggedOnce.add(key)
+  log(line)
+}
+
 /** 워크트리에서 끝난 일을 **합칠 폴더에 실제로 합친다.** 그 폴더는 부르는 쪽이 정한다 —
  *  스케줄러는 Run 뿌리를 주고 `run-delete --merge` 는 프로젝트 폴더를 준다. 무엇을 합쳐야
  *  하는가의 판정은 integrate.ts 가 하고(순수하므로 테스트가 있다), 이 함수는 그 답을 git 으로
@@ -550,6 +561,13 @@ export async function integrateWorktrees(
     uncommitted += n
     // 같은 이름의 태그가 브랜치보다 먼저 잡히는 것을 막으려고 전체 ref 를 쓴다(remove.ts 와 같다)
     const ref = `refs/heads/${target.branch}`
+    // A tip already in HEAD has nothing to merge: no merge-tree, notes config or `git merge` (callers ask again every
+    // pass). It still reaps below (a clean, merged folder). The `git` call is cheap and read-only.
+    if ((await (ctx.git ?? realGit)(['merge-base', '--is-ancestor', ref, 'HEAD'], { cwd: mergeInto })).ok) {
+      logOnce(`${mergeInto}\0${ref}`, `merge: ${ref} is already in ${mergeInto} — not merged again`, ctx.log)
+      if (reap && dirty.ok && n === 0) await ctx.reap(target.path)
+      continue
+    }
     // merge-tree --write-tree writes tree objects and on a big repository can run long; the long write
     // ceiling keeps a slow probe from being killed and misreported as "could not test".
     const probe = await (ctx.git ?? realGit)(['merge-tree', '--write-tree', 'HEAD', ref], {
