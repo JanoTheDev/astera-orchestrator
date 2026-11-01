@@ -1975,6 +1975,9 @@ export interface CoreApi {
     /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
     getStallWatch(): Promise<boolean>
     setStallWatch(on: boolean): Promise<void>
+    /** Windows: log Host children that show a window (host/windowDiagnostic.ts); default false. */
+    getWindowDiagnostic(): Promise<boolean>
+    setWindowDiagnostic(on: boolean): Promise<void>
     /** T27: crash reports, 'ask' (default) or 'never' (core/crash/report.ts). */
     getCrashReports(): Promise<CrashReportsSetting>
     setCrashReports(v: CrashReportsSetting): Promise<void>
