@@ -178,10 +178,53 @@ describe('openHostLink', () => {
     f.push({ t: 'orch-result', call: (f.sent[0] as { call: string }).call, status: 200, body: [] } as HostMessage)
     await p
     // `call` runs up to `await mine` at once; the close lands before it resumes.
-    const q = link.call('jobs-list', {}, 'req-2')
+    const q = link.call('jobs-list', {})
     f.drop()
     expect(await q).toMatchObject({ code: 'HOST_NOT_RUNNING', message: expect.stringContaining('retry with the same requestId') })
     expect(f.sent).toHaveLength(1)
+  })
+
+  it('a call with a requestId in flight when the Host restarts is sent again on the next Host and resolves', async () => {
+    const first = fakeConn()
+    const second = fakeConn()
+    const conns = [first.conn, second.conn]
+    const link = openHostLink({ connect: async () => conns.shift()!, startHost: async () => false, log: () => {} })
+    const p = link.call('jobs-create', { objective: 'x' }, 'req-1')
+    await new Promise((r) => setImmediate(r))
+    first.drop()
+    await new Promise((r) => setImmediate(r))
+    expect(second.sent).toHaveLength(1)
+    const m = second.sent[0] as { call: string; request: string }
+    expect(m).toMatchObject({ cmd: 'jobs-create', request: 'req-1' })
+    second.push({ t: 'orch-result', call: m.call, status: 200, body: 'job', replayed: true } as HostMessage)
+    expect(await p).toMatchObject({ status: 200, body: 'job', replayed: true })
+  })
+
+  it('the retry waits for a Host that is not back yet, and is sent only once', async () => {
+    vi.useFakeTimers()
+    try {
+      const first = fakeConn()
+      const second = fakeConn()
+      let tries = 0
+      const link = openHostLink({
+        connect: async () => (tries++ === 0 ? first.conn : tries < 4 ? { error: 'unreachable' } : second.conn),
+        startHost: async () => false,
+        log: () => {}
+      })
+      let r: unknown
+      void link.call('jobs-run', { id: 'job_1' }, 'req-9').then((x) => (r = x))
+      await vi.advanceTimersByTimeAsync(0)
+      first.drop()
+      await vi.advanceTimersByTimeAsync(2_000)
+      expect(second.sent).toHaveLength(1)
+      // The new connection closes too: the call is not sent a third time.
+      second.drop()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(r).toMatchObject({ code: 'HOST_NOT_RUNNING' })
+      expect(second.sent).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('a stale connection closing does not fail calls pending on the current one', async () => {

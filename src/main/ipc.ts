@@ -79,7 +79,7 @@ import { createSourcesRoute } from './host/sourcesRoute'
 import { createAppCompletionChecks } from './host/pluginChecksRoute'
 import { createHostGitOps } from '../core/workUnit/hostGitOps'
 import { appPathInUse } from './host/localPathInUse'
-import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, HOST_FEATURE_HANDOVER, HOST_FEATURE_HANDOVER_CHATS, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
+import { HOST_PROTOCOL, HOST_ACT_PATH_IN_USE, HOST_ACT_SLACK_ANSWER, HOST_FEATURE_HANDOVER, HOST_FEATURE_HANDOVER_CHATS, HOST_FEATURE_RESTART, type ClientMessage, type HostMessage, type PtyEntry } from '../core/host/protocol'
 import { hostRollConfigPath, readRollConfigKey } from '../core/rolling/config'
 import { DataBatcher } from '../core/sessions/batcher'
 import { BusyScanner } from '../core/terminal/busy'
@@ -124,6 +124,8 @@ import { sessionsDoneWith } from '../core/orchestration/finishedSessions'
 import { PERSON_INPUT_KEEPS_MS } from '../core/orchestration/exec/coordinatorRotate'
 import { handoverFileIn, workingTaskCount } from '../host/sessionRestore'
 import { handoverSessionCount, hostReplacementFor } from '../core/host/restartView'
+import { HOST_UPDATE_CURRENT, hostUpdateRestartWaitMs, nextHostUpdateState, sameHostUpdateState, type HostUpdateEvent, type HostUpdateState } from '../core/host/hostUpdateState'
+import { readHostRestartWhenIdle, writeHostRestartWhenIdle } from '../core/settings/hostRestartWhenIdle'
 import { answerOrchAct } from './orchestration/answerAct'
 import { appDiscardRunWorktree, appTimerTick, stopRunFromPanel } from './orchestration/yieldDispatch'
 import { HOST_UNRESPONSIVE_MS } from '../core/host/unresponsive'
@@ -752,6 +754,10 @@ const RESTART_FAILED_SHOWN_MS = 15_000
  *    make its sessions come back; but not while the idle workers released for it are still ending (`releasePending`),
  *    which may yet leave it empty and swapped plainly.
  *
+ *  - **"Restart the Host when idle" on** (`restartWhenIdle`, T28) and a Host that serves the held restart: an outdated
+ *    Host that is not idle yet gets `restart` at once (main holds new starts and restarts it with a handover once its
+ *    agents reach their prompt, or after 30 minutes; core/host/hostUpdateState.ts). Off: the rules above alone.
+ *
  *  **Unknown is not zero**: `holdings` null is the Host not answering its lists in time and `activeTasks` null is an
  *  orchestration state not loaded yet; neither is replaced on a guess.
  *
@@ -774,7 +780,11 @@ export function hostReplaceDue(a: {
   /** When the app began waiting for the swap's moment; null before it has. */
   waitingSinceMs: number | null
   nowMs: number
-}): { due: 'handover' | 'plain' | null; manual: boolean } {
+  /** The owner's "Restart the Host when idle" (core/settings/hostRestartWhenIdle.ts, T28). */
+  restartWhenIdle: boolean
+  /** The Host serves the held restart (HOST_FEATURE_RESTART). */
+  restart: boolean
+}): { due: 'handover' | 'plain' | 'restart' | null; manual: boolean } {
   if ((!a.outdated && !a.runtimeIncomplete) || a.inFlight || a.quitting) return { due: null, manual: false }
   const idle = a.activeTasks === 0 && a.holdings !== null
   if (!a.handover) {
@@ -784,6 +794,9 @@ export function hostReplaceDue(a: {
   }
   const cutChats = a.handoverChats ? a.busyChats : (a.holdings?.chats ?? null)
   if (idle && cutChats === 0) return { due: 'handover', manual: false }
+  // T28, toggle on: not idle, so the held restart (new starts held, the working agents left to reach their prompt, then
+  // a handover) is due at once rather than waiting for a moment that plans keeping agents busy may never give.
+  if (a.outdated && a.restart && a.restartWhenIdle) return { due: 'restart', manual: false }
   return { due: null, manual: a.waitingSinceMs !== null && a.nowMs - a.waitingSinceMs >= HOST_SWAP_MANUAL_AFTER_MS }
 }
 
@@ -1499,12 +1512,25 @@ export function registerIpc(
    *  shows it; carried on every status the window is given. Null: none. */
   let hostRestartState: HostRestartState | null = null
   /** Restarts the Host now, whatever it is doing (`host.restartNow`). Null before the Host wiring has run. */
-  let hostRestartNow: ((o: { force?: boolean }) => Promise<HostRestartState>) | null = null
+  let hostRestartNow: ((o: { force?: boolean; waitMs?: number }) => Promise<HostRestartState>) | null = null
+  /** An outdated Host on its way to the new build (T28, core/host/hostUpdateState.ts), driven by `maybeReplace` and
+   *  `restartHostNow`; carried on every status the window is given. */
+  let hostUpdate: HostUpdateState = HOST_UPDATE_CURRENT
+  /** "Restart the Host when idle" (core/settings/hostRestartWhenIdle.ts), read from its file on first use. */
+  let hostRestartWhenIdle: boolean | null = null
+  const restartWhenIdle = (): boolean => (hostRestartWhenIdle ??= readHostRestartWhenIdle(app.getPath('userData')))
+  /** Asks the swap rule again (`maybeReplace`), after the toggle changed. Null before the Host wiring has run. */
+  let hostAskReplace: (() => void) | null = null
   /** What the window is given of the Host: the status, plus the swap in progress or the offer of one (`replacement`:
    *  an outdated Host gets `offered` at once, T15) and the restart under way (`restart`). */
   const windowHostStatus = (s: HostStatus): HostStatus => {
     const replacement = hostReplacementFor(s, hostReplacement)
-    return { ...s, ...(replacement ? { replacement } : {}), ...(hostRestartState ? { restart: hostRestartState } : {}) }
+    return {
+      ...s,
+      ...(replacement ? { replacement } : {}),
+      ...(hostRestartState ? { restart: hostRestartState } : {}),
+      ...(s.outdated ? { update: { state: hostUpdate, restartWhenIdle: restartWhenIdle() } } : {})
+    }
   }
   /** Whether the connected Host announced the proc-* family in its hello — asked of a Host that
    *  cannot answer proc-list only runs the proc-list timer out, and an outdated Host is exactly the
@@ -7500,6 +7526,17 @@ export function registerIpc(
         hostLog(`host: could not tell the window about the swap: ${String(err)}`)
       }
     }
+    /** One event into the outdated Host's state (T28); the window is told on a change. */
+    const stepUpdate = (e: HostUpdateEvent): void => {
+      const n = nextHostUpdateState(hostUpdate, e)
+      if (sameHostUpdateState(n, hostUpdate)) return
+      hostUpdate = n
+      try {
+        send('host:status', windowHostStatus(client.status()))
+      } catch (err) {
+        hostLog(`host: could not tell the window about the update state: ${String(err)}`)
+      }
+    }
     /** `how`: `handover` is a resume retire (HOST_FEATURE_HANDOVER), whose sessions, terminals and runs the next Host
      *  brings back, and which that Host refuses while a Task works; `plain` ends what it holds. */
     const replaceHost = async (why: string, how: 'handover' | 'plain'): Promise<HostStatus> => {
@@ -7509,7 +7546,10 @@ export function registerIpc(
       hostLog(`host: replacing the Host (${was.hostVersion ?? '?'}, pid ${was.pid ?? '?'}) ${why}${how === 'handover' ? ', handing its sessions over' : ''}`)
       const resume = how === 'handover' && !was.unresponsive
       // A handover can be refused (a Task started working since the last look): "Updating" shows once it was taken.
-      if (!resume) setReplacement('swapping')
+      if (!resume) {
+        setReplacement('swapping')
+        stepUpdate({ t: 'leaving', nowMs: Date.now() })
+      }
       try {
         // A Host that answers is asked to leave; one that does not is ended. Both paths then go
         // through `restart()` below, which is what puts a new Host at the address either way.
@@ -7536,7 +7576,14 @@ export function registerIpc(
         // its ptys left behind.
         // A refused handover (a Task started working since the last look) left the connection as it was: nothing is
         // restarted, and the swap waits for its next moment.
-        const outcome = await client.retire({ announce: true, resume, onLeaving: () => setReplacement('swapping') })
+        const outcome = await client.retire({
+          announce: true,
+          resume,
+          onLeaving: () => {
+            setReplacement('swapping')
+            stepUpdate({ t: 'leaving', nowMs: Date.now() })
+          }
+        })
         if (outcome.outcome === 'refused') {
           hostLog(`host: the Host refused the handover — ${outcome.tasks ?? 0} Task(s) still working; waiting`)
           return client.status()
@@ -7598,7 +7645,7 @@ export function registerIpc(
      *  hands every session over and leaves (`client.requestRestart`); then the Host this app bundles is started the way
      *  `replaceHost` does it, and resumes them. A Host without the restart message gets the resume retire, which it refuses
      *  while a Task works. `force` cuts the wait short ("Restart anyway"). Never rejects. */
-    const restartHostNow = async (o: { force?: boolean }): Promise<HostRestartState> => {
+    const restartHostNow = async (o: { force?: boolean; waitMs?: number }): Promise<HostRestartState> => {
       if (restartFlight) {
         // "Restart anyway": the restart under way is told to hand over now. Only while it waits: a Host without the restart
         // message has no wait to cut short.
@@ -7618,10 +7665,15 @@ export function registerIpc(
         try {
           const outcome = await client.requestRestart({
             force: o.force === true,
-            onProgress: (p) => setRestartState({ phase: 'waiting', working: p.working, waiting: p.waitingOn.length, leftMs: p.leftMs }),
+            ...(o.waitMs !== undefined ? { waitMs: o.waitMs } : {}),
+            onProgress: (p) => {
+              setRestartState({ phase: 'waiting', working: p.working, waiting: p.waitingOn.length, leftMs: p.leftMs })
+              stepUpdate({ t: 'observe', outdated: client.status().outdated, agentsRunning: p.waitingOn.length, sessionsBlocking: 0, nowMs: Date.now() })
+            },
             onLeaving: () => {
               setReplacement('swapping')
               setRestartState({ phase: 'swapping' })
+              stepUpdate({ t: 'leaving', nowMs: Date.now() })
             }
           })
           if (outcome.outcome === 'absent') return failedRestart('no-host')
@@ -7658,13 +7710,18 @@ export function registerIpc(
           restartFlight = null
         }
       }
-      restartFlight = run()
+      restartFlight = run().then((r) => {
+        if (r.phase === 'done') stepUpdate({ t: 'ended', ok: true })
+        else if (r.phase === 'failed' && r.reason !== 'quitting') stepUpdate({ t: 'ended', ok: false, reason: r.reason })
+        return r
+      })
       return restartFlight
     }
     hostRestartNow = restartHostNow
     // A restart somebody else asked for is over once a Host answers again; this app's own ends where `restartHostNow` says.
     client.onConnect(() => {
       if (!restartFlight && (hostRestartState?.phase === 'waiting' || hostRestartState?.phase === 'swapping')) setRestartState(null)
+      if (!client.status().outdated) stepUpdate({ t: 'observe', outdated: false, agentsRunning: 0, sessionsBlocking: 0, nowMs: Date.now() })
     })
 
     /** The automatic rule (hostReplaceDue): a Host that should not go on running — older than this app, or its runtime
@@ -7683,6 +7740,7 @@ export function registerIpc(
       if (!replaceWorthy()) {
         waitingSince = null
         setReplacement(null)
+        stepUpdate({ t: 'observe', outdated: false, agentsRunning: 0, sessionsBlocking: 0, nowMs: Date.now() })
         return
       }
       checking = true
@@ -7699,10 +7757,22 @@ export function registerIpc(
         const nowMs = Date.now()
         waitingSince ??= nowMs
         const s = client.status()
+        stepUpdate({ t: 'observe', outdated: s.outdated, agentsRunning: activeTasks ?? 0, sessionsBlocking: busyChats ?? 0, nowMs })
+        const restart = s.features.includes(HOST_FEATURE_RESTART)
         const due = (releasePending: boolean): ReturnType<typeof hostReplaceDue> =>
-          hostReplaceDue({ outdated: s.outdated, runtimeIncomplete: s.runtimeIncomplete, inFlight: replacing, quitting: quittingForHost, handover, activeTasks, holdings, handoverChats, busyChats, releasePending, waitingSinceMs: waitingSince, nowMs })
+          hostReplaceDue({ outdated: s.outdated, runtimeIncomplete: s.runtimeIncomplete, inFlight: replacing, quitting: quittingForHost, handover, activeTasks, holdings, handoverChats, busyChats, releasePending, waitingSinceMs: waitingSince, nowMs, restartWhenIdle: restartWhenIdle(), restart })
         let d = due(false)
         let releasePending = false
+        // T28: the held restart waits for the agents itself, up to 30 minutes from the first look, then hands over. Once
+        // only: a restart that failed leaves the state blocked, and only "Restart now" tries again.
+        if (d.due === 'restart') {
+          const waitMs = hostUpdateRestartWaitMs(hostUpdate, nowMs)
+          setReplacement(null)
+          if (waitMs === null) return
+          hostLog(`host: the Host is outdated and Restart the Host when idle is on: holding new starts and restarting it once ${activeTasks ?? '?'} working Task(s) reach their prompt (${why})`)
+          void restartHostNow({ waitMs })
+          return
+        }
         // The release comes before the swap, and for a Host without the handover before the decision too: what it
         // releases is what keeps that Host from holding nothing.
         if (orch && state && activeTasks === 0 && (d.due !== null || !handover)) {
@@ -7727,13 +7797,14 @@ export function registerIpc(
         setReplacement(d.manual ? 'manual' : null)
         // Their sessions are still ending: the exits ask again, and a handover written now would bring them back.
         if (releasePending || d.due === null) return
-        await replaceHost(`${why}, ${d.due === 'handover' ? 'and no Task is working' : 'and it holds nothing'}`, d.due)
+        await replaceHost(`${why}, ${d.due === 'handover' ? 'and no Task is working' : 'and it holds nothing'}`, d.due === 'handover' ? 'handover' : 'plain')
       } catch (e) {
         hostLog(`host: the replacement check failed: ${String(e)}`)
       } finally {
         checking = false
       }
     }
+    hostAskReplace = () => void maybeReplace('after Restart the Host when idle changed')
     // The floor under the triggers below: a Task that ends while the app writes the state itself, or a release that
     // never sends its exit, is caught here. Asks nothing of a Host that is not due.
     setInterval(() => {
@@ -8518,6 +8589,16 @@ export function registerIpc(
   ipcMain.handle('host.restartNow', async (_e, o?: { force?: boolean }): Promise<HostRestartState> => {
     if (hostRestartNow) return hostRestartNow({ force: o?.force === true })
     return { phase: 'failed', reason: 'no-host' }
+  })
+  // T28: "Restart the Host when idle", the status bar's toggle beside "Host update waiting".
+  ipcMain.handle('host.setRestartWhenIdle', async (_e, on: unknown): Promise<HostStatus> => {
+    if (typeof on !== 'boolean') throw new Error('host.setRestartWhenIdle takes a boolean')
+    await writeHostRestartWhenIdle(app.getPath('userData'), on)
+    hostRestartWhenIdle = on
+    hostAskReplace?.()
+    const s = windowHostStatus(hostClient?.status() ?? noHostStatus)
+    send('host:status', s)
+    return s
   })
 
   // The conversation view (main/conversation.ts). open/more answer null rather than reject on a

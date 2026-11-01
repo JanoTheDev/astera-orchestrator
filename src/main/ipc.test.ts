@@ -872,7 +872,7 @@ describe('hostReplaceDue - when an outdated Host is replaced', () => {
   const empty = { sessions: 0, terminals: 0, runs: 0, chats: 0 }
   const now = 10 * 60 * 60_000
   // A Host that hands its sessions and chats over (HOST_FEATURE_HANDOVER, _CHATS), with nothing at work and nothing waited for yet.
-  const base = { outdated: true, runtimeIncomplete: false, inFlight: false, quitting: false, handover: true, handoverChats: true, activeTasks: 0, holdings: empty, busyChats: 0, releasePending: false, waitingSinceMs: null, nowMs: now }
+  const base = { outdated: true, runtimeIncomplete: false, inFlight: false, quitting: false, handover: true, handoverChats: true, activeTasks: 0, holdings: empty, busyChats: 0, releasePending: false, waitingSinceMs: null, nowMs: now, restartWhenIdle: false, restart: true }
   const swap = { due: 'handover', manual: false }
   const waits = (manual: boolean) => ({ due: null, manual })
 
@@ -955,6 +955,26 @@ describe('hostReplaceDue - when an outdated Host is replaced', () => {
   it('runs one replacement at a time, and stands aside while the app is quitting', () => {
     expect(hostReplaceDue({ ...base, inFlight: true })).toEqual(waits(false))
     expect(hostReplaceDue({ ...base, quitting: true })).toEqual(waits(false))
+  })
+
+  // T28: "Restart the Host when idle".
+  describe('with Restart the Host when idle on', () => {
+    const on = { ...base, restartWhenIdle: true }
+    it('a Host with agents working is restarted with the held restart at once, not waited on', () => {
+      expect(hostReplaceDue({ ...on, activeTasks: 2 })).toEqual({ due: 'restart', manual: false })
+      expect(hostReplaceDue({ ...on, busyChats: 1 })).toEqual({ due: 'restart', manual: false })
+      // Off, the same Host waits.
+      expect(hostReplaceDue({ ...base, activeTasks: 2 })).toEqual(waits(false))
+    })
+    it('an idle Host is still swapped with the plain handover', () => {
+      expect(hostReplaceDue(on)).toEqual(swap)
+    })
+    it('not for a Host without the restart, nor for one that is only missing runtime files', () => {
+      expect(hostReplaceDue({ ...on, activeTasks: 2, restart: false })).toEqual(waits(false))
+      expect(hostReplaceDue({ ...on, activeTasks: 2, handover: false })).toEqual(waits(true))
+      expect(hostReplaceDue({ ...on, activeTasks: 2, outdated: false, runtimeIncomplete: true })).toEqual(waits(false))
+      expect(hostReplaceDue({ ...on, activeTasks: 2, inFlight: true })).toEqual(waits(false))
+    })
   })
 })
 

@@ -1,4 +1,5 @@
 import type { ApprovalMode } from './settings/approvalDefault'
+import type { HostUpdateView } from './host/hostUpdateState'
 import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
 import type { DeliverySetup } from './orchestration/deliveryChoices'
@@ -1473,6 +1474,9 @@ export interface HostStatus {
   /** A restart the owner asked for, while it is under way and until the window has shown how it ended (T15). Set by
    *  main on what it gives the window, never by HostClient. */
   restart?: HostRestartState
+  /** An outdated Host on its way to the new build, and the owner's "Restart the Host when idle" (T28,
+   *  core/host/hostUpdateState.ts). Present only while the Host is outdated. Set by main, never by HostClient. */
+  update?: HostUpdateView
 }
 
 /** **A restart of the Host the owner asked for now** (T15), as the window shows it (core/host/restartView.ts reads it
@@ -2832,6 +2836,8 @@ export type RendererApi = CoreApi & {
      *  it, resolves with the state it is in, and `force` cuts the wait short ("Restart anyway"). A Host without
      *  HOST_FEATURE_RESTART gets today's handover retire, which it refuses while a Task works. */
     restartNow(o?: { force?: boolean }): Promise<HostRestartState>
+    /** T28: "Restart the Host when idle"; answers the status with it applied. */
+    setRestartWhenIdle(on: boolean): Promise<HostStatus>
     /** Where putting the Host's own runtime in place stands (stage 3 task 2) — read once at mount. */
     runtimeInstall(): Promise<HostRuntimeInstallState>
     /** Every change of that, pushed as it happens; returns an unsubscribe. */
