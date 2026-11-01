@@ -260,6 +260,8 @@ export interface DispatchLoopContext {
   sessionContextPct?(sessionId: string): number | null | Promise<number | null>
   /** Coordinator rotation: the "Fresh coordinator at context (%)" setting, 0 for off. */
   freshCoordinatorPct?(): number | Promise<number>
+  /** The "workerSilentMinutes" setting: an idle console with no reason closes after 2 × this (coordinatorRotate.ts). */
+  silentMinutes?(): number | Promise<number>
   /** Stall watchdog (stallWatch.ts): the "Watch for stalled plans" setting. Optional: without it there is no watchdog
    *  (the Host wires it; the app's own loop has none). */
   stallWatch?(): boolean | Promise<boolean>
@@ -1341,6 +1343,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     activity: (runId, taskId, reason) => c.activity?.(watchdogActivity(c.getState(), runId, reason, taskId)),
     sessionContextPct: (id) => c.sessionContextPct?.(id) ?? null,
     freshCoordinatorPct: () => c.freshCoordinatorPct?.() ?? 0,
+    ...(c.silentMinutes ? { silentMinutes: () => c.silentMinutes!() } : {}),
     mayStart: () => c.mayStart(),
     log,
     nowMs: () => c.nowMs()

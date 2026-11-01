@@ -301,6 +301,21 @@ describe('finished sessions of a running plan', () => {
       expect(h.logs.some((l) => l.includes('idle') && l.includes('wIdle'))).toBe(true)
     })
 
+    it('closes a console with no reason after 2 x the silent-minutes setting (5 min: 10 min)', async () => {
+      const h = rig(idleState())
+      h.ctx.sessionBusy = () => false
+      h.ctx.silentMinutes = async () => 5
+      let now = NOW_MS
+      h.ctx.nowMs = () => now
+      await h.rotation.releaseFinished()
+      now += 10 * 60_000 - 1
+      await h.rotation.releaseFinished()
+      expect(h.releaseWorker).not.toHaveBeenCalled()
+      now += 1
+      await h.rotation.releaseFinished()
+      expect(h.releaseWorker.mock.calls.map((c) => c[0].dispatchId)).toEqual(['dIdle'])
+    })
+
     it('does not count a busy console as idle, and restarts the count when it was busy in between', async () => {
       const h = rig(idleState())
       let busy: boolean | null = false

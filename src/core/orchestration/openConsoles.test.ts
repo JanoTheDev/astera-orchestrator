@@ -71,6 +71,18 @@ describe('openConsolesOf', () => {
     expect(reasons(s)).toEqual({ w1: 'none', rev: 'none', old: 'none', new: 'working' })
   })
 
+  it('an earlier attempt of a converging Task has a reason: worker-release refuses it, so it is not idle', () => {
+    const s = state(
+      [task('t3', 'validating')],
+      [dsp('d3', 't3', 'old', { outcome: 'failed' }), dsp('d4', 't3', 'new')],
+      [],
+      {},
+      { convergence: {} }
+    )
+    expect(reasons(s).old).toBe('reviewing')
+    expect(reasons(state([task('t3', 'validating')], [dsp('d3', 't3', 'old', { outcome: 'failed' }), dsp('d4', 't3', 'new')])).old).toBe('none')
+  })
+
   it('skips a session that is not alive, a pending start and one a later Dispatch took over', () => {
     const s = state([task('t1', 'dispatched')], [dsp('d1', 't1', 'gone'), dsp('d2', 't1', 'w2'), dsp('d3', 't1', 'w2', open), dsp('d4', 't1', 'pending:ab', open)])
     const got = openConsolesOf(s, 'r1', (id) => id !== 'gone', { nowMs: NOW_MS })

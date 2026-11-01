@@ -34,9 +34,9 @@ export const COORDINATOR_REFRESH_RETRY_MS = 60_000
 export const FINISHED_RELEASE_RETRY_MS = 60_000
 export const FINISHED_RELEASE_TRIES = 6
 export { PERSON_INPUT_KEEPS_MS }
-/** T13: a worker, reviewer or merge console with no reason to stay open, idle this long, is closed. 2 × the silent-worker
- *  minutes (8 by default). TODO: read the "workerSilentMinutes" setting once it exists in this branch. */
-export const IDLE_CONSOLE_CLOSE_MS = 16 * 60_000
+/** T13: a worker, reviewer or merge console with no reason to stay open, idle this long, is closed: 2 × the
+ *  "workerSilentMinutes" setting (8 by default, so this is the default). */
+export const IDLE_CONSOLE_CLOSE_MS = 2 * 8 * 60_000
 
 // ── Tab titles ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -297,6 +297,8 @@ export interface RotationContext {
   sessionContextPct?(sessionId: string): number | null | Promise<number | null>
   /** The "Fresh coordinator at context (%)" setting; 0 turns the context refresh off. */
   freshCoordinatorPct?(): number | Promise<number>
+  /** The "workerSilentMinutes" setting. Optional: without it the default (8). */
+  silentMinutes?(): number | Promise<number>
   mayStart(): boolean
   log(m: string): void
   nowMs(): number
@@ -310,10 +312,11 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
   /** Since when a console with no reason has been seen idle, by session id. In memory: a restart counts again. */
   const idleSince = new Map<string, number>()
 
-  /** The Dispatches of consoles that have had no reason and no work for IDLE_CONSOLE_CLOSE_MS (T13). */
-  const idleWithoutReason = (s: OrchState): Dispatch[] => {
+  /** The Dispatches of consoles that have had no reason and no work for 2 × workerSilentMinutes (T13). */
+  const idleWithoutReason = async (s: OrchState): Promise<Dispatch[]> => {
     if (!c.sessionBusy) return []
     const now = c.nowMs()
+    const closeAfterMs = c.silentMinutes ? 2 * (await c.silentMinutes()) * 60_000 : IDLE_CONSOLE_CLOSE_MS
     const seen = new Set<string>()
     const due: Dispatch[] = []
     for (const run of s.runs) {
@@ -325,7 +328,7 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
         seen.add(k.sessionId)
         const since = idleSince.get(k.sessionId) ?? now
         idleSince.set(k.sessionId, since)
-        if (now - since >= IDLE_CONSOLE_CLOSE_MS) {
+        if (now - since >= closeAfterMs) {
           const d = s.dispatches.find((x) => x.id === k.dispatchId)
           if (d) due.push(d)
         }
@@ -368,7 +371,7 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
   const releaseFinished = async (): Promise<void> => {
     const s = c.getState()
     const done = sessionsDoneWith(s)
-    const idle = idleWithoutReason(s).filter((d) => !done.includes(d))
+    const idle = (await idleWithoutReason(s)).filter((d) => !done.includes(d))
     for (const d of [...done, ...idle]) {
       const runId = s.tasks.find((t) => t.id === d.taskId)?.runId
       // A finished Run's workers are releaseIdleWorkers', under the coordinator's grace
