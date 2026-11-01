@@ -87,6 +87,10 @@ describe('reasonText', () => {
       { kind: 'plan-cap', used: 2, limit: 2 },
       { kind: 'global-cap', running: 3, starting: 1, limit: 4, priority: 1 },
       { kind: 'next' },
+      // T8: every hold kind
+      ...(['usage', 'detached', 'install', 'origin-sync', 'refresh-conflict', 'integration', 'run-root-busy', 'cap', 'held'] as const).map(
+        (hold): TaskBlockedReason => ({ kind: 'hold', hold, detail: 'd', since: '2026-10-17T00:00:00.000Z' })
+      ),
       // W6-G
       { kind: 'usage-paused', accountId: 'a', window: 'five_hour', percent: 93, resetsAt: '2026-10-17T14:20:00.000Z' },
       { kind: 'usage-paused', accountId: 'a', window: 'seven_day', percent: 95, resetsAt: '2026-10-20T14:20:00.000Z' },
@@ -513,5 +517,25 @@ describe('stepStateOf', () => {
     const ws = steps([queued('a')], [queued('b')])
     expect(of(0, ws, true)).toEqual({ state: 'replanning' })
     expect(of(1, ws, true)).toEqual({ state: 'waiting', on: 1, left: 1 })
+  })
+})
+
+// T8: a ready Task the loop held says why, never "Starts on the next pass"; one just dispatched shows as started
+describe('a held or just-dispatched Task on the board (T8)', () => {
+  const now = Date.parse('2026-10-17T00:00:00.000Z')
+  const held = task('a', { status: 'ready', board: { category: 'queued', reason: { kind: 'hold', hold: 'run-root-busy', detail: 'd', since: '2026-10-17T00:00:00.000Z' } } })
+
+  it('shows its hold text, never plan.reason.next', () => {
+    const { key } = reasonText(held.board!.reason!, now, (id) => id)
+    expect(key).toBe('plan.reason.hold.run-root-busy')
+    expect(t('en', key)).toBe('A worker is still working in the plan folder · merges and starts after it')
+    expect(t('en', key)).not.toBe(t('en', 'plan.reason.next'))
+    expect(reasonTone(held.board!.reason!)).toBe('wait')
+  })
+
+  it('a Task dispatched since the last refresh shows as started on the next one', () => {
+    // The next snapshot folds its open Dispatch: running, with no reason
+    expect(categoryOf(task('a', { status: 'dispatched', board: { category: 'running' } }))).toBe('running')
+    expect(categoryOf(held)).toBe('queued')
   })
 })

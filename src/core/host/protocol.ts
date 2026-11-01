@@ -7,7 +7,7 @@
 import type { GatewayState } from '../remote/gatewayState'
 import type { OrchState } from '../orchestration/state'
 import type { StopBlocker } from '../orchestration/running'
-import type { CloseReason, HostDriverReport, RollStateEvent, SessionInfo, WorktreeInfo } from '../types'
+import type { CloseReason, HostDriverReport, RollStateEvent, SessionInfo, SlotHold, WorktreeInfo } from '../types'
 import type { ForwardedEvent } from '../connections/forwarded'
 import type { SessionSignal } from '../sessions/sessionSignal'
 import type { McpHttpUrl } from '../mcp/httpUrls'
@@ -591,6 +591,10 @@ export type HostMessage =
   /** Who drives Jobs and the gate it was computed from (HOST_FEATURE_DRIVER): on every change, to the
    *  greeted apps that yield dispatch, and once to an app right after its hello. Additive. */
   | ({ t: 'driver' } & HostDriverReport)
+  /** T8: why this Host's dispatch loop holds each ready Task (blocked.ts `slotHolds`), by Task id, whole: on every change,
+   *  to the greeted apps that yield dispatch, and once to an app right after its hello. The app's board shows them while
+   *  the Host drives. An older app ignores it. Additive. */
+  | { t: 'slot-holds'; holds: Record<string, SlotHold> }
   /** An agent app workspace changed (HOST_FEATURE_WORKSPACE): to the greeted apps that yield
    *  `workspace` only. Additive. */
   | { t: 'workspace'; event: WorkspaceEvent }

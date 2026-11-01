@@ -34,6 +34,7 @@ import type { HostSpawner } from './spawner'
 import type { HostWorktrees } from './worktrees'
 import type { DispatchLoopContext } from '../core/orchestration/exec/dispatchLoop'
 import type { LiveWorker } from '../core/orchestration/exec/adopt'
+import { slotHolds } from '../core/orchestration/blocked'
 
 export interface HostDrivingWiring {
   checks: HostChecks
@@ -207,7 +208,9 @@ export function composeHostDriving(a: {
     // Limits L3: every change of the driver or its gate goes to the apps that yield dispatch, the
     // ones whose Jobs wait on this Host. An app that keeps dispatch drives itself and has nothing to
     // wait for, and a CLI reads no push. A throw here is the driving's to log (constraint 14).
-    onReport: (r) => a.server().broadcast({ t: 'driver', ...r }, (yields) => yields.has(HOST_YIELD_DISPATCH))
+    onReport: (r) => a.server().broadcast({ t: 'driver', ...r }, (yields) => yields.has(HOST_YIELD_DISPATCH)),
+    // T8: the same apps' boards show why this loop holds a ready Task, never "starts on the next pass"
+    holdsChanged: (h) => a.server().broadcast({ t: 'slot-holds', holds: Object.fromEntries(h) }, (yields) => yields.has(HOST_YIELD_DISPATCH))
   })
 
   mayStart = () => !disposed && !a.spawner.isRetiring() && driving.drives() && a.orch().loaded()
@@ -267,6 +270,7 @@ export function composeHostDriving(a: {
     appGreeted: (send) => {
       try {
         send({ t: 'driver', ...driving.report() })
+        send({ t: 'slot-holds', holds: Object.fromEntries(slotHolds) })
       } catch (err) {
         log(`the driver could not be told to an app: ${String(err)}`)
       }

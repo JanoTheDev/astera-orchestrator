@@ -187,6 +187,7 @@ import { chatSessionUsage } from '../core/usage/chatSession'
 import { isPermissionMode, isUnattendedPermission } from '../core/chat/types'
 import { performRepair, repairOnce, repairTargetFor, type RepairDeps } from '../core/orchestration/exec/repair'
 import { snapshotFor, jobsForProject, outcomeOf } from '../core/orchestration/view'
+import { acceptSlotHolds } from '../core/orchestration/blocked'
 import { createOrchPush } from './orchPush'
 import { dropNonGitProjects, ensureProject, findProjectContaining } from '../core/orchestration/projects'
 import { commitFresh, rerunOnConflict } from '../core/orchestration/stateConflict'
@@ -7759,6 +7760,13 @@ export function registerIpc(
       } catch (err) {
         hostLog(`host: a worktrees-state or git-op push could not be applied: ${String(err)}`)
       }
+    })
+    // T8: why the Host's loop holds each ready Task, for this board while the Host drives (this app's own loop places
+    // nothing then); the fold reads them from `slotHolds`, so the board is folded again
+    client.onMessage((m) => {
+      if (m.t !== 'slot-holds' || !orchHostDrives()) return
+      acceptSlotHolds(m.holds)
+      if (orchMirror.loaded()) pushOrchState(orchMirror.getState())
     })
     // E1 §4: the Host wrote understanding.json, so the window reads it again. onHostPush never throws.
     client.onMessage((m) => {
