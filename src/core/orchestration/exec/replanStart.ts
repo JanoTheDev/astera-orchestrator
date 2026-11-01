@@ -11,7 +11,7 @@ import { otherPlansBrief } from '../overlap'
 import { collectChanges, rangesFor } from '../changedFiles'
 import { releases, stillStarting, type OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan, worktreeRefusal } from '../planner'
-import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, cancelTaskByOwner, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
+import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, pathsSharedWith, cancelRemainingTask, cancelTaskByOwner, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
 import { isIntegrationTask } from '../integrate'
 import { jobNameOf } from '../jobName'
 import { deliveryEnded, outcomeOfTasks } from '../running'
@@ -158,6 +158,8 @@ export function buildReplanBrief(a: {
   failed?: Pick<Task, 'id' | 'title' | 'result'>[]
   running: Pick<Task, 'id' | 'title'>[]
   left: Pick<Task, 'id' | 'title' | 'deps' | 'affectedPaths'>[]
+  /** T32: not-started Tasks that only share paths with the deviation: not held, listed as information. */
+  sharesPaths?: Pick<Task, 'id' | 'title' | 'affectedPaths'>[]
   /** W7-A: the owner's feedback this replan was started for, at once rather than at a wave boundary. */
   feedback?: string
   /** W8-D: the other plans of this repository and how far they got (overlap.ts `otherPlansBrief`). */
@@ -219,6 +221,13 @@ export function buildReplanBrief(a: {
     ...(a.left.length
       ? a.left.map((t) => `- ${t.id} (${t.title})${t.deps.length ? ` waits for ${t.deps.join(', ')}` : ''}${t.affectedPaths?.length ? `; paths ${t.affectedPaths.join(', ')}` : ''}`)
       : ['- (nothing)']),
+    ...(a.sharesPaths?.length
+      ? [
+          '',
+          'SHARE PATHS WITH WHAT DEVIATED (not held: they start without waiting for you; change one only if the deviation really affects it)',
+          ...a.sharesPaths.map((t) => `- ${t.id} (${t.title}); paths ${(t.affectedPaths ?? []).join(', ')}`)
+        ]
+      : []),
     '',
     // W8-D: what another plan finished meanwhile is not planned again
     ...(a.otherPlans ? [a.otherPlans, 'Before a later wave, drop or shrink a Task here that another plan has completed meanwhile.', ''] : []),
@@ -262,7 +271,7 @@ export function buildReplanBrief(a: {
     '',
     'WHAT YOU MAY DO',
     `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --worktree, --difficulty, --effort, --title, --spec.`,
-    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --kind bugfix|feature|refactor|ui|audit|docs|test|ops, --worktree new|reuse, --difficulty, --effort, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>".`,
+    `- Add a Task: \`astera task-create --run ${a.runId} --account ${a.accountId}\` with the planner flags (--prompt -, --criteria, --affected-paths, --deps, --kind bugfix|feature|refactor|ui|audit|docs|test|ops, --worktree new|reuse, --difficulty, --effort, --model-reason) and, on every Task, --basis missing|partial|broken and --evidence "<file:line, #issue, PR or Job id>" and --why "<one line: why you add this Task>" (the plan shows it to the owner: "Added by the final check: <why>"; a Task without it is refused).`,
     // T3 worktree per Task
     '  `--worktree reuse` continues in the worktree of the Task\'s one dep: only for a direct continuation of it on the same files (the next step, a fix-up, tests for it); `new` (the default) for anything that can run in parallel or works elsewhere.',
     '  A follow-up for a review\'s leftovers uses `--basis partial` with evidence naming the parent Task id and its review (for example "tsk_x review round 2: <issue>").',
@@ -280,8 +289,8 @@ export function buildReplanBrief(a: {
           '',
           'THE FINAL CHECK',
           'Compare what was done with the objective. If it is met, add nothing. If something is missing or broken,',
-          `add follow-up Tasks for exactly that. This Job has had ${a.followUps} follow-up wave(s); after ${REPLAN_FOLLOW_UPS_MAX}`,
-          'a further one goes to the person instead.'
+          'add follow-up Tasks for exactly that, each with --why. This is the one final check of the plan: the follow-up Tasks are',
+          'judged by their own reviews and nothing checks them again, so make each one complete.'
         ]
       : []),
     '',
@@ -293,7 +302,7 @@ export function buildReplanBrief(a: {
 }
 
 /** The Job's Run and its Tasks split for the brief, with each completed Task's changed files read from git. */
-async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, only?: readonly Task[]): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'failed' | 'running' | 'left'>> {
+async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, only?: readonly Task[]): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'failed' | 'running' | 'left' | 'sharesPaths'>> {
   const own = s.tasks.filter((t) => t.runId === runId && !isIntegrationTask(t))
   const done: DoneTask[] = []
   for (const t of own.filter((x) => x.status === 'completed' && (!only || only.some((o) => o.id === x.id)))) {
@@ -308,11 +317,13 @@ async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, onl
   const left = own.filter((t) => notStarted(s, t))
   // T36: a failed Task the replan was started for is listed with its report, not as running
   const failed = own.filter((t) => t.status === 'failed' && only?.some((o) => o.id === t.id))
+  const affected = only ? affectedLeft(only, left) : left
   return {
     done,
     failed,
     running: own.filter((t) => t.status !== 'completed' && !notStarted(s, t) && !failed.includes(t)),
-    left: only ? affectedLeft(only, left) : left
+    left: affected,
+    ...(only ? { sharesPaths: pathsSharedWith(only, left, affected) } : {})
   }
 }
 

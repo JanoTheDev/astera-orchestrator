@@ -700,6 +700,8 @@ export function createTask(
     validateConfigId?: string
     validateConfigIds?: string[]
     reviewRequested?: boolean
+    /** T32: set when a replan session creates the Task (command.ts task-create) */
+    addedBy?: Task['addedBy']
   } & PlanFields,
   now: string
 ): Res<Task> {
@@ -739,6 +741,7 @@ export function createTask(
     ...(a.validateConfigId ? { validateConfigId: a.validateConfigId } : {}),
     ...(a.validateConfigIds?.length ? { validateConfigIds: a.validateConfigIds } : {}),
     ...(a.reviewRequested ? { reviewRequested: a.reviewRequested } : {}),
+    ...(a.addedBy ? { addedBy: a.addedBy } : {}),
     ...planFieldsOf(a),
     status: 'pending',
     consecutiveFailures: 0,

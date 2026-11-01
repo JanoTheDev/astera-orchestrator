@@ -621,6 +621,8 @@ export interface JobTask {
   worktree?: 'new' | 'reuse'
   /** An app-made merge Task (it has a parentId, integrate.ts isIntegrationTask). */
   isMerge?: true
+  /** T32: a replan added it: which one and why in one line (Task.addedBy). */
+  addedBy?: { kind: 'final-check' | 'wave-replan' | 'feedback'; why: string }
 }
 
 // W2-C plan board: declared here, as RunOutcome is, because the renderer reads them and blocked.ts is not in its build.

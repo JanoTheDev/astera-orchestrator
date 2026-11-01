@@ -15,6 +15,7 @@ import { TaskActionButtons, type OnTaskAction } from './TaskActionMenu'
 import type { TaskActionId } from './taskActions'
 import { taskActionKey, taskActionOf } from './planCommands'
 import { doneViewOf, foldReport } from './taskDoneView'
+import { addedByText } from './planBoard'
 import { attemptStateOf, feedbackTextOf, loadTaskInfo, taskEditOf, type TaskInfo } from './taskEdit'
 
 /** The actions this detail shows as buttons; Retry/Continue/Restart, Ask about it and Edit are its own buttons. */
@@ -86,6 +87,7 @@ export function TaskDetail({
   const criteria = full.acceptanceCriteria ?? []
   const done = full.status === 'completed'
   const view = doneViewOf(full)
+  const added = full.addedBy === undefined ? undefined : addedByText(full.addedBy)
   const report = full.result === undefined ? null : foldReport(full.result)
   // The worker's report and its gaps: a finished Task shows them in simple mode too; advanced mode lists them after the prompt
   const reportBlock = (
@@ -153,6 +155,7 @@ export function TaskDetail({
           </ul>
         </section>
       )}
+      {added !== undefined && <p className="plan-task-note plan-added-by">{t(added.key, added.params)}</p>}
       {compact && view.finished && reportBlock}
       {!compact && (
         <>

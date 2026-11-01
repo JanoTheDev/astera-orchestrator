@@ -4,7 +4,7 @@ import { ko } from '../../../../core/i18n/messages/ko'
 import { t } from '../../../../core/i18n'
 import type { ActivityEvent } from '../../../../core/orchestration/activity'
 import type { JobEvent } from '../../../../core/types'
-import { filterByKind, kindsOf, reuseOf, answersKey, autoAnswersOf, cardEffortOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, stepStateOf, wavesOf } from './planBoard'
+import { addedByText, cardReasonText, filterByKind, kindsOf, reuseOf, answersKey, autoAnswersOf, cardEffortOf, cardModelOf, categoryOf, collapsedWavesOf, currentWaveOf, filesOf, nowOf, ordinal, planProgressOf, reasonText, replanningOf, stepStateOf, wavesOf } from './planBoard'
 // W8-C plan after plan
 import { reasonTone } from './planBoard'
 
@@ -140,6 +140,35 @@ describe('reasonText', () => {
       ]
     }
     expect(reasonText(r, now, label)).toEqual({ key: 'plan.reason.deps', params: { tasks: 'Build API, Write schema' } })
+  })
+})
+
+describe('T32: the one line a replan-added Task carries', () => {
+  const label = (id: string): string => `label:${id}`
+  const kinds = [
+    ['final-check', 'plan.task.addedBy.finalCheck', 'Added by the final check: the login page lacked a test'],
+    ['wave-replan', 'plan.task.addedBy.replan', 'Added by a replan: the login page lacked a test'],
+    ['feedback', 'plan.task.addedBy.feedback', 'Added from your feedback: the login page lacked a test']
+  ] as const
+
+  it('says who added it and why, for the three kinds', () => {
+    for (const [kind, key, line] of kinds) {
+      const { params } = addedByText({ kind, why: 'the login page lacked a test' })
+      expect(addedByText({ kind, why: 'the login page lacked a test' }).key).toBe(key)
+      expect(t('en', key, params)).toBe(line)
+      expect(ko[key]).toContain('{why}')
+    }
+  })
+
+  it('replaces the generic "Final check before merging" on the card of a Task a replan added', () => {
+    const board = { category: 'queued', reason: { kind: 'paused', why: 'final-check' } } as const
+    expect(cardReasonText(task('a', { board }), 0, label)).toEqual({ key: 'plan.reason.finalCheck' })
+    const added = task('f', { board, addedBy: { kind: 'final-check', why: 'no test' } })
+    expect(cardReasonText(added, 0, label)).toEqual({ key: 'plan.task.addedBy.finalCheck', params: { why: 'no test' } })
+    // any other wait keeps its own reason
+    const waiting = task('f', { board: { category: 'queued', reason: { kind: 'next' } }, addedBy: { kind: 'final-check', why: 'no test' } })
+    expect(cardReasonText(waiting, 0, label)).toEqual({ key: 'plan.reason.next' })
+    expect(cardReasonText(task('g'), 0, label)).toBeUndefined()
   })
 })
 
