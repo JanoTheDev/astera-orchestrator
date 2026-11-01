@@ -64,11 +64,9 @@ describe('createWorktree', () => {
   })
 
   it('deferCheckout: the admin step leaves an empty tree; finish gives a clean worktree on its branch, includes copied', async () => {
-    await fs.writeFile(path.join(repo, '.gitignore'), '.env
-', 'utf8')
+    await fs.writeFile(path.join(repo, '.gitignore'), '.env\n', 'utf8')
     await fs.writeFile(path.join(repo, '.env'), 'K=1', 'utf8')
-    await fs.writeFile(path.join(repo, '.worktreeinclude'), '.env
-', 'utf8')
+    await fs.writeFile(path.join(repo, '.worktreeinclude'), '.env\n', 'utf8')
     execFileSync('git', ['add', '.gitignore', '.worktreeinclude'], { cwd: repo, windowsHide: true })
     execFileSync('git', ['commit', '-m', 'inc'], { cwd: repo, windowsHide: true })
     const pending = await createWorktree({ repoPath: repo, name: 'split', registry: reg, deferCheckout: true })
