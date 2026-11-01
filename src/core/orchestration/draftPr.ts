@@ -79,12 +79,18 @@ export const DRAFT_PR_FOOTER =
   "A draft: Astera pushes the plan's branch and updates this description after every Task, and marks it ready after the final check. It is never merged automatically."
 
 /** The worktrees of the Run's completed Tasks that are not folded into its integration branch yet: a Task's work is
- *  folded only when a dependent starts, so at a wave boundary the last wave's is still in its own worktree. Never a
- *  folder an unfinished Dispatch still works in, the Run's own worktree or the project folder. */
+ *  folded when a dependent starts or its wave lands, so the last wave's is still in its own worktree at a wave
+ *  boundary. A Task recorded as merged into the plan (`mergedIntoPlanAt`) is folded already, its folder only kept
+ *  (reuse, a failed reap): asking for it again re-ran a no-op merge on every push. Never a folder an unfinished
+ *  Dispatch still works in, the Run's own worktree or the project folder. */
 export function completedWorktrees(s: OrchState, run: JobRun): string[] {
   const cwd = jobOf(s, run)?.cwd
   const own = new Set(runTasks(s, run.id).map((t) => t.id))
-  const done = new Set(runTasks(s, run.id).filter((t) => t.status === 'completed').map((t) => t.id))
+  const done = new Set(
+    runTasks(s, run.id)
+      .filter((t) => t.status === 'completed' && t.mergedIntoPlanAt === undefined)
+      .map((t) => t.id)
+  )
   const ds = s.dispatches.filter((d) => own.has(d.taskId))
   const busy = ds.filter((d) => !d.outcome && !d.endedAt).map((d) => d.cwd)
   const out: string[] = []

@@ -639,6 +639,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   }
   /** The delivered commits each Run worktree already holds, by Run id. In memory: a restart asks git once more. */
   const refreshedTo = new Map<string, Set<string>>()
+  /** Dep folders already merged into a run root, by `root\0folder\0head` (the slot's dep merge). */
+  const mergedTips = new Set<string>()
   // A feed line of the existing `watchdog` kind (payload.reason): a kind of its own would need the feed's renderer too
   const planActivity = (runId: string, reason: string): void => c.activity?.(watchdogActivity(c.getState(), runId, reason))
   /** T32: the line saying how a plan whose saved delivery cannot work on its folder lands instead; it carries the
@@ -1684,7 +1686,28 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // 불리고 그 대부분은 합칠 것이 없는 저장이므로, 그 바퀴에 git 프로세스를 띄우지 않는다
       // (슬롯이 없을 때 계정 조회 앞에서 빠지는 것과 같은 성격이다).
       // T3: a reuse Task's dep folder is kept, it starts there
-      const integration = await c.integrate(runRoot, merges, pendingMergeHeads(state, slot.taskId), task.worktree === 'reuse' ? { reap: false } : undefined)
+      // A start that then waits (a held plan, the cap) came back here next pass and merged again. A merge that went
+      // through is remembered by (run root, folder, recorded head) and not asked again. A memo, not `mergedIntoPlan`
+      // on the dep: that mark lets the folder be reaped, which a reuse Task about to start in it cannot have. Only
+      // with a recorded head (the tip is then known to be the one merged); the rest is skipped by git's ancestor
+      // check in integrateWorktrees. In memory: a restart asks git once more.
+      const heads = pendingMergeHeads(state, slot.taskId)
+      const tipKey = (p: string): string | undefined => (heads[p] ? `${runRoot}\0${p}\0${heads[p]}` : undefined)
+      const todo = merges.filter((p) => {
+        const k = tipKey(p)
+        return k === undefined || !mergedTips.has(k)
+      })
+      const integration: Integration =
+        todo.length === 0
+          ? { kind: 'merged', uncommitted: 0 }
+          : await c.integrate(runRoot, todo, heads, task.worktree === 'reuse' ? { reap: false } : undefined)
+      if (integration.kind === 'merged') {
+        if (mergedTips.size >= 2000) mergedTips.clear()
+        for (const p of todo) {
+          const k = tipKey(p)
+          if (k !== undefined) mergedTips.add(k)
+        }
+      }
       if (integration.kind === 'human') {
         const reason = integration.message ? t(c.lang(), integration.message.key, integration.message.params) : integration.reason
         return { kind: 'gate', reason, why: integration.reason }
