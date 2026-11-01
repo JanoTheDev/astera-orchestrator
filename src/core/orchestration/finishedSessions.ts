@@ -41,6 +41,8 @@ export function sessionsDoneWith(s: DoneState): Dispatch[] {
     if (d.retained || (!d.outcome && !d.endedAt) || latest.get(d.sessionId) !== d.id || isPlaceholderSessionId(d.sessionId)) return false
     const t = tasks.get(d.taskId)
     if (!t || t.status === 'failed' || gated.has(t.id)) return false
-    return d.review === true || t.status === 'completed'
+    // `merging` is a worker whose work succeeded and is only landing: the app's merge or a merge Task of its own lands
+    // it, never this session, so the console is closed then as well
+    return d.review === true || t.status === 'completed' || t.status === 'merging'
   })
 }
