@@ -45,7 +45,8 @@ import { RepairNeeded } from '../core/settings/repairNeeded'
 import type { WorktreeInfo } from '../core/types'
 import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
-import { hostProcessDeps, stopProcessesIn } from './workspace/processesIn'
+import { hostProcessDeps, stopProcessesIn, type StopInDeps } from './workspace/processesIn'
+import type { ProcId } from './workerLeftovers'
 import type { HostServer } from './server'
 
 export const WORKTREE_CALLS: ReadonlySet<string> = new Set(['worktree-list', 'worktree-add', 'worktree-remove', 'worktree-root'])
@@ -67,6 +68,12 @@ export interface HostWorktreesDeps {
   /** T22: stops what still runs in a folder before it is removed. Test seam; the wiring leaves it out and gets
    *  workspace/processesIn.ts over the real machine, with every live pty and line process spared. */
   stopProcessesIn?: (dir: string) => Promise<unknown>
+  /** T22: what the leftover tracker recorded (pid and creation time) under a Dispatch's session (index.ts gives
+   *  `rememberedOf`). A folder's removal stops what was recorded under the Dispatches that worked in it: a `go run`
+   *  server names the folder nowhere on its command line, and Windows cannot read another process's cwd. */
+  remembered?(dispatchId: string): ProcId[]
+  /** Test seam over the real machine's process deps (list, stop); the wiring leaves it out. */
+  processes?: Partial<StopInDeps>
   /** Test seams; the wiring leaves them out. */
   closeTimeoutMs?: number
   pollMs?: number
@@ -207,7 +214,9 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     if (!d.ptys.list || !d.procs.list) throw new Error('the live ptys and line processes cannot be listed')
     return [...d.ptys.list(), ...d.procs.list()].filter((e) => e.alive && e.pid > 0).map((e) => e.pid)
   }
-  const stopIn = d.stopProcessesIn ?? ((dir: string) => stopProcessesIn(dir, hostProcessDeps({ liveRoots, log: d.log })))
+  const remembered = (dir: string): ProcId[] =>
+    d.remembered ? d.getState().dispatches.filter((x) => x.cwd && isPathWithin(dir, x.cwd)).flatMap((x) => d.remembered!(x.id)) : []
+  const stopIn = d.stopProcessesIn ?? ((dir: string) => stopProcessesIn(dir, { ...hostProcessDeps({ liveRoots, remembered, log: d.log }), ...d.processes }))
 
   // ---- the reap (rule 11, R9) ----
   const sessionsIn = (p: string): Live[] => {

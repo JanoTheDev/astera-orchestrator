@@ -1,8 +1,8 @@
 // The processes still running in a folder about to be removed (T22). A worker's `go run` server, started with
 // the worktree as its cwd, outlived the worker, locked the folder and left it half removed. So before a worktree
-// goes, what still names it on its command line, and what was recorded under a session that ran there, is stopped,
-// with everything it started. Never the Host, its ancestors (the app), or anything under a live pty or line process
-// of this Host: those are the owner's tabs and the sessions still at work.
+// goes, what still names it on its command line or executable path, and what was recorded under a session that ran
+// there, is stopped, with everything it started. Never the Host, its ancestors (the app), or anything under a live pty
+// or line process of this Host: those are the owner's tabs and the sessions still at work.
 //
 // The choosing is workerLeftovers.ts' `toStop`, the stopping its `stopProcesses`: one rule for what a worker left.
 import { namesWorktree, queryWindowsProcesses, readLinuxProcesses, stopProcesses, toStop, type ProcId, type ProcRow } from '../workerLeftovers'
@@ -35,7 +35,7 @@ export async function stopProcessesIn(dir: string, d: StopInDeps): Promise<ProcR
       const parent = byPid.get(r.ppid)
       r = parent && parent.created <= r.created ? parent : undefined
     }
-    const named = rows.filter((r) => !hostLine.has(r.pid) && namesWorktree(r.cmd, dir, d.platform))
+    const named = rows.filter((r) => !hostLine.has(r.pid) && (namesWorktree(r.cmd, dir, d.platform) || namesWorktree(r.exe ?? '', dir, d.platform)))
     // The named rows go in as seeds, not as the worktree: `toStop`'s worktree rule takes orphans only, and a
     // folder about to be removed is held just as much by a process whose parent lives.
     const stop = toStop([...(d.remembered?.(dir) ?? []), ...named], rows, null, d.platform, { liveRoots: d.liveRoots(), hostPid: d.hostPid })
@@ -50,12 +50,13 @@ export async function stopProcessesIn(dir: string, d: StopInDeps): Promise<ProcR
 }
 
 /** The real machine's deps, as index.ts gives the leftover tracker: Windows and Linux only (macOS has no list). */
-export function hostProcessDeps(o: { liveRoots(): number[]; log(m: string): void }): StopInDeps {
+export function hostProcessDeps(o: Pick<StopInDeps, 'liveRoots' | 'remembered' | 'log'>): StopInDeps {
   const platform = process.platform
   return {
     platform,
     hostPid: process.pid,
     liveRoots: o.liveRoots,
+    ...(o.remembered ? { remembered: o.remembered } : {}),
     list: () => (platform === 'win32' ? queryWindowsProcesses() : platform === 'linux' ? readLinuxProcesses() : Promise.resolve([])),
     stop: (rows) => stopProcesses(rows, { platform, log: o.log }),
     log: o.log

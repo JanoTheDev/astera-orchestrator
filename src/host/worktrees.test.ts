@@ -588,4 +588,33 @@ describe('createHostWorktrees — the loop’s members', () => {
     await h.wt.ops.remove(h.wt.infoOf(b)!.id, true, false)
     expect(seen).toEqual([[a, true], [b, true]])
   })
+  it("stops a recorded orphan of a worker that ran in the folder, whose command line names it nowhere, and what runs from the folder's executables (T22)", async () => {
+    const row = (pid: number, ppid: number, created: number, cmd: string, exe?: string) => ({ pid, ppid, created, name: 'x.exe', cmd, mem: 0, ...(exe ? { exe } : {}) })
+    const stopped: Array<[number[], boolean]> = []
+    let a = ''
+    const recorded: Record<string, Array<{ pid: number; created: number }>> = {
+      // the `go run` api.exe, built under Temp, and its child; and a process of a worker in another folder
+      d_w: [{ pid: 50, created: 500 }],
+      d_other: [{ pid: 60, created: 600 }]
+    }
+    const h = rig({
+      stopProcessesIn: undefined,
+      state: () => ({ ...emptyState(), dispatches: [dispatch('w', path.join(a, 'sub'), { outcome: 'succeeded' }), dispatch('other', path.join(home, 'elsewhere'), {})] }),
+      remembered: (id) => recorded[id] ?? [],
+      processes: {
+        hostPid: 10,
+        list: async () => [
+          row(50, 49, 500, 'C:\\Users\\me\\AppData\\Local\\Temp\\go-build123\\b001\\exe\\api.exe', 'C:\\Users\\me\\AppData\\Local\\Temp\\go-build123\\b001\\exe\\api.exe'),
+          row(51, 50, 510, 'api-child.exe'),
+          row(60, 1, 600, 'other.exe'),
+          row(70, 1, 700, 'server.exe --port 1', path.join(a, 'bin', 'server.exe'))
+        ],
+        stop: async (rows) => { stopped.push([rows.map((r) => r.pid).sort((x, y) => x - y), await fs.stat(a).then(() => true, () => false)]) }
+      }
+    })
+    a = await h.wt.fork({ repoPath: repo, name: 'a' })
+    await h.wt.ops.remove(h.wt.infoOf(a)!.id, true, false)
+    expect(stopped).toEqual([[[50, 51, 70], true]])
+    expect(h.wt.paths()).toEqual([])
+  })
 })

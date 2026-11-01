@@ -61,6 +61,8 @@ export interface ProcRow {
   name: string
   /** The command line, '' when it could not be read. */
   cmd: string
+  /** The executable's full path, when the query gives it (Windows). */
+  exe?: string
   /** Private bytes on Windows, resident bytes on Linux; 0 when unknown. */
   mem: number
 }
@@ -75,7 +77,7 @@ const isPid = (n: unknown): n is number => typeof n === 'number' && Number.isSaf
 
 // ── Parsing ─────────────────────────────────────────────────────────────────────────────────────
 
-/** One `Win32_Process` row as `queryWindowsProcesses` writes it (`p`, `pp`, `c`, `n`, `cl`, `m`), or
+/** One `Win32_Process` row as `queryWindowsProcesses` writes it (`p`, `pp`, `c`, `n`, `cl`, `e`, `m`), or
  *  null for a row that does not hold together. */
 export function parseWindowsRow(o: unknown): ProcRow | null {
   if (!o || typeof o !== 'object') return null
@@ -91,6 +93,7 @@ export function parseWindowsRow(o: unknown): ProcRow | null {
     created,
     name: typeof r.n === 'string' ? r.n : '',
     cmd: typeof r.cl === 'string' ? r.cl : '',
+    ...(typeof r.e === 'string' && r.e ? { exe: r.e } : {}),
     mem: Number.isFinite(mem) && mem > 0 ? mem : 0
   }
 }
@@ -661,7 +664,7 @@ export async function queryWindowsProcesses(exec: Exec = defaultExec): Promise<P
     '[Console]::OutputEncoding = [Text.Encoding]::UTF8; ' +
     'ConvertTo-Json -Compress -InputObject @(Get-CimInstance Win32_Process | Where-Object { $_.CreationDate } | ForEach-Object { ' +
     '[pscustomobject]@{ p = $_.ProcessId; pp = $_.ParentProcessId; c = ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds(); ' +
-    'n = $_.Name; cl = $_.CommandLine; m = $_.PrivatePageCount } })'
+    'n = $_.Name; cl = $_.CommandLine; e = $_.ExecutablePath; m = $_.PrivatePageCount } })'
   return parseWindowsRows(await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]))
 }
 
