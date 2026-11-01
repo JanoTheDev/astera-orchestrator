@@ -2738,6 +2738,26 @@ describe('a delivery that finishes by itself (T3)', () => {
     expect(h.state().runs[0].delivery).toMatchObject({ sha: 'abc1234' })
   })
 
+  it('T19: a merge-failed push is tried again at once when the target tip moves, before its retry time', async () => {
+    let calls = 0
+    const conflict: Push = async () => ({ ok: false, reason: 'git merge-tree says b does not merge cleanly', branch: 'main', code: 'merge-failed', target: 'm1' })
+    const h = pushPlan(async (a) => (++calls === 1 ? conflict(a) : ok(a)))
+    let tip = 'm1'
+    const refs: string[] = []
+    h.ctx.readTip = async (_cwd, ref) => (refs.push(ref), tip)
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    await pass(h)
+    expect(calls).toBe(1)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', judgedOn: { target: 'm1' } })
+    tip = 'm2'
+    await pass(h)
+    expect(calls).toBe(2)
+    expect(refs).toContain('origin/main')
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+  })
+
   it('after 5 failed attempts exactly one owner question exists, and its answer is acted on', async () => {
     let calls = 0
     let ownerDone = false

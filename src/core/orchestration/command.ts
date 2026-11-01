@@ -7425,7 +7425,8 @@ export async function handleCommand(
       }
       const force = args.force === true
       // T3: the loop's attempt is made only when it is due (pending, or a failure's retry time came)
-      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now), heads))
+      // T19: `targetTip` is the target's tip the loop read, for a merge failure judged on another one
+      if (args.auto === true && !deliveryDue(run.deliveryState, Date.parse(deps.now?.() ?? now), heads, { head: run.git?.head, target: str(args.targetTip) ?? undefined }))
         return conflict('No delivery attempt is due for this Run yet')
       // The plan branch moved since the last attempt: this one counts afresh, as the owner's "Retry now" does
       const moved = headMoved(run.deliveryState, heads)
@@ -7436,12 +7437,16 @@ export async function handleCommand(
         st: OrchState = deps.getState(),
         code?: string,
         /** T5: `fix` never reads needs-owner (a fix Task runs), `owner` asks the owner at this attempt */
-        fix?: 'fix' | 'owner' | null
+        fix?: 'fix' | 'owner' | null,
+        /** T19: a merge failure's target tip it was judged on (PushResult `target`) */
+        target?: string
       ): Promise<DeliveryProgress> => {
         const at = deps.now?.() ?? now
         let next = afterAttempt(force || moved ? undefined : progressOf(s), at, error, {
           heads,
           ...(code !== undefined ? { code } : {}),
+          ...(run.git?.head !== undefined ? { head: run.git.head } : {}), // T19: the plan branch head judged
+          ...(target !== undefined ? { target } : {}),
           ...(fix === 'fix' ? { ask: false } : {})
         })
         if (fix === 'owner' && next.state === 'retrying') next = { ...next, state: 'needs-owner' }
@@ -7516,7 +7521,7 @@ export async function handleCommand(
       // T5: a hands-free plan's failed validation becomes a fix Task (the loop opens it), until FAILURE_LIMIT of them ran;
       // T1: so does a push the repository refused (a pre-push hook's checks)
       const fix = !r.ok && (r.code === 'validation-failed' || r.code === 'push-refused') ? deliveryFixOf(deps.getState(), run) : null
-      const p = await settle(r.ok ? undefined : r.reason, recorded, r.ok ? undefined : r.code, fix)
+      const p = await settle(r.ok ? undefined : r.reason, recorded, r.ok ? undefined : r.code, fix, r.ok ? undefined : r.target)
       if (!r.ok)
         return { status: 409, body: { error: r.reason, ...(r.branch ? { branch: r.branch } : {}), ...(r.code ? { code: r.code } : {}), ...(r.conflictWith ? { conflictWith: r.conflictWith } : {}), deliveryState: p } }
       const removed = await offChain(deps, async () => {

@@ -1122,6 +1122,10 @@ export interface DeliveryProgress {
   /** The error the previous attempt stopped with, kept while the next attempt runs, so the plan never reads that stale
    *  error as its own (running.ts `deliveryErrorOf`). */
   previousError?: string
+  /** T19: a `merge-failed` stop: the tips it was judged on, the plan branch head (the Run's `git.head`) and the target's
+   *  (`origin/<branch>`, or the local branch). Once either moves, the delivery is due again at once (deliveryDue), with no
+   *  owner. */
+  judgedOn?: { branch?: string; target?: string }
 }
 
 /** The plan's pull request: its URL and number once opened, or the error that stopped it. */
