@@ -14,6 +14,7 @@ import {
   FINISHED_RUN_GRACE_MS,
   REPLAN_IDLE_NUDGE_MS,
   REPLAN_TIMEOUT_MS,
+  BACKGROUND_JOB_LIMIT_MS,
   createDispatchLoop, type DispatchLoop, type DispatchLoopContext,
   idleWorkersOf
 } from './dispatchLoop'
@@ -31,6 +32,7 @@ import type { Decision, Dispatch, Job, Message, Task } from '../types'
 import { FAILURE_LIMIT } from '../types'
 import type { Account } from '../../types'
 import { installPending, installSettled, installTurn } from '../../worktrees/setup'
+import { makeRepo } from '../../worktrees/testRepo'
 
 const NOW = '2026-09-24T00:00:00.000Z'
 const NOW_MS = Date.parse(NOW)
@@ -188,6 +190,8 @@ function rig(o: RigOpts = {}) {
   const logs: string[] = []
   const typed: string[] = []
   const reaped: string[] = []
+  /** Reaped worktrees leave the registry, as reapWorktree's do. */
+  const removed = new Set<string>()
   const forked: { repoPath: string; name: string; base?: string }[] = []
   let calls = 0
   let inFlight = 0
@@ -250,9 +254,10 @@ function rig(o: RigOpts = {}) {
     integrate: async () => ({ kind: 'clean' }) as never,
     reap: async (p) => {
       reaped.push(p)
+      if (!o.reapFails) removed.add(p)
       return !o.reapFails
     },
-    isRegisteredWorktree: (p) => p === '/wt-child',
+    isRegisteredWorktree: (p) => p === '/wt-child' && !removed.has(p),
     sessionAlive: () => !o.deadSessions,
     sessionBusy: () => false,
     typeInto: (_id, text) => {
@@ -302,8 +307,17 @@ function rig(o: RigOpts = {}) {
       state = next
     },
     handled: () => [...cmds],
-    /** 떠 있는 run() 이 없을 때까지 — 마지막 handle 이 풀린 뒤 두 macrotask. */
+    /** 떠 있는 run() 이 없을 때까지 — 마지막 handle 이 풀린 뒤 두 macrotask. T7: and no background job of the loop under
+     *  way (a delivery, a plan-branch push, an origin sync, a refresh). */
     settle: async (): Promise<void> => {
+      for (;;) {
+        await new Promise<void>((r) => setImmediate(r))
+        await new Promise<void>((r) => setImmediate(r))
+        if (inFlight === 0 && loop.backgroundJobs() === 0) return
+      }
+    },
+    /** T7: settle's wait for the passes only, for a test whose background job hangs on purpose. */
+    settlePass: async (): Promise<void> => {
       for (;;) {
         await new Promise<void>((r) => setImmediate(r))
         await new Promise<void>((r) => setImmediate(r))
@@ -1951,7 +1965,8 @@ describe('a finished Run’s idle workers are released after the grace', () => {
     }
     h.clock = NOW_MS + 10 * MIN
     await pass(h)
-    expect(releases(h)).toEqual(['dsp_1'])
+    expect(releases(h)).toContain('dsp_1')
+    expect(releases(h)).not.toContain('dsp_2')
   })
 
   it('re-reads the state before each release: a worker retained after the snapshot is kept', async () => {
@@ -3180,10 +3195,8 @@ describe('a Run stalled on a failed Task (T36)', () => {
     await h.real('questions-answer', { id: asked(h)[0].id, answer: 'Retry' })
     await h.loop.run()
     await h.settle()
-    expect(h.state().tasks.find((t) => t.id === 'tsk_1')).toMatchObject({ status: 'ready', consecutiveFailures: 0 })
-    // the commit's own pass places it
-    await h.loop.run()
-    await h.settle()
+    // T7: the retry's commit asks for a pass while this one tidies; it runs once the tidy ends and places the Task
+    expect(h.state().tasks.find((t) => t.id === 'tsk_1')).toMatchObject({ consecutiveFailures: 0 })
     expect(h.startWorker.mock.calls.map((c) => JSON.stringify(c)).some((c) => c.includes('tsk_1'))).toBe(true)
   })
 
@@ -3883,5 +3896,158 @@ describe('a Run worktree install beside the pass (T24)', () => {
     await h.settle()
     expect(h.startWorker).not.toHaveBeenCalled()
     expect(h.handled()).toContain('gate-create')
+  })
+})
+
+// T7: a delivery, plan-branch push, origin sync or refresh can take tens of minutes; a pass that awaited one placed no
+// worker anywhere meanwhile (the Host's "a tick is still running" with zero agents app-wide)
+describe('a slow delivery, branch push, origin sync or refresh never holds the pass (T7)', () => {
+  const LATER = new Date(NOW_MS + 1000).toISOString()
+  type Hang = 'run-deliver' | 'run-draft-pr' | 'run-origin-synced' | 'refresh'
+  /** Plan A of another project (`/a`) beside the rig's plan B (job_1), set up so that `hang`'s step is due for it, and
+   *  that step never answers. Plan B's Tasks wait behind a start hold, so the first pass places nothing. */
+  const withHangingPlanA = async (h: ReturnType<typeof rig>, hang: Hang): Promise<void> => {
+    const s = h.state()
+    const done = hang === 'run-deliver'
+    const worktree = hang === 'run-origin-synced' ? await makeRepo('astera-t7-') : '/wtA'
+    const tasks = [task({ id: 'tsk_A1', runId: 'run_A', jobId: 'job_A', status: 'completed' })]
+    if (!done) tasks.push(task({ id: 'tsk_A2', runId: 'run_A', jobId: 'job_A', status: 'dispatched', deps: ['tsk_A1'] }))
+    h.setState({
+      ...s,
+      projects: [...s.projects, { id: 'prj_a', path: '/a', name: 'a', addedAt: NOW, defaultBranch: 'main' }],
+      jobs: [
+        ...s.jobs,
+        { id: 'job_A', objective: 'a', cwd: '/a', createdAt: NOW, autoDispatch: true, ...(done ? { delivery: 'push' as const } : {}) },
+        // T11: plan D of the same project delivered after plan A began, so plan A is refreshed onto it
+        ...(hang === 'refresh' ? [{ id: 'job_D', objective: 'd', cwd: '/a', createdAt: NOW }] : [])
+      ],
+      runs: [
+        ...s.runs,
+        { id: 'run_A', jobId: 'job_A', ordinal: 1, createdAt: NOW, worktree, ...(done ? { deliveryState: { state: 'pending' as const, attempts: 0 } } : {}) },
+        ...(hang === 'refresh' ? [{ id: 'run_D', jobId: 'job_D', ordinal: 1, createdAt: NOW, delivery: { at: LATER, sha: 'shaD', branch: 'main' } }] : [])
+      ],
+      tasks: [...s.tasks, ...tasks, ...(hang === 'refresh' ? [task({ id: 'tsk_D', runId: 'run_D', jobId: 'job_D', status: 'completed' })] : [])]
+    })
+    const never = new Promise<never>(() => {})
+    h.ctx.handle = (cmd, args) => (cmd === hang && args.run === 'run_A' && args.pending !== true && args.stopped === undefined ? never : h.real(cmd, args))
+    h.ctx.refreshOnto = async (wt) => {
+      if (hang !== 'refresh' || wt !== '/wtA') return { kind: 'current' }
+      refreshes++
+      return never
+    }
+    h.ctx.startHeld = () => held
+    held = true
+  }
+  let held = false
+  let refreshes = 0
+  /** Whether a pass ends within half a second. */
+  const passEnds = (h: ReturnType<typeof rig>): Promise<boolean> =>
+    Promise.race([h.loop.run().then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 500))])
+  const started = (h: ReturnType<typeof rig>, cmd: Hang): boolean => (cmd === 'refresh' ? refreshes > 0 : h.handled().some((c) => c === cmd))
+
+  for (const hang of ['run-deliver', 'run-draft-pr', 'run-origin-synced', 'refresh'] as const)
+    it(`with plan A's ${hang} hanging, a ready Task of plan B is placed on the next pass`, async () => {
+      const h = rig()
+      refreshes = 0
+      await withHangingPlanA(h, hang)
+      expect(await passEnds(h)).toBe(true)
+      // plan A's step did start, and hangs
+      await vi.waitFor(() => expect(started(h, hang)).toBe(true))
+      expect(h.startWorker).not.toHaveBeenCalled()
+      held = false
+      expect(await passEnds(h)).toBe(true)
+      // placed by this pass, or by the one under way it marked to go again
+      await vi.waitFor(() => expect(h.startWorker).toHaveBeenCalledTimes(1))
+      expect(h.state().tasks.find((t) => t.id === 'tsk_1')?.status).toBe('dispatched')
+    })
+
+  it('starts one of each per Run: a later pass does not start a second while the first hangs', async () => {
+    const h = rig()
+    await withHangingPlanA(h, 'run-deliver')
+    await h.loop.run()
+    await h.loop.run()
+    await h.loop.nudge()
+    await vi.waitFor(() => expect(started(h, 'run-deliver')).toBe(true))
+    expect(h.handled().filter((c) => c === 'run-deliver')).toHaveLength(1)
+  })
+
+  it('a job past BACKGROUND_JOB_LIMIT_MS is abandoned and logged, its Run is due again, and its late answer is ignored', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      const h = rig()
+      await withHangingPlanA(h, 'run-deliver')
+      const answers: Array<(r: { status: number; body: unknown }) => void> = []
+      const attempts: Record<string, unknown>[] = []
+      h.ctx.handle = (cmd, args) => {
+        if (cmd !== 'run-deliver' || args.run !== 'run_A' || args.pending === true || args.stopped !== undefined) return h.real(cmd, args)
+        attempts.push(args)
+        return new Promise((r) => void answers.push(r))
+      }
+      await h.loop.run()
+      await h.settlePass()
+      expect(attempts).toHaveLength(1)
+      await vi.advanceTimersByTimeAsync(BACKGROUND_JOB_LIMIT_MS)
+      await h.settlePass()
+      expect(h.logs.filter((l) => l.includes('run=run_A') && l.includes('abandoned'))).toHaveLength(1)
+      // Recorded as one failed attempt: retried after its backoff
+      const p = h.state().runs.find((r) => r.id === 'run_A')!.deliveryState!
+      expect(p).toMatchObject({ state: 'retrying', attempts: 1, lastError: expect.stringContaining('abandoned') })
+      await h.loop.run()
+      await h.settlePass()
+      expect(attempts).toHaveLength(1)
+      h.clock = Date.parse(p.nextRetryAt!)
+      await h.loop.run()
+      await h.settlePass()
+      expect(attempts).toHaveLength(2)
+      // The abandoned attempt answers at last: nothing is done with it (no log line, no integration Task)
+      answers[0]({ status: 409, body: { error: 'LATE ANSWER', code: 'origin-conflict', conflictWith: 'shaLate' } })
+      await h.settlePass()
+      expect(h.logs.some((l) => l.includes('LATE ANSWER'))).toBe(false)
+      expect(h.state().tasks.some((t) => t.spec.includes('shaLate'))).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a pass asked for while the last one tidies runs once it ends', async () => {
+    const h = rig()
+    let release!: () => void
+    const reading = new Promise<void>((r) => (release = r))
+    let asked = 0
+    // The folder read of the tidy's delivery steps (readDeliverySetup), slow as gh and git are on Windows
+    h.ctx.deliverySetup = async () => {
+      asked++
+      await reading
+      return { isGitRepo: true, remoteUrl: null, ghSignedIn: false, branch: 'main' }
+    }
+    held = true
+    h.ctx.startHeld = () => held
+    const first = h.loop.run()
+    await vi.waitFor(() => expect(asked).toBeGreaterThan(0))
+    held = false
+    await h.loop.run() // asked for during the tidy: it only marks the pass under way to go again
+    expect(h.startWorker).not.toHaveBeenCalled()
+    release()
+    await first
+    await vi.waitFor(() => expect(h.startWorker).toHaveBeenCalledTimes(1))
+  })
+
+  it('a tidy that asks for a pass every time does not spin the loop: it comes to rest, and says so', async () => {
+    const h = rig()
+    let tidies = 0
+    // Each tidy's folder read asks for a pass, as a tidy step that commits every time would
+    h.ctx.deliverySetup = async () => {
+      tidies++
+      void h.loop.run()
+      return { isGitRepo: true, remoteUrl: null, ghSignedIn: false, branch: 'main' }
+    }
+    await h.loop.run()
+    await h.settle()
+    await new Promise((r) => setTimeout(r, 50))
+    const seen = tidies
+    expect(seen).toBeGreaterThan(0)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(tidies).toBe(seen)
+    expect(h.logs.filter((l) => l.includes('passes in a row were asked for during the tidy'))).toHaveLength(1)
   })
 })

@@ -27,9 +27,15 @@ import type { Account } from '../core/types'
 
 // The loop reads each plan's folder through `gh auth status` and git (readDeliverySetup). Run for real that is a process
 // spawn per folder (about a second on Windows, where a ready Task then starts later than these tests wait); the rig's
-// folder is no repository, so the answer is the one a machine without gh gives.
+// folder is no repository, so the answer is the one a machine without gh gives. T7: `wait`, while set, holds every read
+// as a slow gh and git would.
+const folderRead = vi.hoisted(() => ({ wait: null as Promise<void> | null, asked: 0 }))
 vi.mock('../core/orchestration/exec/deliverySetup', () => ({
-  readDeliverySetup: async () => ({ isGitRepo: false, remoteUrl: null, ghSignedIn: false, branch: null })
+  readDeliverySetup: async () => {
+    folderRead.asked++
+    await folderRead.wait
+    return { isGitRepo: false, remoteUrl: null, ghSignedIn: false, branch: null }
+  }
 }))
 
 // Near the real clock, not a fixed date: the store drops a finished Run 30 days after its createdAt (RUN_TTL_MS) when it
@@ -50,6 +56,7 @@ beforeEach(async () => {
 })
 const rigs: HostDriving[] = []
 afterEach(async () => {
+  folderRead.wait = null
   for (const r of rigs.splice(0)) r.dispose()
   await removeFixture(dir)
 })
@@ -472,6 +479,25 @@ describe('createHostDriving', () => {
     await h.settle()
     expect(h.workerStarts()).toBe(0)
     await h.tickNow()
+    await vi.waitFor(() => expect(h.workerStarts()).toBe(1))
+  })
+  // T7: a commit's pass that came while the tick's pass tidied (its folder reads slow, as gh and git are on Windows) was
+  // dropped: it found the pass under way, marked it to go again, and the pass looked at that mark only before its tidy
+  it('a pass a commit asks for while the tick is tidying runs once the tidy ends (B2)', async () => {
+    const h = await rig({ readyTasks: 0 })
+    await h.load()
+    let release!: () => void
+    folderRead.wait = new Promise<void>((r) => (release = r))
+    const asked = folderRead.asked
+    const ticked = h.tickNow()
+    await vi.waitFor(() => expect(folderRead.asked).toBeGreaterThan(asked))
+    await h.addReadyTaskBehindTheHostsBack()
+    h.driving.kick('a commit')
+    await h.settle()
+    expect(h.workerStarts()).toBe(0)
+    folderRead.wait = null
+    release()
+    await ticked
     await vi.waitFor(() => expect(h.workerStarts()).toBe(1))
   })
   // Audit OR-5: every commit's kick read the settings twice and ran a whole pass of its own, so a burst of commits ran

@@ -95,6 +95,9 @@ export const REPLAN_IDLE_NUDGE_MS = 10 * 60_000
 export const REPLAN_TIMEOUT_MS = 30 * 60_000
 /** 15초 — 세션 스케줄러의 TICK_MS 와 같은 값이다 */
 export const ORCH_FIRE_TICK_MS = 15_000
+/** T7: how long a background job of the pass (a delivery, a plan-branch push, an origin sync, a refresh) may run before
+ *  it is abandoned and its Run is due again. */
+export const BACKGROUND_JOB_LIMIT_MS = 20 * 60_000
 /** 코디네이터를 깨우기 전에 기다리는 시간.
  *
  *  **짧으면** `check --wait` 안에서 정상적으로 기다리는 코디네이터를 찌른다 — 그 호출은 서버에서
@@ -333,6 +336,8 @@ export interface DispatchLoop {
   armOnly(): void
   /** The armed next fire of a schedule template, or null: what orchSnapshotOf shows as nextFireAt (N3). */
   nextFireOf(runId: string): number | null
+  /** T7: how many background jobs (a delivery, a plan-branch push, an origin sync, a refresh) are under way. */
+  backgroundJobs(): number
 }
 
 /** One await of the merge pass (mergeWaves) is given up after this, so it cannot pin the pass. */
@@ -677,7 +682,20 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * off `anchorId`), and the plan waits for it; only when that Task fails is the owner asked. `ready`: nothing (more) to
    * merge. A worker in the Run worktree is never merged under: the refresh waits for it.
    */
-  const refreshRun = async (runId: string, anchorId: string): Promise<{ kind: 'ready' } | { kind: 'wait'; why: string } | { kind: 'gate'; reason: string }> => {
+  type Refreshed = { kind: 'ready' } | { kind: 'wait'; why: string } | { kind: 'gate'; reason: string }
+  /** T7: the Runs a refresh merges into now. The background refresh and a pass's own (before a Task starts) never merge
+   *  into one worktree side by side: the later one waits for the next pass. */
+  const refreshing = new Set<string>()
+  const refreshRun = async (runId: string, anchorId: string): Promise<Refreshed> => {
+    if (refreshing.has(runId)) return { kind: 'wait', why: `run ${runId} is being refreshed onto another plan's delivery already` }
+    refreshing.add(runId)
+    try {
+      return await refreshRunOnce(runId, anchorId)
+    } finally {
+      refreshing.delete(runId)
+    }
+  }
+  const refreshRunOnce = async (runId: string, anchorId: string): Promise<Refreshed> => {
     const s = c.getState()
     const run = s.runs.find((r) => r.id === runId)
     const job = run && jobOf(s, run)
@@ -736,8 +754,51 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     return { kind: 'ready' }
   }
 
+  /** T7: the background jobs under way (`inBackground`), by Run and kind: each settles to true when it was abandoned. */
+  const jobs = new Map<string, Promise<boolean>>()
+  /**
+   * T7: a delivery, plan-branch push, origin sync or refresh can take tens of minutes (an install, a wait for a heavy
+   * slot, checks, push rounds), and a pass that awaited one placed no worker anywhere meanwhile. The pass starts `work`
+   * here and goes on; null when one of this `kind` is already under way for the Run. It first waits for that Run's jobs
+   * already under way, as they share its worktree and branch. Past BACKGROUND_JOB_LIMIT_MS of work it is abandoned:
+   * logged, its place freed so its Run is due again, and `alive()` false from then on, so its late result is ignored.
+   * Never rejects.
+   */
+  const inBackground = (kind: string, runId: string, work: (alive: () => boolean) => Promise<void>): Promise<boolean> | null => {
+    const key = `${runId} ${kind}`
+    if (jobs.has(key)) return null
+    const before = [...jobs].filter(([k]) => k.startsWith(`${runId} `)).map(([, job]) => job)
+    let alive = true
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let abandon: (abandoned: true) => void = () => {}
+    const limit = new Promise<true>((r) => (abandon = r))
+    const finished = Promise.all(before)
+      .then(() => {
+        timer = setTimeout(() => abandon(true), BACKGROUND_JOB_LIMIT_MS)
+        timer.unref?.()
+        return work(() => alive)
+      })
+      .then(
+        () => false,
+        (e: unknown) => {
+          if (alive) log(`run=${runId}: its ${kind} failed: ${String(e)}`)
+          return false
+        }
+      )
+    const job = Promise.race([finished, limit]).then((abandoned) => {
+      alive = false
+      clearTimeout(timer)
+      jobs.delete(key)
+      if (abandoned) log(`run=${runId}: its ${kind} ran past ${BACKGROUND_JOB_LIMIT_MS / 60_000} minutes and was abandoned; it is due again`)
+      return abandoned
+    })
+    jobs.set(key, job)
+    return job
+  }
+
   /** T11: after a delivery, every running plan of a project is refreshed at once, not only at its next app-placed Task:
-   *  a coordinator places its own workers. A wait is asked again next pass; a Gate is left to the Task's own start. */
+   *  a coordinator places its own workers. A wait is asked again next pass; a Gate is left to the Task's own start. T7: in
+   *  the background, one per Run. */
   const refreshRunningPlans = async (): Promise<void> => {
     const s = c.getState()
     for (const run of s.runs) {
@@ -747,12 +808,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (outcomeOfTasks(tasksOwnedBy(s, run.id)) !== 'running') continue
       const anchor = anchorOf(s, run.id)
       if (!anchor || !c.mayStart()) continue
-      try {
-        const r = await refreshRun(run.id, anchor.id)
-        if (r.kind !== 'ready') log(`run=${run.id}: not refreshed yet: ${r.kind === 'wait' ? r.why : r.reason}`)
-      } catch (e) {
-        log(`run=${run.id}: refreshing onto other plans' deliveries failed: ${String(e)}`)
-      }
+      void inBackground('refresh', run.id, async (alive) => {
+        try {
+          const r = await refreshRun(run.id, anchor.id)
+          if (alive() && r.kind !== 'ready') log(`run=${run.id}: not refreshed yet: ${r.kind === 'wait' ? r.why : r.reason}`)
+        } catch (e) {
+          if (alive()) log(`run=${run.id}: refreshing onto other plans' deliveries failed: ${String(e)}`)
+        }
+      })
     }
   }
 
@@ -832,25 +895,34 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (list) list.push(step)
       else due.set(key, [step])
     }
-    // T11: one delivery per project at a time, projects side by side
-    await Promise.all(
-      [...due].map(async ([key, list]) => {
-        if (delivering.has(key)) return
-        delivering.add(key)
+    // T11: one delivery per project at a time, projects side by side. T7: each attempt a background job of its Run; the
+    // pass waits for none of them
+    for (const [key, list] of due) {
+      if (delivering.has(key)) continue
+      delivering.add(key)
+      void (async () => {
         try {
-          for (const x of list) await deliverOne(x)
+          for (const x of list) {
+            const abandoned = await inBackground('delivery', x.run.id, (alive) => deliverOne(x, alive))
+            // Recorded as one failed attempt: retried after its backoff and, at the last, asked of the owner
+            if (abandoned === true && x.action !== 'self')
+              void c
+                .handle('run-deliver', { run: x.run.id, stopped: `the delivery ran past ${BACKGROUND_JOB_LIMIT_MS / 60_000} minutes and was abandoned` })
+                .catch((e: unknown) => log(`run=${x.run.id}: recording its abandoned delivery failed: ${String(e)}`))
+          }
         } finally {
           delivering.delete(key)
         }
-      })
-    )
+      })()
+    }
   }
 
   /** One completed Run's delivery step (`openCompletedRunPrs`), under its project's lock: an attempt (`auto`, its retry
    *  time come), the owner's "Retry now" (`retry`, a forced attempt that counts afresh) or "I'll push it myself" (`self`,
    *  git asked whether the commits reached the branch). Each attempt is recorded on the Run by `run-deliver` (T3:
-   *  retried with backoff, the owner asked once after the last automatic one). Never throws. */
-  const deliverOne = async ({ run, push, action, outcome }: DeliveryStep): Promise<void> => {
+   *  retried with backoff, the owner asked once after the last automatic one). T7: a background job; once `alive()` is
+   *  false it was abandoned, and what it finds out late is left alone. Never throws. */
+  const deliverOne = async ({ run, push, action, outcome }: DeliveryStep, alive: () => boolean): Promise<void> => {
     if (!c.mayStart()) return
     const job = jobOf(c.getState(), run)
     const plan = job ? jobNameOf(job) : run.id
@@ -875,6 +947,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     if (push && anchor && outcome === 'completed') {
       try {
         const fresh = await refreshRun(run.id, anchor.id)
+        if (!alive()) return
         if (fresh.kind === 'wait') {
           log(`run=${run.id} completed, and is not delivered yet: ${fresh.why}`)
           return
@@ -891,6 +964,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     try {
       // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
       const r = await c.handle('run-deliver', action === 'retry' ? { run: run.id, force: true } : { run: run.id, auto: true })
+      if (!alive()) return
       const body = r.body as {
         url?: unknown
         sha?: unknown
@@ -1227,7 +1301,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const done = answer === 'retry' ? draftPrDue(c.getState(), run) : draftPrDue(c.getState(), run, c.nowMs())
       if (done === null) continue
       if (!c.mayStart()) return
-      log((await askDraftPr(run.id, done, answer === 'retry')).line)
+      // T7: in the background, one per Run; the pass goes on placing work
+      void inBackground('branch push', run.id, async (alive) => {
+        const { line } = await askDraftPr(run.id, done, answer === 'retry')
+        if (alive()) log(line)
+      })
     }
   }
   // T4: running plans kept in sync with origin (originSync.ts); a conflict is an integration Task, as the T11 refresh's
@@ -1241,7 +1319,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     activity: planActivity,
     log,
     nowMs: () => c.nowMs(),
-    mayStart: () => c.mayStart()
+    mayStart: () => c.mayStart(),
+    background: (runId, work) => inBackground('origin sync', runId, work) !== null
   })
   /** One `run-draft-pr`, as its log line; `ok` when it opened or updated the draft. Never throws. */
   const askDraftPr = async (runId: string, done: number, force = false): Promise<{ ok: boolean; line: string }> => {
@@ -1906,7 +1985,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     idleWaiters = []
     for (const w of waiting) w()
   }
-  const runScheduler = async (): Promise<void> => {
+  /** T7: how many passes asked for during a tidy run one after another before the next waits for a commit or a tick. */
+  const RERUNS_AT_MOST = 10
+  /** `again`: T7, a pass asked for while the last one tidied or reaped, run in that one's activation (its attempted set);
+   *  `n` counts them in a row. */
+  const runScheduler = async (again?: { attempted: Set<string>; n: number }): Promise<void> => {
     // 재진입 가드 — 띄우기가 openDispatch 를 커밋하면 그것이 다시 setState 를 부른다. 도는 중이면
     // 표시만 남기고 빠지고, 끝난 뒤 한 번 더 돈다. 8cce9c2 의 startHead 재진입 방어와 같은 모양이다.
     if (scheduling) {
@@ -1914,6 +1997,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       return
     }
     scheduling = true
+    // T7: set once the pass is past its slots; a pass asked for from then on came after the do-while last looked
+    let tidied: Set<string> | null = null
     try {
       // 이 활성화에서 이미 한 번 손댄 Task. **없으면 아래 do-while 이 영원히 돈다.** worker-start 가
       // 세션을 띄우다 실패하면 server.ts 의 롤백이 Dispatch 를 배열에서 지우고 Task 를 ready 로
@@ -1927,7 +2012,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // **아래 gateSlot 이 생겼다고 이것이 남아돌지는 않는다.** Gate 가 열리면 Task 가 blocked 로
       // 가서 그 자리가 후보에서 빠지지만, gate-create 자체가 거절되거나 던지는 경우(그 이유는
       // gateSlot 에 적었다)에는 Task 가 ready 그대로 남는다. 그 경우에 회전을 막는 것은 이것뿐이다.
-      const attempted = new Set<string>()
+      const attempted = again?.attempted ?? new Set<string>()
       do {
         scheduleAgain = false
         // **운전자에게 먼저 묻는다**(설계 §4.3) — 앱에서는 서버가 서 있는가(예전의 `if (!orch) return`),
@@ -2035,6 +2120,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // 세션을 닫고 `git worktree remove` 를 함께 돌리게 된다. 운전하지 않는 프로세스는 일을 하지 않는다.
       // 앱에서는 mayStart 가 언제나 참이므로(orch 는 한 번 서면 내려가지 않는다) 앱의 동작은 그대로다.
       if (!c.mayStart()) return
+      tidied = attempted
       // U4: finished Runs' coordinators are stopped (a manual Run's after its grace; L1: again until
       // confirmed), and stale start marks are dropped (L2).
       // 회수보다 앞이다.
@@ -2068,6 +2154,13 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // 남아 스케줄러가 앱이 사는 내내 다시는 돌지 않는다.
       scheduling = false
       wakeIdle()
+      // T7: a pass asked for during the tidy or the reap came after the do-while last looked: it runs now, in this same
+      // activation (the attempted set kept, so a start that failed here is not tried again). RERUNS_AT_MOST in a row, so a
+      // tidy that commits every time cannot spin the loop. A pass that stopped early (the Host leaving, the drive moved)
+      // drops it, as before
+      const n = (again?.n ?? 0) + 1
+      if (scheduleAgain && tidied && n > RERUNS_AT_MOST) log(`scheduler: ${RERUNS_AT_MOST} passes in a row were asked for during the tidy; the next waits for a commit or a tick`)
+      else if (scheduleAgain && tidied) void runScheduler({ attempted: tidied, n }).catch((e) => log(`scheduler: the pass asked for during the last one failed: ${String(e)}`))
     }
   }
 
@@ -3010,14 +3103,18 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         return
       }
       case 'draft-pr': {
-        const { ok, line } = await askDraftPr(r.runId, r.done)
-        log(line)
-        watchdogLine(
-          r.runId,
-          ok
-            ? `the plan branch after ${r.done} task(s) had not been pushed; it is now`
-            : `the plan branch after ${r.done} task(s) is still not pushed: ${line.replace(/^run=\S+: /, '')}`
-        )
+        // T7: the same background job as updateDraftPrs' push, so the tick does not wait for it and one runs per Run
+        void inBackground('branch push', r.runId, async (alive) => {
+          const { ok, line } = await askDraftPr(r.runId, r.done)
+          if (!alive()) return
+          log(line)
+          watchdogLine(
+            r.runId,
+            ok
+              ? `the plan branch after ${r.done} task(s) had not been pushed; it is now`
+              : `the plan branch after ${r.done} task(s) is still not pushed: ${line.replace(/^run=\S+: /, '')}`
+          )
+        })
         return
       }
     }
@@ -3043,6 +3140,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     armOnly: () => {
       armed = firesDue(c.getState(), armed, c.nowMs()).arm
     },
-    nextFireOf: (runId) => armed.get(runId) ?? null
+    nextFireOf: (runId) => armed.get(runId) ?? null,
+    backgroundJobs: () => jobs.size
   }
 }
