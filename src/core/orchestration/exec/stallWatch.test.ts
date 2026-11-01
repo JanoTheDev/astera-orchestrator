@@ -435,7 +435,8 @@ describe('watchStalls', () => {
   })
 
   it('a completed Task out of the plan branch: merged, recorded on the Task, one line', async () => {
-    const h = rig(plan({ tasks: [task({ id: 'tsk_1', status: 'completed' })], dispatches: [ended('tsk_1', '/wt-child')] }))
+    // T10: merged before the delivery because an open Task depends on it
+    const h = rig(plan({ tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', status: 'pending', deps: ['tsk_1'] })], dispatches: [ended('tsk_1', '/wt-child')] }))
     h.ctx.sessionBusy = () => false
     let merges = 0
     h.ctx.integrate = async () => (merges++, { kind: 'merged', uncommitted: 0 }) as never
@@ -450,7 +451,7 @@ describe('watchStalls', () => {
       plan({
         tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', status: 'dispatched', deps: ['tsk_1'] })],
         dispatches: [ended('tsk_1', '/wt1'), { ...ended('tsk_2', '/wt1'), endedAt: undefined, outcome: undefined } as Dispatch]
-      })
+      }, { pushCadence: 'task' }) // T10: pushed after each Task
     )
     h.ctx.sessionBusy = () => false
     const real = h.ctx.handle

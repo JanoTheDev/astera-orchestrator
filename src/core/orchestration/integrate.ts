@@ -9,7 +9,7 @@
 // 두세 번 부르면 상태를 쓰는 모든 명령이 그만큼 느려진다(같은 이유로 그 루프는 슬롯이 없을 때 계정
 // 조회 앞에서 빠진다).
 import { isSamePath } from '../files/tree'
-import { jobOf, type OrchState } from './state'
+import { hasOpenDependent, jobOf, type OrchState } from './state'
 import type { Dispatch, Job, JobRun, Task } from './types'
 
 /** 의존 하나가 남긴 워크트리 — 그 의존 Task 의 id 와 그것이 돌았던 폴더 */
@@ -354,7 +354,8 @@ export const planMergedSubject = (taskId: string): string => `task ${taskId} mer
  *  Only a Run with its own worktree: merging into the project folder is a person's. A completed Task only from a folder
  *  still registered (`isRegistered`): a merged one is reaped, and one gone has nothing left to merge; a merging Task
  *  whatever its folder, so a folder gone ends in the owner's Gate rather than in a Task that never completes. Not one
- *  marked merged (`planMergedSubject`, `mergedIntoPlanAt`), and not one that already has its merge Task
+ *  marked merged (`planMergedSubject`, `mergedIntoPlanAt`), not a completed one no open Task depends on (T10, state.ts
+ *  hasOpenDependent: the delivery merges it), and not one that already has its merge Task
  *  (`integrationTaskFor`: its completion completes it, dispatchLoop mergeWaves). */
 export function wavesToMerge(
   s: OrchState,
@@ -370,6 +371,8 @@ export function wavesToMerge(
       if (integrationTaskFor(s, t.id)) continue
       const done = t.status === 'completed'
       if (done && (t.mergedIntoPlanAt !== undefined || merged.has(`${run.id}\u0000${planMergedSubject(t.id)}`))) continue
+      // T10: a completed one no open Task depends on stays in its worktree: the delivery merges it (deliveryWorktrees)
+      if (done && !hasOpenDependent(s, t)) continue
       const last = [...s.dispatches].reverse().find((d) => d.taskId === t.id && !d.review && (d.outcome || d.endedAt) && !isSamePath(d.cwd, runRoot))
       if (!last || (done && !isRegistered(last.cwd))) continue
       out.push({ runId: run.id, taskId: t.id, runRoot, worktree: last.cwd })

@@ -112,6 +112,8 @@ async function plan(o: { originSync?: 'off' } = {}) {
 describe('origin sync of a running plan (T4)', () => {
   it("a teammate's push during a Run lands in the plan branch after a sync tick, and the plan branch is pushed", async () => {
     const p = await plan()
+    // T10: a sync's push is the `task` cadence's; the default leaves the plan branch to the final delivery
+    p.box.state = { ...p.box.state, jobs: p.box.state.jobs.map((j) => ({ ...j, pushCadence: 'task' as const })) }
     const loop = p.sync()
     await loop.tick() // the first look syncs at once: nothing new yet
     expect(p.box.state.runs[0].lastOriginSyncAt).toBe(NOW)
@@ -161,16 +163,35 @@ describe('origin sync of a running plan (T4)', () => {
     expect(p.box.state.runs[0].lastOriginSyncAt).toBe(new Date(p.clock.ms).toISOString())
   })
 
-  it('does not sync twice within 10 minutes across a restart', async () => {
+  it('does not sync twice within 15 minutes across a restart', async () => {
     const p = await plan()
     await p.sync().tick()
     const theirs = await teammatePushes('mate.txt', 'hi')
-    p.clock.ms += 5 * 60_000
+    p.clock.ms += 10 * 60_000
     await p.sync().tick() // a restarted Host: a fresh loop, the persisted time
     expect(holds(p.runWt, theirs)).toBe(false)
     p.clock.ms += 5 * 60_000
     await p.sync().tick()
     expect(holds(p.runWt, theirs)).toBe(true)
+  })
+
+  it('T10: at most every 15 minutes while it runs, at once (and once) when its last Task is done and delivery is next', async () => {
+    expect(ORIGIN_SYNC_EVERY_MS).toBe(15 * 60_000)
+    const p = await plan()
+    const loop = p.sync()
+    await loop.tick()
+    const theirs = await teammatePushes('mate.txt', 'hi')
+    p.clock.ms += ORIGIN_SYNC_EVERY_MS - 60_000
+    await loop.tick()
+    expect(holds(p.runWt, theirs)).toBe(false)
+    p.box.state = { ...p.box.state, tasks: p.box.state.tasks.map((t) => ({ ...t, status: 'completed' as const })) }
+    await loop.tick()
+    expect(holds(p.runWt, theirs)).toBe(true)
+    expect(p.box.state.runs[0].branchPush).toBeUndefined() // the default cadence: the delivery pushes it
+    const later = await teammatePushes('mate2.txt', 'again')
+    p.clock.ms += 60_000
+    await loop.tick()
+    expect(holds(p.runWt, later)).toBe(false)
   })
 
   it('a project with originSync off is never synced', async () => {

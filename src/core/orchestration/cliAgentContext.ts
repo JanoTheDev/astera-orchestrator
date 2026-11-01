@@ -195,8 +195,12 @@ const SESSION = {
   'run-draft-pr': {
     summary: "push a pull-request plan's branch after a wave and open or update its draft pull request",
     detail:
-      "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this once per finished wave; refused from an agent session and an MCP client. Answered by the Host.",
-    flags: [RUN_ARG('<runId>', 'the run between waves')]
+      "While later waves remain, folds the completed tasks' worktrees into the run's integration branch, pushes it, and opens the plan's pull request as a draft or rewrites its body with the done and remaining waves. run-open-pr marks it ready after the final check. Never merges. The driving loop does this as the plan's push cadence says (jobs set --push-cadence: end, the default, leaves it to the final delivery); --now pushes at once; refused from an agent session and an MCP client. Answered by the Host.",
+    flags: [
+      RUN_ARG('<runId>', 'the run between waves'),
+      // T10
+      { name: 'now', about: "push at once, whatever the plan's push cadence (jobs set --push-cadence)" }
+    ]
   },
   // T4 origin sync
   'run-origin-synced': {

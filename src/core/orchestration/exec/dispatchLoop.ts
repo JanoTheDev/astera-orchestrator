@@ -57,7 +57,7 @@ import { failedRetriesDue, failedRetryOf } from './failedRetry'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
 import { refreshOnto, type Integration, type Refresh } from './integrateGit'
-import { createOriginSync, originSyncHold } from './originSync'
+import { createOriginSync, originSyncHold, ORIGIN_SYNC_EVERY_MS } from './originSync'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
 import {
   buildDeliveryFixSpec,
@@ -639,6 +639,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   }
   /** The delivered commits each Run worktree already holds, by Run id. In memory: a restart asks git once more. */
   const refreshedTo = new Map<string, Set<string>>()
+  /** T10: when each Run last tried a refresh's merging, by Run id. In memory: a restart refreshes at once. */
+  const refreshTriedAt = new Map<string, number>()
   // A feed line of the existing `watchdog` kind (payload.reason): a kind of its own would need the feed's renderer too
   const planActivity = (runId: string, reason: string): void => c.activity?.(watchdogActivity(c.getState(), runId, reason))
   /** T32: the line saying how a plan whose saved delivery cannot work on its folder lands instead; it carries the
@@ -663,7 +665,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    * off `anchorId`), and the plan waits for it; only when that Task fails is the owner asked. `ready`: nothing (more) to
    * merge. A worker in the Run worktree is never merged under: the refresh waits for it.
    */
-  const refreshRun = async (runId: string, anchorId: string): Promise<{ kind: 'ready' } | { kind: 'wait'; why: string } | { kind: 'gate'; reason: string }> => {
+  const refreshRun = async (
+    runId: string,
+    anchorId: string,
+    o: { now?: boolean } = {}
+  ): Promise<{ kind: 'ready' } | { kind: 'wait'; why: string } | { kind: 'gate'; reason: string }> => {
     const s = c.getState()
     const run = s.runs.find((r) => r.id === runId)
     const job = run && jobOf(s, run)
@@ -673,6 +679,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     const done = refreshedTo.get(runId) ?? new Set<string>()
     const due = deliveriesBefore(s, run, job).filter((d) => !done.has(d.sha))
     if (due.length === 0) return { kind: 'ready' }
+    // T10: the merging at most every ORIGIN_SYNC_EVERY_MS for a running plan, at once when its delivery is next (`now`).
+    // Not while a refresh's integration Task is open: its Run waits for it below
+    const open = s.tasks.some((t) => t.runId === runId && isIntegrationTask(t) && t.status !== 'completed' && due.some((d) => t.spec.includes(d.sha)))
+    if (!o.now && !open && c.nowMs() - (refreshTriedAt.get(runId) ?? -Infinity) < ORIGIN_SYNC_EVERY_MS) return { kind: 'ready' }
+    refreshTriedAt.set(runId, c.nowMs())
     const mine = jobNameOf(job)
     if (workingInRunRoot(s, runId))
       return { kind: 'wait', why: `plan ${mine} is refreshed onto plan ${jobNameOf(due[0].job)}'s delivery first, and a worker is still working in ${worktree}` }
@@ -860,7 +871,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     const anchor = anchorOf(c.getState(), run.id)
     if (push && anchor && outcome === 'completed') {
       try {
-        const fresh = await refreshRun(run.id, anchor.id)
+        const fresh = await refreshRun(run.id, anchor.id, { now: true })
         if (fresh.kind === 'wait') {
           log(`run=${run.id} completed, and is not delivered yet: ${fresh.why}`)
           return

@@ -755,7 +755,7 @@ astera jobs    get    --id <jobId | runId>
 astera jobs    run    --id <jobId>
 astera jobs    wait   --id <jobId>  [--timeout-ms <n>]
 astera jobs    rename --id <jobId> --title <text>
-astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--review-rounds <n>] [--replan <waves|off>] [--auto-approve <on|off>] [--hands-off <on|off>] [--delivery <pr|push|manual>] [--delivery-branch <branch>] [--effort <low|medium|high|xhigh|max|none>] [--project <projectId>]
+astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--review-rounds <n>] [--replan <waves|off>] [--auto-approve <on|off>] [--hands-off <on|off>] [--delivery <pr|push|manual>] [--delivery-branch <branch>] [--push-cadence <end|wave|task>] [--effort <low|medium|high|xhigh|max|none>] [--project <projectId>]
 astera jobs    overlaps --id <jobId>
 astera main-plan [--project <projectId>]
 astera jobs    archive --id <jobId> [--kill-sessions]

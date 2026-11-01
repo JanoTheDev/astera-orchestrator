@@ -239,6 +239,9 @@ export type DeliveryMode = 'pr' | 'push' | 'merge' | 'manual'
  *  두 층은 예약 Job 에 이미 있었다 — 예약이 걸린 Run 이 템플릿이고 발화마다 자식 Run 이 생겼다.
  *  이름이 없어서 셋(템플릿·회차·보통 Run)이 한 배열에 섞였고, `--run` 없는 task-create 가 템플릿에
  *  떨어져 모든 회차로 복사되는 일이 실제로 있었다. 이제 배열이 둘이라 그 코드를 쓸 수 없다. */
+export const PUSH_CADENCES = ['end', 'wave', 'task'] as const
+export type PushCadence = (typeof PUSH_CADENCES)[number]
+
 export interface Job {
   id: string
   objective: string
@@ -375,6 +378,9 @@ export interface Job {
   /** This plan's own target branch, its "main", ahead of its project's `deliveryBranch` (`deliveryBranchOf`): the Run
    *  worktree forks from it, and its PR, push or merge lands on it. Absent: the project's. */
   deliveryBranch?: string
+  /** When its plan branch is pushed while it runs (`draftPrDue`): `end` (absent) only by the final delivery or a person's
+   *  `run-draft-pr --now`, `wave` at most once per finished wave, `task` after every Task (`jobs-set --push-cadence`). */
+  pushCadence?: PushCadence
   /** The reasoning effort its Task workers use when a Task has none of its own (resolveWorkerEffort). */
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max'
   // W7-E planner review and final check

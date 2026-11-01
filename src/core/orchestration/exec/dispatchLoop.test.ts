@@ -27,7 +27,7 @@ import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } 
 import { needsInput } from '../sessionIndex'
 import { outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
-import type { Decision, Dispatch, Job, Message, Task } from '../types'
+import type { Decision, Dispatch, Job, Message, PushCadence, Task } from '../types'
 import { FAILURE_LIMIT } from '../types'
 import type { Account } from '../../types'
 import { installPending, installSettled, installTurn } from '../../worktrees/setup'
@@ -3239,10 +3239,14 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     const s = h.state()
     h.setState({
       ...s,
+      // T10: these follow the per-Task pushes, now the `task` cadence
+      jobs: s.jobs.map((j) => ({ ...j, pushCadence: 'task' as const })),
       tasks: s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, status: first } : { ...t, deps: ['tsk_1'], status: second }))
     })
   }
   const fake = (h: ReturnType<typeof rig>): void => {
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, pushCadence: 'task' as const })) })
     h.ctx.handle = async (cmd, args) => {
       if (cmd === 'run-draft-pr') {
         const s = h.state()
@@ -3301,6 +3305,31 @@ describe('a long plan keeps a draft PR (W8-C)', () => {
     await push.loop.run()
     await push.settle()
     expect(count(push, 'run-draft-pr')).toBe(1)
+  })
+
+  it('T10: a 10-Task, 2-wave plan pushes its plan branch once by default (the delivery), twice with wave, after each Task with task', async () => {
+    /** The plan's branch pushes while it runs (`run-draft-pr`) and its deliveries, its Tasks completed one by one. */
+    const run = async (cadence: PushCadence | undefined): Promise<{ draft: number; deliver: number }> => {
+      const h = rig()
+      fake(h)
+      const s = h.state()
+      const ids = Array.from({ length: 10 }, (_, i) => `tsk_p${i}`)
+      // Wave 1: the first five; wave 2: each of the other five depends on one of them
+      const plan = (done: number): Task[] =>
+        ids.map((id, i) => ({ ...s.tasks[0], id, title: id, deps: i < 5 ? [] : [ids[i - 5]], status: i < done ? ('completed' as const) : ('pending' as const) }))
+      h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, pushCadence: cadence })), tasks: plan(0) })
+      for (let done = 1; done <= 10; done++) {
+        h.setState({ ...h.state(), tasks: plan(done) })
+        await h.loop.run()
+        await h.settle()
+      }
+      return { draft: count(h, 'run-draft-pr'), deliver: count(h, 'run-deliver') }
+    }
+    // The final delivery (run-deliver: run-open-pr for this pr plan) pushes the plan branch once more
+    expect(await run(undefined)).toEqual({ draft: 0, deliver: 1 })
+    expect(await run('end')).toEqual({ draft: 0, deliver: 1 })
+    expect(await run('wave')).toEqual({ draft: 1, deliver: 1 })
+    expect((await run('task')).draft).toBe(10)
   })
 
   it('T3: a failed branch push is retried after its retry time, not before', async () => {
@@ -3522,6 +3551,31 @@ describe('plans of one project: one delivery at a time, the others refreshed ont
     await h.loop.run()
     await h.settle()
     expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('T10: a running plan merges a later delivery at most every 15 minutes', async () => {
+    const h = rig()
+    withDeliveredA(h)
+    const refresh = vi.fn(async () => ({ kind: 'merged' as const }))
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledTimes(1)
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [...s.jobs, { id: 'job_C', title: 'C', objective: 'c', cwd: '/p', createdAt: NOW }],
+      runs: [...s.runs, { id: 'run_C', jobId: 'job_C', ordinal: 1, createdAt: NOW, worktree: '/wtC', delivery: { at: LATER, sha: 'shaC', branch: 'main' } }]
+    })
+    h.clock += 60_000
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledTimes(1)
+    h.clock += 15 * 60_000
+    await h.loop.run()
+    await h.settle()
+    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(refresh).toHaveBeenLastCalledWith('/wt1', 'shaC', "Refresh onto plan C's delivery", 'main', '/p')
   })
 
   it('a refresh that conflicts creates an integration Task in plan B instead of stopping', async () => {
