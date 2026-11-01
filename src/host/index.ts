@@ -58,7 +58,7 @@ import { createHostUnderstanding, readUnderstandingSettings } from './hostUnders
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from './hostWorkUnits'
 import { readHostMerges, hostMergesPathIn } from '../core/git/hostMerges'
 import { readFileRetrying } from '../core/renameRetry'
-import { outcomeOf } from '../core/orchestration/running'
+import { outcomeOf, stopBlockers } from '../core/orchestration/running'
 import { makeDescriptors } from '../core/providers/descriptor'
 import { readRange } from '../core/git/range'
 import { createHostOrch } from './orch'
@@ -1374,6 +1374,13 @@ async function main(): Promise<void> {
         // Remote on: the Host waits for controllers instead of leaving idle (remote runtime N3).
         remote: remoteEnabled
       }),
+      // What a plain `host stop` names when it refuses: the live sessions that work and the Runs in flight, not every
+      // open console (a finished worker's, a planner idle at its prompt). Same state source as `workingTasks` below.
+      stopBlockers: () =>
+        stopBlockers(
+          orch.loaded() ? orch.state() : readStateFile(path.join(profileDir, 'orchestration.json')),
+          [...registry.liveEntries(), ...procs.liveEntries()].map((e) => ({ id: e.meta?.id ?? e.id, kind: e.meta?.kind ?? ('terminal' as const) }))
+        ),
       // A handover is refused while a Task works (sessionRestore.ts). Read from the file when no command loaded it yet.
       workingTasks: () =>
         workingTaskCount(orch.loaded() ? orch.state() : readStateFile(path.join(profileDir, 'orchestration.json')), (id) => registry.sessionPty(id) !== null),
