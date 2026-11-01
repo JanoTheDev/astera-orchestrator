@@ -32,8 +32,9 @@ export function AutoLimitHint({ kind }: { kind: 'workers' | 'heavy' }): React.JS
   const checks = kind === 'heavy' && auto.checksAsHeavy
   if (!note && !checks) return null
   const restore = (): void => {
-    window.api.settings.restoreAutoLimit(kind).then(refresh, (err) =>
-      toast.error(t('settings.autoLimit.restoreFailed', { detail: err instanceof Error ? err.message : String(err) }))
+    window.api.settings.restoreAutoLimit(kind).then(
+      (r) => (r.locked ? toast.error(t('settings.autoLimit.restoreLocked')) : refresh()),
+      (err) => toast.error(t('settings.autoLimit.restoreFailed', { detail: err instanceof Error ? err.message : String(err) }))
     )
   }
   return (

@@ -10,11 +10,12 @@ import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { monitorEventLoopDelay } from 'node:perf_hooks'
-import { effectiveCap, readAutoLimits, updateAutoLimits, writeHealthSnapshotSync, type AutoLimits, type HealthSnapshot } from '../core/settings/autoLimits'
+import { AutoLimitsReadOnlyError, effectiveCap, readAutoLimits, updateAutoLimits, writeHealthSnapshotSync, type AutoLimits, type HealthSnapshot } from '../core/settings/autoLimits'
+import { lowerPolicyOf, type AutoLowerMode } from '../core/settings/autoLowerLimits'
 import { personHeavyJobsOf, type HeavyJobsDeps } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
 import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
-import { minWorkersFloor, minWorkersUnderPressureOf } from '../core/settings/minWorkersUnderPressure'
+import { minWorkersFloor } from '../core/settings/minWorkersUnderPressure'
 import { readAppSettingsObject } from '../core/settings/settingsObject'
 import type { ActivityDraft } from '../core/orchestration/activity'
 
@@ -36,6 +37,12 @@ export const MEM_CRITICAL_PCT = 5
  *  demand, so headroom against it sits at 2-4% on a healthy machine (knowledge/history/2026-10-31-memory-at-25-agents.md). */
 export const COMMIT_STRAINED_PCT = 10
 export const COMMIT_CRITICAL_PCT = 5
+/** Windows: low commit headroom counts as strain only while physical memory is also under this. Commit headroom of 9%
+ *  with a fifth of the RAM free is a machine with room to spare, not one about to fail allocations. */
+export const COMMIT_NEEDS_MEM_BELOW_PCT = 15
+/** A pause on writing auto-limits.json (read-only) is looked at again this often; a repeated error is logged this often. */
+export const READ_ONLY_RECHECK_MS = 10 * 60_000
+export const ERROR_LOG_EVERY_MS = 10 * 60_000
 /** Free space a growing pagefile leaves on its volume, in GB. */
 export const PAGEFILE_DISK_MARGIN_GB = 4
 /** How often the Windows commit reader asks, and how old its last answer may be before it reads as unknown. */
@@ -74,18 +81,24 @@ export interface Caps {
 export interface PersonCaps extends Caps {
   /** minWorkersFloor(workers, setting); not given: half the person's limit, rounded up. */
   workersFloor?: number
+  /** The auto-lower setting; not given: floor. Under 'off' a strain lowers nothing (raising own lowerings still runs). */
+  autoLower?: AutoLowerMode
 }
 
 const below = (x: number | null | undefined, pct: number): x is number => typeof x === 'number' && x < pct
 const memLow = (s: Sample, pct: number): boolean => below(s.memAvailablePct, pct)
-/** Commit is strained by the reachable headroom. Without that reading, low headroom against the current limit counts
- *  only when physical memory is low too: the pagefile may still grow, so it alone says nothing. */
+/** Physical memory is not known to be ample: under COMMIT_NEEDS_MEM_BELOW_PCT, or not read (unknown must not hide a
+ *  commit shortage, though it is no strain by itself). */
+const memNotAmple = (s: Sample): boolean => s.memAvailablePct === null || memLow(s, COMMIT_NEEDS_MEM_BELOW_PCT)
+/** Commit is strained by the reachable headroom, and only while physical memory is under COMMIT_NEEDS_MEM_BELOW_PCT
+ *  (or unknown) too. Without the reachable reading, low headroom against the current limit counts only when physical memory is low
+ *  too: the pagefile may still grow, so it alone says nothing. */
 const commitStrained = (s: Sample): boolean =>
   typeof s.commitReachablePct === 'number'
-    ? s.commitReachablePct < COMMIT_STRAINED_PCT
+    ? s.commitReachablePct < COMMIT_STRAINED_PCT && memNotAmple(s)
     : below(s.commitHeadroomPct, COMMIT_STRAINED_PCT) && memLow(s, MEM_STRAINED_PCT)
-/** Commit is critical only by the reachable headroom, never from the current limit alone. */
-const commitCritical = (s: Sample): boolean => below(s.commitReachablePct, COMMIT_CRITICAL_PCT)
+/** Commit is critical only by the reachable headroom, never from the current limit alone, and with physical memory low. */
+const commitCritical = (s: Sample): boolean => below(s.commitReachablePct, COMMIT_CRITICAL_PCT) && memNotAmple(s)
 
 export const isStrained = (s: Sample): boolean =>
   memLow(s, MEM_STRAINED_PCT) || commitStrained(s) || s.loopDelayP99Ms > 1000 || s.load1PerCpu > 3
@@ -404,12 +417,17 @@ const withStage = (fn: (cur: AutoLimits) => AutoLimits, stage: Stage, floor?: nu
 export function judge(samples: readonly Sample[], cur: AutoLimits, live: LiveCounts, effective: Caps, person: PersonCaps, now: number): Update | null {
   const latest = samples[samples.length - 1]
   if (!latest) return null
+  const { strain, critical } = strainOf(samples)
+  if (strain) return person.autoLower === 'off' ? null : lowering(latest, cur, live, effective, person.workersFloor ?? minWorkersFloor(person.workers, null), critical, now)
+  return raising(samples, cur, person, now)
+}
+
+/** Strain is the last 3 samples strained, or the last 2 critical. */
+export function strainOf(samples: readonly Sample[]): { strain: boolean; critical: boolean } {
   const last3 = samples.slice(-3)
   const last2 = samples.slice(-2)
   const critical = last2.length === 2 && last2.every(isCritical)
-  const strain = (last3.length === 3 && last3.every(isStrained)) || critical
-  if (strain) return lowering(latest, cur, live, effective, person.workersFloor ?? minWorkersFloor(person.workers, null), critical, now)
-  return raising(samples, cur, person, now)
+  return { strain: (last3.length === 3 && last3.every(isStrained)) || critical, critical }
 }
 
 interface Plan {
@@ -541,11 +559,8 @@ export interface LoadMonitor {
 async function personCaps(settingsFile: string, heavyJobs?: HeavyJobsDeps): Promise<Required<PersonCaps>> {
   const o = await readAppSettingsObject(settingsFile)
   const workers = maxConcurrentWorkersOf(o?.maxConcurrentWorkers) ?? machineSpecs().recommended
-  return {
-    workers,
-    heavy: personHeavyJobsOf(o?.heavyJobsAtOnce, heavyJobs),
-    workersFloor: minWorkersFloor(workers, minWorkersUnderPressureOf(o?.minWorkersUnderPressure))
-  }
+  const policy = lowerPolicyOf(o, workers)
+  return { workers, heavy: personHeavyJobsOf(o?.heavyJobsAtOnce, heavyJobs), workersFloor: policy.floor, autoLower: policy.mode }
 }
 
 export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
@@ -572,6 +587,23 @@ export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
   const samples: Sample[] = []
   let timer: NodeJS.Timeout | null = null
   let busy = false
+  // A read-only auto-limits.json: one log line, then no writes until this time, then a quiet look again.
+  let writePausedUntil = 0
+  let readOnlyLogged = false
+  // Under 'off' a strain is logged once, not every 10 s.
+  let offStrainLogged = false
+  // A repeated tick error is logged at most once per ERROR_LOG_EVERY_MS, with how many were left out.
+  const errors = new Map<string, { loggedAt: number; skipped: number }>()
+  const logError = (err: unknown, at: number): void => {
+    const text = String(err)
+    const seen = errors.get(text)
+    if (seen && at - seen.loggedAt < ERROR_LOG_EVERY_MS) {
+      seen.skipped++
+      return
+    }
+    d.log(`load monitor: ${text}${seen && seen.skipped > 0 ? ` (${seen.skipped} more since the last line)` : ''}`)
+    errors.set(text, { loggedAt: at, skipped: 0 })
+  }
 
   const tick = async (): Promise<void> => {
     if (busy) return
@@ -608,10 +640,27 @@ export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
       if (typeof sample.commitReachablePct === 'number') snapshot.commitReachablePct = sample.commitReachablePct
       writeHealthSnapshotSync(d.profileDir, snapshot)
       if (!person || !effective) return
+      if (person.autoLower === 'off') {
+        if (!isStrained(sample)) offStrainLogged = false
+        else if (!offStrainLogged && strainOf(samples).strain) {
+          offStrainLogged = true
+          d.log(`load monitor: strained (${seenLine(sample, live.workers)}); limits stay, Auto-lower agent limits is off`)
+        }
+      }
       const update = judge(samples, cur, live, effective, person, at)
-      if (!update) return
+      if (!update || at < writePausedUntil) return
       const iso = new Date(at).toISOString()
-      const after = await updateAutoLimits(d.profileDir, update)
+      let after: AutoLimits
+      try {
+        after = await updateAutoLimits(d.profileDir, update)
+      } catch (err) {
+        if (!(err instanceof AutoLimitsReadOnlyError)) throw err
+        writePausedUntil = at + READ_ONLY_RECHECK_MS
+        if (!readOnlyLogged) d.log('auto-limits.json is read-only; automatic limit changes are paused until it is writable')
+        readOnlyLogged = true
+        return
+      }
+      readOnlyLogged = false
       const lines = changeLines(
         after.history.filter((h) => h.at === iso && h.cause !== 'reset'),
         { stage: update.stage, floor: update.floor }
@@ -620,7 +669,7 @@ export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
       d.log(lines.log)
       d.activity({ type: 'host.recovered', payload: { title: 'Astera', reason: lines.feed } })
     } catch (err) {
-      d.log(`load monitor: ${String(err)}`)
+      logError(err, now())
     } finally {
       busy = false
     }

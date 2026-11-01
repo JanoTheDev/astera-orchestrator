@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { LowerPolicy } from '../core/settings/autoLowerLimits'
 import { readAutoLimits } from '../core/settings/autoLimits'
 import { FREEZE_MIN_MS, freezeLowering, oomLowering, UnresponsiveCounter, watchWindowFreezes } from './overloadLimits'
 
@@ -100,14 +101,65 @@ describe('freezeLowering', () => {
   })
 })
 
+describe('oomLowering and freezeLowering: the auto-lower setting', () => {
+  const owner = (mode: LowerPolicy['mode']): LowerPolicy => ({ mode, floor: 18 })
+  const oom = (mode: LowerPolicy['mode'], effectiveWorkers = 25, liveWorkers = 6) =>
+    oomLowering({ what: 'renderer', effectiveWorkers, liveWorkers, now: NOW, policy: owner(mode) })(empty)
+  const freeze = (mode: LowerPolicy['mode'], effectiveWorkers = 19) =>
+    freezeLowering({ effectiveWorkers, freezes: 2, now: NOW, policy: owner(mode) })(empty)
+
+  it('on: OOM and a freeze lower as before', () => {
+    expect(oom('on').workers?.cap).toBe(5)
+    expect(freeze('on').workers?.cap).toBe(18)
+    expect(freeze('on', 18).workers?.cap).toBe(17)
+  })
+  it('floor: OOM stops at the owner minimum, checks still wait for a heavy slot', () => {
+    const next = oom('floor')
+    expect(next.workers).toMatchObject({ cap: 18, cause: 'oom' })
+    expect(next.checksAsHeavy).toEqual({ cause: 'oom', at: NOW })
+  })
+  it('floor: a freeze takes one step down to the minimum and no further', () => {
+    expect(freeze('floor').workers?.cap).toBe(18)
+    expect(freeze('floor', 18).workers).toBeUndefined()
+  })
+  it('floor: a cap already below the minimum is neither raised nor lowered', () => {
+    const cur = { history: [], workers: { cap: 10, cause: 'strain' as const, at: 'x', detail: '' } }
+    expect(freezeLowering({ effectiveWorkers: 10, freezes: 2, now: NOW, policy: owner('floor') })(cur)).toBe(cur)
+  })
+  it('off: neither OOM nor a freeze changes anything', () => {
+    expect(oom('off')).toBe(empty)
+    expect(freeze('off')).toBe(empty)
+  })
+})
+
 describe('watchWindowFreezes', () => {
   let dir = ''
   afterEach(() => rmSync(dir, { recursive: true, force: true }))
+  const freezeTwice = async (policy: LowerPolicy): Promise<void> => {
+    dir = mkdtempSync(path.join(os.tmpdir(), 'overload-'))
+    const l: Record<string, () => void> = {}
+    let t = Date.parse(NOW)
+    watchWindowFreezes({ on: (e, fn) => void (l[e] = fn) }, { profileDir: dir, effectiveWorkers: () => 4, now: () => t, policy: () => policy })
+    for (let i = 0; i < 2; i++) {
+      l.unresponsive()
+      t += 6_000
+      l.responsive()
+      t += 6_000
+    }
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  it('writes nothing after two long freezes under off, or when the floor is the cap in force', async () => {
+    await freezeTwice({ mode: 'off', floor: 1 })
+    expect((await readAutoLimits(dir)).workers).toBeUndefined()
+    rmSync(dir, { recursive: true, force: true })
+    await freezeTwice({ mode: 'floor', floor: 4 })
+    expect((await readAutoLimits(dir)).workers).toBeUndefined()
+  })
   it('writes the strain cap after two long freezes', async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'overload-'))
     const l: Record<string, () => void> = {}
     let t = Date.parse(NOW)
-    watchWindowFreezes({ on: (e, fn) => void (l[e] = fn) }, { profileDir: dir, effectiveWorkers: () => 4, now: () => t })
+    watchWindowFreezes({ on: (e, fn) => void (l[e] = fn) }, { profileDir: dir, effectiveWorkers: () => 4, now: () => t, policy: () => ({ mode: 'on', floor: 1 }) })
     for (let i = 0; i < 2; i++) {
       l.unresponsive()
       t += 6_000

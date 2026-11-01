@@ -2,7 +2,7 @@
 // app-settings.json has one writer (the app) and the Host writes these. Every effective read of the worker cap and the
 // heavy-job slots takes the minimum of the person's value and the auto-limit (`effectiveCap`).
 // Also the Host's health snapshot and signal-exit marker, which the next Host start reads to judge a crash.
-import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, promises as fsp } from 'node:fs'
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync, promises as fsp } from 'node:fs'
 import path from 'node:path'
 import { withFileLock } from '../fileLock'
 import { readFileRetrying, renameRetrying } from '../renameRetry'
@@ -125,15 +125,47 @@ function ensureDir(dir: string): void {
   if (process.platform !== 'win32') chmodSync(dir, 0o700)
 }
 
-/** Read-modify-write under a lock, because the Host and the app both write. The result is narrowed and its history trimmed to 20. */
+/** Thrown instead of a raw EPERM when auto-limits.json is read-only: the owner locked the limits on purpose. */
+export class AutoLimitsReadOnlyError extends Error {
+  readonly code = 'AUTO_LIMITS_READ_ONLY'
+  constructor() {
+    super('auto-limits.json is read-only')
+    this.name = 'AutoLimitsReadOnlyError'
+  }
+}
+
+/** True when the file exists and this process may not write it (the read-only attribute on Windows, the mode elsewhere). */
+export function autoLimitsReadOnly(profileDir: string): boolean {
+  const file = autoLimitsFileIn(profileDir)
+  if (!existsSync(file)) return false
+  try {
+    accessSync(file, constants.W_OK)
+    return false
+  } catch {
+    return true
+  }
+}
+
+/** Read-modify-write under a lock, because the Host and the app both write. The result is narrowed and its history trimmed to 20.
+ *  Throws AutoLimitsReadOnlyError, writing nothing, when the file is read-only. */
 export async function updateAutoLimits(profileDir: string, fn: (cur: AutoLimits) => AutoLimits): Promise<AutoLimits> {
   return withFileLock(path.join(profileDir, 'auto-limits.lock'), async () => {
+    if (autoLimitsReadOnly(profileDir)) throw new AutoLimitsReadOnlyError()
     const next = autoLimitsOf(fn(await readAutoLimits(profileDir)))
     ensureDir(profileDir)
     const file = autoLimitsFileIn(profileDir)
     const tmp = `${file}.${process.pid}.tmp`
     await fsp.writeFile(tmp, JSON.stringify(next, null, 2), { mode: 0o600 })
-    await renameRetrying(tmp, file)
+    try {
+      await renameRetrying(tmp, file)
+    } catch (err) {
+      // The file turned read-only between the check and the rename: the same answer.
+      if (autoLimitsReadOnly(profileDir)) {
+        await fsp.unlink(tmp).catch(() => {})
+        throw new AutoLimitsReadOnlyError()
+      }
+      throw err
+    }
     return next
   })
 }

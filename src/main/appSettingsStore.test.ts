@@ -514,6 +514,29 @@ describe('minWorkersUnderPressure', () => {
   })
 })
 
+describe('autoLowerLimits', () => {
+  it('defaults to floor, writes no key for it, and keeps on and off across a load', async () => {
+    const a = new AppSettingsStore(file())
+    await a.load()
+    expect(a.getAutoLowerLimits()).toBe('floor')
+    await a.setAutoLowerLimits('off')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).autoLowerLimits).toBe('off')
+    const b = new AppSettingsStore(file())
+    await b.load()
+    expect(b.getAutoLowerLimits()).toBe('off')
+    await b.setAutoLowerLimits('floor')
+    expect(JSON.parse(await fs.readFile(file(), 'utf8')).autoLowerLimits).toBeUndefined()
+  })
+  it('reads a value that is none of the three as floor', async () => {
+    await fs.writeFile(file(), JSON.stringify({ autoLowerLimits: 'sometimes' }), 'utf8')
+    const s = new AppSettingsStore(file())
+    await s.load()
+    expect(s.getAutoLowerLimits()).toBe('floor')
+    await s.setAutoLowerLimits(42)
+    expect(s.getAutoLowerLimits()).toBe('floor')
+  })
+})
+
 describe('getAgentLimits', () => {
   const autoFile = (): string => path.join(dir, 'auto-limits.json')
   it('accepts 25 and names no auto-limit when none is set', async () => {

@@ -2,8 +2,9 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { IpcMain } from 'electron'
+import { chmodSync } from 'node:fs'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { readAutoLimits, updateAutoLimits } from '../core/settings/autoLimits'
+import { autoLimitsFileIn, readAutoLimits, updateAutoLimits } from '../core/settings/autoLimits'
 import type { AgentLimits } from '../core/types'
 import { limitKindOf, registerAutoLimitsIpc } from './autoLimitsIpc'
 
@@ -11,7 +12,14 @@ let dir = ''
 beforeEach(() => {
   dir = mkdtempSync(path.join(os.tmpdir(), 'astera-auto-limits-ipc-'))
 })
-afterEach(() => rmSync(dir, { recursive: true, force: true }))
+afterEach(() => {
+  try {
+    chmodSync(autoLimitsFileIn(dir), 0o666)
+  } catch {
+    /* no file */
+  }
+  rmSync(dir, { recursive: true, force: true })
+})
 
 const lim = (cap: number) => ({ cap, cause: 'strain' as const, at: '2026-10-31T11:24:00.000Z', detail: 'memory 6% free' })
 const limits: AgentLimits = { person: 25, effective: 9, recommended: 14, memoryPerAgentGb: 1.5, minUnderPressure: { value: 13, isDefault: true } }
@@ -26,10 +34,30 @@ function register(): { call: (channel: string, ...args: unknown[]) => Promise<un
     getMinWorkers: () => min.value,
     setMinWorkers: async (n) => {
       min.value = n
-    }
+    },
+    getAutoLower: () => 'floor',
+    setAutoLower: async () => {}
   })
   return { call: async (c, ...a) => handlers.get(c)!({}, ...a), min }
 }
+
+describe('restore on a read-only auto-limits.json', () => {
+  it('answers locked, throws nothing and leaves the file as it was', async () => {
+    await updateAutoLimits(dir, (c) => ({ ...c, workers: lim(9), heavy: lim(1) }))
+    chmodSync(autoLimitsFileIn(dir), 0o444)
+    const { call } = register()
+    expect(await call('settings.restoreAutoLimit', 'workers')).toEqual({ locked: true })
+    expect(await call('settings.restoreAutoLimits')).toEqual({ locked: true })
+    chmodSync(autoLimitsFileIn(dir), 0o666)
+    const after = await readAutoLimits(dir)
+    expect([after.workers?.cap, after.heavy?.cap]).toEqual([9, 1])
+  })
+  it('answers not locked after a restore of a writable file', async () => {
+    await updateAutoLimits(dir, (c) => ({ ...c, workers: lim(9) }))
+    const { call } = register()
+    expect(await call('settings.restoreAutoLimit', 'workers')).toEqual({ locked: false })
+  })
+})
 
 describe('settings.restoreAutoLimit', () => {
   it('clears only the named limit and writes a reset history row', async () => {

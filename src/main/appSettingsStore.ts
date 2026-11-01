@@ -27,7 +27,8 @@ import { agentPermissionModeOf } from '../core/settings/agentPermissionMode'
 import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
 import { HEAVY_JOBS_AUTO, HEAVY_JOBS_DEFAULT, currentAutoHeavySlots, heavyJobsAtOnceOf } from '../core/settings/heavyJobs'
 import { machineSpecs } from '../core/settings/machineSpecs'
-import { effectiveCap, readAutoLimitsSync } from '../core/settings/autoLimits'
+import { autoLimitsReadOnly, effectiveCap, readAutoLimitsSync } from '../core/settings/autoLimits'
+import { AUTO_LOWER_DEFAULT, autoLowerLimitsOf, type AutoLowerMode } from '../core/settings/autoLowerLimits'
 import { MEMORY_PER_AGENT_GB } from '../core/settings/machineCap'
 import { minWorkersFloor, minWorkersUnderPressureOf } from '../core/settings/minWorkersUnderPressure'
 // W6-G usage guards
@@ -141,6 +142,8 @@ export class AppSettingsStore {
   private maxConcurrentWorkers: number | null = null
   /** Key `minWorkersUnderPressure`: the load monitor's floor; null = half the person's limit. */
   private minWorkersUnderPressure: number | null = null
+  /** Key `autoLowerLimits`: whether Astera lowers the agent limits by itself (core/settings/autoLowerLimits.ts). */
+  private autoLowerLimits: AutoLowerMode = AUTO_LOWER_DEFAULT
   /** The owner's number, or 'auto' (sized from free memory at each read). */
   private heavyJobsAtOnce: number | typeof HEAVY_JOBS_AUTO = HEAVY_JOBS_AUTO
   /** W6-G: subagents at once per Claude tab (1–10), and the usage percent at which no new worker starts on an
@@ -278,6 +281,7 @@ export class AppSettingsStore {
       this.minWorkersUnderPressure = minWorkersUnderPressureOf(
         (parsed as { minWorkersUnderPressure?: unknown }).minWorkersUnderPressure
       )
+      this.autoLowerLimits = autoLowerLimitsOf((parsed as { autoLowerLimits?: unknown }).autoLowerLimits)
       this.maxSubagentsPerSession = maxSubagentsPerSessionOf((parsed as { maxSubagentsPerSession?: unknown }).maxSubagentsPerSession)
       this.usagePauseAt = usagePauseAtOf((parsed as { usagePauseAt?: unknown }).usagePauseAt)
       this.accountMaxSessions = accountMaxSessionsOf((parsed as { accountMaxSessions?: unknown }).accountMaxSessions)
@@ -373,6 +377,7 @@ export class AppSettingsStore {
         this.githubPolling = true
         this.maxConcurrentWorkers = null
         this.minWorkersUnderPressure = null
+        this.autoLowerLimits = AUTO_LOWER_DEFAULT
         this.heavyJobsAtOnce = HEAVY_JOBS_AUTO
         this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
         this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
@@ -428,6 +433,7 @@ export class AppSettingsStore {
       this.githubPolling = true
       this.maxConcurrentWorkers = null
       this.minWorkersUnderPressure = null
+      this.autoLowerLimits = AUTO_LOWER_DEFAULT
       this.heavyJobsAtOnce = HEAVY_JOBS_AUTO
       this.maxSubagentsPerSession = SUBAGENT_CAP_DEFAULT
       this.usagePauseAt = USAGE_PAUSE_AT_DEFAULT
@@ -684,6 +690,16 @@ export class AppSettingsStore {
     await this.persist()
   }
 
+  getAutoLowerLimits(): AutoLowerMode {
+    return this.autoLowerLimits
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. */
+  async setAutoLowerLimits(mode: unknown): Promise<void> {
+    this.autoLowerLimits = autoLowerLimitsOf(mode)
+    await this.persist()
+  }
+
   /** Settings > Agents: the limit in force and why. Reads the auto-limits file fresh, not through the 5 s cache, so a
    *  restore shows at once. */
   getAgentLimits(): AgentLimits {
@@ -700,6 +716,7 @@ export class AppSettingsStore {
         isDefault: this.minWorkersUnderPressure === null
       }
     }
+    if (autoLimitsReadOnly(path.dirname(this.filePath))) out.locked = true
     if (auto && auto.cap < person) out.autoLimit = { cap: auto.cap, cause: auto.cause, at: auto.at, detail: auto.detail }
     return out
   }
@@ -1037,6 +1054,7 @@ export class AppSettingsStore {
       githubPolling?: boolean
       maxConcurrentWorkers?: number
       minWorkersUnderPressure?: number
+      autoLowerLimits?: AutoLowerMode
       heavyJobsAtOnce?: number
       maxSubagentsPerSession?: number
       usagePauseAt?: number
@@ -1095,6 +1113,7 @@ export class AppSettingsStore {
     if (this.githubPolling === false) data.githubPolling = false
     if (this.maxConcurrentWorkers !== null) data.maxConcurrentWorkers = this.maxConcurrentWorkers
     if (this.minWorkersUnderPressure !== null) data.minWorkersUnderPressure = this.minWorkersUnderPressure
+    if (this.autoLowerLimits !== AUTO_LOWER_DEFAULT) data.autoLowerLimits = this.autoLowerLimits
     if (this.heavyJobsAtOnce !== HEAVY_JOBS_AUTO) data.heavyJobsAtOnce = this.heavyJobsAtOnce
     if (this.maxSubagentsPerSession !== SUBAGENT_CAP_DEFAULT) data.maxSubagentsPerSession = this.maxSubagentsPerSession
     if (this.usagePauseAt !== USAGE_PAUSE_AT_DEFAULT) data.usagePauseAt = this.usagePauseAt

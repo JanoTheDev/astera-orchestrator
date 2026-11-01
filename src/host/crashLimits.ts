@@ -6,6 +6,7 @@
 //
 // Imports only core modules and node builtins: this bundles into the Host.
 import { existsSync } from 'node:fs'
+import path from 'node:path'
 import type { ActivityDraft } from '../core/orchestration/activity'
 import { inFlightOf } from '../core/orchestration/exec/crashResume'
 import type { OrchState } from '../core/orchestration/state'
@@ -14,9 +15,14 @@ import {
   takeSignalExit,
   updateAutoLimits,
   writeSignalExitSync,
+  AutoLimitsReadOnlyError,
   type AutoLimits,
   type HealthSnapshot
 } from '../core/settings/autoLimits'
+import { clampLowering, lowerPolicyOf, type LowerPolicy } from '../core/settings/autoLowerLimits'
+import { machineSpecs } from '../core/settings/machineSpecs'
+import { maxConcurrentWorkersOf } from '../core/settings/maxConcurrentWorkers'
+import { readAppSettingsObject } from '../core/settings/settingsObject'
 import { cleanExitFileIn, writeCleanExit } from './sessionRestore'
 
 /** A health sample older than this before the start says too little about the moment of death. */
@@ -63,7 +69,8 @@ export function memoryText(h: HealthSnapshot): string {
 }
 
 /** The lowering a start after a hard death applies, as a change to the auto-limits file; null when there is none:
- *  a clean exit, a signal on a machine that was not strained (a reboot or a person's kill), or nothing running.
+ *  a clean exit, a signal on a machine that was not strained (a reboot or a person's kill), nothing running, or the
+ *  auto-lower setting off. Under 'floor' the agent cap stops at the owner's minimum. No `policy` given reads as 'on'.
  *  `effectiveWorkers` / `effectiveHeavy` are the caps in force (the person's value already lowered by any auto cap),
  *  so the new cap is never above an existing auto cap; one already as low is kept as it is. */
 export function crashLowering(a: {
@@ -76,14 +83,19 @@ export function crashLowering(a: {
   effectiveWorkers: number
   effectiveHeavy: number
   now: string
+  policy?: LowerPolicy
 }): ((cur: AutoLimits) => AutoLimits) | null {
-  if (a.clean) return null
+  const { mode, floor } = a.policy ?? { mode: 'on', floor: 1 }
+  if (a.clean || mode === 'off') return null
   if (a.signal && a.health?.strained !== true) return null
   if (a.workersAtCrash === 0 && a.heavyAtCrash === 0 && a.checksAtCrash === 0) return null
 
   // About three quarters of what ran, at least one fewer.
-  const workers =
+  const proposed =
     a.workersAtCrash >= 2 ? Math.max(1, Math.min(a.effectiveWorkers, a.workersAtCrash) - Math.max(1, Math.ceil(a.workersAtCrash * 0.25))) : null
+  const held = proposed === null ? null : clampLowering(mode, floor, proposed, a.effectiveWorkers)
+  // Held at the floor, a cap that would not be lower than the one in force is no lowering.
+  const workers = held !== null && (mode === 'on' || held < a.effectiveWorkers) ? held : null
   const heavy = a.heavyAtCrash >= 1 || a.effectiveHeavy > 1 ? Math.max(1, Math.min(a.effectiveHeavy, Math.max(a.heavyAtCrash, 1)) - 1) : null
   const checks = a.checksAtCrash >= 2 || a.heavyAtCrash >= 1
   if (workers === null && heavy === null && !checks) return null
@@ -123,9 +135,17 @@ export interface CrashLimitsDeps {
   state: OrchState | null
   /** The caps in force now (readMaxConcurrentWorkers / readHeavyJobsAtOnce). */
   effective(): Promise<{ workers: number; heavy: number }>
+  /** The auto-lower setting and the owner's minimum; not given: read from app-settings.json. */
+  policy?(): Promise<LowerPolicy>
   log(m: string): void
   activity(d: ActivityDraft): void
   now?(): Date
+}
+
+/** The auto-lower setting and the owner's minimum, from the profile's app-settings.json. */
+async function lowerPolicyIn(profileDir: string): Promise<LowerPolicy> {
+  const o = await readAppSettingsObject(path.join(profileDir, 'app-settings.json'))
+  return lowerPolicyOf(o, maxConcurrentWorkersOf(o?.maxConcurrentWorkers) ?? machineSpecs().recommended)
 }
 
 /** Runs once at the Host's start, before any worker or session is resumed. Reads the clean-exit marker without taking
@@ -141,6 +161,7 @@ export async function lowerLimitsAfterCrash(d: CrashLimitsDeps): Promise<AutoLim
     const at = now.toISOString()
     const counts = countsAtCrash({ health, state: d.state, nowMs: now.getTime() })
     const eff = clean ? { workers: 0, heavy: 0 } : await d.effective()
+    const policy = clean ? undefined : await (d.policy ?? (() => lowerPolicyIn(d.profileDir)))()
     const fn = crashLowering({
       clean,
       signal,
@@ -150,7 +171,8 @@ export async function lowerLimitsAfterCrash(d: CrashLimitsDeps): Promise<AutoLim
       checksAtCrash: counts.checks,
       effectiveWorkers: eff.workers,
       effectiveHeavy: eff.heavy,
-      now: at
+      now: at,
+      policy
     })
     let rows: AutoLimits['history'] = []
     const next = fn
@@ -169,7 +191,7 @@ export async function lowerLimitsAfterCrash(d: CrashLimitsDeps): Promise<AutoLim
     d.activity({ type: 'host.recovered', payload: { title: 'Astera', reason: `Astera lowered its limits after a crash: ${lowered}` } })
     return next
   } catch (err) {
-    d.log(`crash limits: could not lower the limits: ${String(err)}`)
+    d.log(err instanceof AutoLimitsReadOnlyError ? 'auto-limits.json is read-only; limits unchanged' : `crash limits: could not lower the limits: ${String(err)}`)
     return null
   }
 }

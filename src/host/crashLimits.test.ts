@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { LowerPolicy } from '../core/settings/autoLowerLimits'
 import { autoLimitsFileIn, readAutoLimits, signalExitFileIn, updateAutoLimits, writeHealthSnapshotSync, writeSignalExitSync, type AutoLimits, type HealthSnapshot } from '../core/settings/autoLimits'
 import { emptyState, type OrchState } from '../core/orchestration/state'
 import { cleanExitFileIn, writeCleanExit } from './sessionRestore'
@@ -126,14 +127,37 @@ describe('markExit', () => {
   })
 })
 
+describe('crashLowering: the auto-lower setting', () => {
+  // 8 agents ran under a cap of 8: today's rule asks for 6.
+  const policy = (mode: LowerPolicy['mode'], floor: number): LowerPolicy => ({ mode, floor })
+  const lowered = (p: LowerPolicy) => crashLowering({ ...base, policy: p })?.(empty())
+
+  it('on: the agent cap goes to 6, whatever the owner minimum', () => {
+    expect(lowered(policy('on', 7))?.workers?.cap).toBe(6)
+  })
+  it('floor: the agent cap stops at the owner minimum', () => {
+    expect(lowered(policy('floor', 7))?.workers?.cap).toBe(7)
+    expect(lowered(policy('floor', 5))?.workers?.cap).toBe(6)
+  })
+  it('floor: a minimum as high as the cap in force leaves the agent cap alone, and the heavy slots still go down', () => {
+    const next = lowered(policy('floor', 8))!
+    expect(next.workers).toBeUndefined()
+    expect(next.heavy?.cap).toBe(1)
+  })
+  it('off: changes nothing', () => {
+    expect(crashLowering({ ...base, policy: policy('off', 1) })).toBeNull()
+  })
+})
+
 describe('lowerLimitsAfterCrash', () => {
-  const run = async (state: OrchState | null = null, eff = { workers: 8, heavy: 2 }) => {
+  const run = async (state: OrchState | null = null, eff = { workers: 8, heavy: 2 }, policy: LowerPolicy = { mode: 'on', floor: 1 }) => {
     const lines: string[] = []
     const feed: string[] = []
     const r = await lowerLimitsAfterCrash({
       profileDir: dir,
       state,
       effective: async () => eff,
+      policy: async () => policy,
       log: (m) => lines.push(m),
       activity: (d) => feed.push(d.payload.reason ?? ''),
       now: () => new Date(NOW)
@@ -150,6 +174,28 @@ describe('lowerLimitsAfterCrash', () => {
     expect(a.checksAsHeavy?.cause).toBe('crash')
     expect(lines).toEqual(['start after a hard exit: lowered agents 8 -> 6, heavy 2 -> 1, checks wait for heavy slots'])
     expect(feed).toEqual(['Astera lowered its limits after a crash: agents 8 -> 6, heavy 2 -> 1, checks wait for heavy slots'])
+  })
+  it('keeps the owner minimum after a hard death under floor, and writes nothing under off', async () => {
+    writeHealthSnapshotSync(dir, health())
+    const floored = await run(null, { workers: 8, heavy: 2 }, { mode: 'floor', floor: 7 })
+    expect(floored.lines[0]).toContain('agents 8 -> 7')
+    expect((await readAutoLimits(dir)).workers?.cap).toBe(7)
+    rmSync(autoLimitsFileIn(dir))
+    const off = await run(null, { workers: 8, heavy: 2 }, { mode: 'off', floor: 1 })
+    expect(off.lines).toEqual(['start after a hard exit: limits unchanged'])
+    expect(existsSync(autoLimitsFileIn(dir))).toBe(false)
+  })
+  it('says the file is read-only instead of failing, when auto-limits.json is read-only', async () => {
+    writeHealthSnapshotSync(dir, health())
+    await updateAutoLimits(dir, (c) => c)
+    chmodSync(autoLimitsFileIn(dir), 0o444)
+    try {
+      const { lines, r } = await run()
+      expect(r).toBeNull()
+      expect(lines).toEqual(['auto-limits.json is read-only; limits unchanged'])
+    } finally {
+      chmodSync(autoLimitsFileIn(dir), 0o666)
+    }
   })
   it('changes nothing after a SIGTERM with an unstrained sample, and takes the marker', async () => {
     writeHealthSnapshotSync(dir, health())
