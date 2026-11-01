@@ -1007,8 +1007,9 @@ export interface PushDelivery {
 export interface PushContext {
   /** The merge `run-merge` makes, with the delivery's message (worktreeDeps' `mergeWorktrees`). */
   mergeWorktrees: NonNullable<OrchServerDeps['mergeWorktrees']>
-  /** The project's validation, once, in the merged folder. `ran`: how many checks ran (0: none configured). */
-  validate(cwd: string): Promise<{ ok: true; ran: number } | { ok: false; reason: string }>
+  /** The project's validation, once, in the merged folder. `ran`: how many checks ran (0: none configured). T7: `busy`, a
+   *  check that waited too long for a heavy slot and did not run: retried, never a fix Task. */
+  validate(cwd: string): Promise<{ ok: true; ran: number } | { ok: false; reason: string; busy?: true }>
   /** Installs the dependencies in the merged folder, even when node_modules exists (the project's setup command). */
   install(cwd: string): Promise<{ ok: true } | { ok: false; reason: string }>
   log(m: string): void
@@ -1185,7 +1186,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   if (left.length > 0) return undo(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`)
 
   // 5. The merges may add a dependency: validating against the old node_modules fails on a module that is not there
-  const validateMerged = async (): Promise<{ ok: true; ran: number } | { ok: false; reason: string }> => {
+  const validateMerged = async (): Promise<{ ok: true; ran: number } | { ok: false; reason: string; busy?: true }> => {
     const changed = await run(['diff', '--name-only', base, 'HEAD'], { cwd })
     const manifests = new Set(['package.json', ...LOCKFILES.flatMap(([files]) => files)])
     // An unknown diff counts as changed: skipping the install here is how the merged validation ran without its dependencies
@@ -1201,7 +1202,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     return ctx.validate(cwd)
   }
   const checked = await validateMerged()
-  if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`, 'validation-failed')
+  if (!checked.ok) return undo(`the validation failed on the merged ${branch}: ${checked.reason}`, checked.busy ? undefined : 'validation-failed')
   if (a.local) {
     const sha = await run(['rev-parse', 'HEAD'], { cwd })
     return { ok: true, branch, sha: sha.ok ? sha.stdout : '', merged: merged.merged, validated: checked.ran }
@@ -1242,7 +1243,11 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
         )
       }
       const rechecked = await validateMerged()
-      if (!rechecked.ok) return undo(`the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`, 'validation-failed')
+      if (!rechecked.ok)
+        return undo(
+          `the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`,
+          rechecked.busy ? undefined : 'validation-failed'
+        )
       validated = rechecked.ran
     }
     pushed = await run(['push', 'origin', branch], w)

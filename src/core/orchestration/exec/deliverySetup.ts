@@ -27,10 +27,11 @@ export function ghSignedIn(nowMs: number = Date.now()): Promise<boolean> {
   return gh.signedIn
 }
 
-const FOLDER_TTL_MS = 10_000
+// T7: a minute, so a pass every 15 s does not spawn gh and git for every folder (about a second each on Windows)
+const FOLDER_TTL_MS = 60_000
 const folders = new Map<string, { at: number; setup: Promise<DeliverySetup> }>()
 
-/** The Host's reader: the folder over the cached gh answer. Kept ten seconds per folder, as the loop asks every tick. */
+/** The Host's reader: the folder over the cached gh answer. Kept a minute per folder, as the loop asks every tick. */
 export function readDeliverySetup(cwd: string, nowMs: number = Date.now()): Promise<DeliverySetup> {
   const hit = folders.get(cwd)
   if (hit !== undefined && nowMs - hit.at < FOLDER_TTL_MS) return hit.setup

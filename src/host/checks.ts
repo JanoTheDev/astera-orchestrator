@@ -87,13 +87,16 @@ export interface HostChecks {
   checking(taskId: string): boolean
   resumeSweep(why: string): void
   /** W6-H: runs these run configurations once, in order, in `cwd` (a push delivery's merged folder), and stops at the
-   *  first that does not exit 0. A check past CHECK_TIMEOUT_MS is stopped and fails. `ran`: how many ran. */
-  validateTree(cwd: string, configIds: string[]): Promise<{ ok: true; ran: number } | { ok: false; reason: string }>
+   *  first that does not exit 0. A check past CHECK_TIMEOUT_MS is stopped and fails. `ran`: how many ran. T7: `busy` when
+   *  a check waited DELIVERY_HEAVY_WAIT_MS for a heavy slot and did not run: no check failed, the attempt is retried. */
+  validateTree(cwd: string, configIds: string[]): Promise<{ ok: true; ran: number } | { ok: false; reason: string; busy?: true }>
 }
 
 /** How long stopForeignValidations waits for a killed run to exit. taskkill is asynchronous, and a
  *  tree that will not die must not hold the sweep forever: after this the sweep runs anyway. */
 export const FOREIGN_KILL_WAIT_MS = 5000
+/** T7: how long a delivery check waits for one of the machine's heavy slots before its attempt ends, retried later. */
+export const DELIVERY_HEAVY_WAIT_MS = 10 * 60_000
 
 export interface HostChecksDeps {
   profileDir: string
@@ -119,7 +122,7 @@ export interface HostChecksDeps {
   /** Test seam: FOREIGN_KILL_WAIT_MS. */
   foreignKillWaitMs?: number
   /** Test seam, passed to createTaskValidation: the machine's heavy slot (a heavy check waits on it). Defaults to the real one. */
-  heavySlot?(a: { cwd: string; cmd: string; slots?: number; kind?: 'check' | 'delivery' }): Promise<(() => void) | null>
+  heavySlot?(a: { cwd: string; cmd: string; slots?: number; kind?: 'check' | 'delivery'; abandoned?: () => boolean }): Promise<(() => void) | null>
 }
 
 /** The OS locale as node reports it — what the app's `app.getLocale()` stands in for (R13). */
@@ -460,7 +463,13 @@ export function createHostChecksForTest(d: HostChecksDeps): HostChecks & { _vali
         let release: (() => void) | undefined
         if (isHeavyCheck(prepared.config) || (await readChecksAsHeavy(d.profileDir))) {
           log(`delivery check "${name}" is queued for the machine's heavy slot`)
-          release = (await (d.heavySlot ?? heavySlot)({ cwd, cmd: name, kind: 'delivery', slots: await readHeavyJobsAtOnce(settingsPath) })) ?? undefined
+          const queuedAt = Date.now()
+          let waitedTooLong = false
+          // heavySlot asks this on every poll, and drops its ticket once it answers true
+          const abandoned = (): boolean => (waitedTooLong = Date.now() - queuedAt >= DELIVERY_HEAVY_WAIT_MS)
+          const slots = await readHeavyJobsAtOnce(settingsPath)
+          release = (await (d.heavySlot ?? heavySlot)({ cwd, cmd: name, kind: 'delivery', slots, abandoned })) ?? undefined
+          if (waitedTooLong) return { ok: false, busy: true, reason: `${name} waited too long for a heavy slot (${DELIVERY_HEAVY_WAIT_MS / 60_000} minutes)` }
         }
         let code: number | 'timeout'
         let started: { runId: string }

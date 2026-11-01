@@ -53,7 +53,7 @@ const happy = (): Record<string, Reply | Reply[]> => ({
   'merge-base --is-ancestor origin/main HEAD': {}
 })
 
-function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' | 'fail-second'; install?: 'ok' | 'fail' } = {}) {
+function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' | 'fail-second' | 'busy'; install?: 'ok' | 'fail' } = {}) {
   const g = fakeGit({ ...happy(), ...over })
   const merges: { into: string; paths: string[]; message?: string }[] = []
   const validated: string[] = []
@@ -79,6 +79,7 @@ function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | '
     validate: async (cwd) => {
       events.push('validate')
       validated.push(cwd)
+      if (o.validate === 'busy') return { ok: false, busy: true, reason: 'test waited too long for a heavy slot (10 minutes)' }
       return o.validate === 'fail' || (o.validate === 'fail-second' && validated.length === 2) ? { ok: false, reason: 'npm test exited 1' } : { ok: true, ran: 1 }
     }
   }
@@ -234,6 +235,16 @@ describe('deliverByPush (W6-H)', () => {
     // T5: coded, so a hands-free plan opens a fix Task for it
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('npm test exited 1'), code: 'validation-failed' })
     expect(h.calls.filter((a) => a[0] === 'reset')).toEqual([['reset', '--hard', 'base']])
+    expect(h.head()).toBe('base')
+    expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
+  })
+
+  // T7: a check that never got a heavy slot did not fail: the attempt is retried, and no fix Task is opened for it
+  it('a validation that waited too long for a heavy slot undoes the merges, uncoded as a failed validation', async () => {
+    const h = setup({}, { validate: 'busy' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('waited too long for a heavy slot') })
+    expect((r as { code?: string }).code).toBeUndefined()
     expect(h.head()).toBe('base')
     expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
   })

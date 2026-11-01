@@ -86,6 +86,9 @@ export interface OriginSyncContext {
   log(m: string): void
   nowMs(): number
   mayStart(): boolean
+  /** T7: starts one Run's sync without waiting for it (the loop's background job: one per Run, abandoned past its time
+   *  limit, `alive()` false from then on); false when one is under way. Without it each sync is awaited. */
+  background?(runId: string, work: (alive: () => boolean) => Promise<void>): boolean
   /** Test seam: the merge-tree version check. */
   gitAtLeast?: typeof gitVersionAtLeast
 }
@@ -98,7 +101,7 @@ export function createOriginSync(c: OriginSyncContext): { tick(): Promise<void> 
   /** When each Run was last looked at by this process, whether or not it was recorded. */
   const triedAt = new Map<string, number>()
   let busy = false
-  const syncOne = async (runId: string): Promise<void> => {
+  const syncOne = async (runId: string, alive: () => boolean): Promise<void> => {
     const s = c.getState()
     const run = s.runs.find((r) => r.id === runId)!
     const job = jobOf(s, run)!
@@ -107,6 +110,7 @@ export function createOriginSync(c: OriginSyncContext): { tick(): Promise<void> 
     const branch = await baseBranchOf(s, job, worktree)
     const first = run.lastOriginSyncAt === undefined
     const r: OriginSync = branch === null ? { kind: 'human', reason: 'no base branch is known' } : await syncWithOrigin(worktree, branch, c)
+    if (!alive()) return // T7: abandoned meanwhile; its late answer is left alone
     // Only a sync that reached git's answer about origin is recorded; the rest is looked at again from memory
     if (r.kind === 'no-repo' || r.kind === 'human') {
       c.log(`run=${runId}: not synced with origin: ${r.reason}`)
@@ -163,13 +167,12 @@ export function createOriginSync(c: OriginSyncContext): { tick(): Promise<void> 
         // Never merged under a worker in the plan worktree (an integration worker merges there), nor twice into one conflict
         if (workingInRunRoot(s, run.id) || originSyncHold(s, run.id) !== undefined) continue
         if (!c.mayStart()) return
+        const sync = (alive: () => boolean): Promise<void> => syncOne(run.id, alive).catch((e: unknown) => c.log(`run=${run.id}: origin sync failed: ${String(e)}`))
+        // T7: the loop's background job; one under way is left to end, and this Run looked at again at a later tick
+        if (c.background && !c.background(run.id, sync)) continue
         wavesSeen.set(run.id, waves)
         triedAt.set(run.id, nowMs)
-        try {
-          await syncOne(run.id)
-        } catch (e) {
-          c.log(`run=${run.id}: origin sync failed: ${String(e)}`)
-        }
+        if (!c.background) await sync(() => true)
       }
     } finally {
       busy = false
