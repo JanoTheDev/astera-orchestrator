@@ -1531,7 +1531,9 @@ app.whenReady().then(async () => {
     profileDir: app.getPath('userData'),
     agentLimits: () => core!.appSettings.getAgentLimits(),
     getMinWorkers: () => core!.appSettings.getMinWorkersUnderPressure(),
-    setMinWorkers: (n) => core!.appSettings.setMinWorkersUnderPressure(n)
+    setMinWorkers: (n) => core!.appSettings.setMinWorkersUnderPressure(n),
+    getAutoLower: () => core!.appSettings.getAutoLowerLimits(),
+    setAutoLower: (mode) => core!.appSettings.setAutoLowerLimits(mode)
   })
 
   // Change map and PR merge for a worktree outside a plan (reviewIpc.ts).

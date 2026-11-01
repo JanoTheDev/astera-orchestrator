@@ -298,6 +298,8 @@ const api = {
     agentLimits: invoke('settings.agentLimits'),
     getMinWorkersUnderPressure: invoke('settings.getMinWorkersUnderPressure'),
     setMinWorkersUnderPressure: invoke('settings.setMinWorkersUnderPressure'),
+    getAutoLowerLimits: invoke('settings.getAutoLowerLimits'),
+    setAutoLowerLimits: invoke('settings.setAutoLowerLimits'),
     getDesktopNotify: invoke('settings.getDesktopNotify'),
     setDesktopNotify: invoke('settings.setDesktopNotify'),
     getGenerator: invoke('settings.getGenerator'),

@@ -3,9 +3,11 @@ import { useI18n } from "../i18n/I18nProvider";
 import { MAX_CONCURRENT_WORKERS } from "../../../core/orchestration/types";
 import type { AgentLimits, MachineSpecs } from "../../../core/types";
 import { toast } from "../lib/toast";
-import { Button, Input } from "./ui";
+import { Button, Input, Select } from "./ui";
 import { SettingItem } from "./settings/SettingItem";
 import { aboveRecommendedNote, effectiveLimitNote } from "./autoLimitNote";
+
+type AutoLowerMode = "on" | "floor" | "off"; // core/settings/autoLowerLimits.ts is outside tsconfig.web
 
 const REFRESH_MS = 10_000;
 
@@ -71,12 +73,14 @@ export function MaxWorkersSetting(): React.JSX.Element {
   };
 
   const restore = (): void => {
-    window.api.settings.restoreAutoLimit("workers").then(refresh, (err) =>
-      toast.error(
-        t("settings.autoLimit.restoreFailed", {
-          detail: err instanceof Error ? err.message : String(err),
-        }),
-      ),
+    window.api.settings.restoreAutoLimit("workers").then(
+      (r) => (r.locked ? toast.error(t("settings.autoLimit.restoreLocked")) : refresh()),
+      (err) =>
+        toast.error(
+          t("settings.autoLimit.restoreFailed", {
+            detail: err instanceof Error ? err.message : String(err),
+          }),
+        ),
     );
   };
 
@@ -114,6 +118,7 @@ export function MaxWorkersSetting(): React.JSX.Element {
           </span>
         )}
         {above && <span className="settings-hint">{above}</span>}
+        {limits?.locked && <span className="settings-hint">{t("settings.autoLimit.locked")}</span>}
         {lowered && limits && (
           <span className="settings-hint">
             {lowered}{" "}
@@ -124,7 +129,47 @@ export function MaxWorkersSetting(): React.JSX.Element {
         )}
       </SettingItem>
       <MinWorkersSetting limits={limits} onSaved={refresh} />
+      <AutoLowerSetting />
     </>
+  );
+}
+
+/** "Auto-lower agent limits": key autoLowerLimits, on / never below my minimum (the default) / off. Saved at once. */
+function AutoLowerSetting(): React.JSX.Element {
+  const { t } = useI18n();
+  const [saved, setSaved] = useState<AutoLowerMode | undefined>(undefined);
+
+  useEffect(() => {
+    void window.api.settings.getAutoLowerLimits().then(setSaved);
+  }, []);
+
+  const change = (next: AutoLowerMode): void => {
+    const was = saved;
+    setSaved(next);
+    void window.api.settings.setAutoLowerLimits(next).catch((err) => {
+      setSaved(was);
+      toast.error(t("settings.autoLower.saveFailed", { detail: err instanceof Error ? err.message : String(err) }));
+    });
+  };
+
+  return (
+    <SettingItem
+      title={t("settings.autoLower.label")}
+      hint={t("settings.autoLower.hint")}
+      control={
+        <Select
+          aria-label={t("settings.autoLower.label")}
+          disabled={saved === undefined}
+          value={saved ?? "floor"}
+          items={[
+            { value: "on", label: t("settings.autoLower.on") },
+            { value: "floor", label: t("settings.autoLower.floor") },
+            { value: "off", label: t("settings.autoLower.off") },
+          ]}
+          onChange={(v) => change(v as AutoLowerMode)}
+        />
+      }
+    />
   );
 }
 

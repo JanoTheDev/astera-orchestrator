@@ -1942,14 +1942,17 @@ export interface CoreApi {
     setAccountMaxSessions(v: Record<string, number>): Promise<void>
     /** T6: the limits Astera lowered itself; restore clears them. */
     getAutoLimits(): Promise<AutoLimits>
-    restoreAutoLimits(): Promise<void>
+    restoreAutoLimits(): Promise<RestoreAutoLimitResult>
     /** Clears only the named auto-limit and writes a 'reset' history row. */
-    restoreAutoLimit(what: 'workers' | 'heavy' | 'checks'): Promise<void>
+    restoreAutoLimit(what: 'workers' | 'heavy' | 'checks'): Promise<RestoreAutoLimitResult>
     /** The agent limit in force and why it may be lower than the person's own. */
     agentLimits(): Promise<AgentLimits>
     /** The floor under memory pressure as saved (null = not set, half the person's limit). */
     getMinWorkersUnderPressure(): Promise<number | null>
     setMinWorkersUnderPressure(n: number | null): Promise<void>
+    /** Whether Astera lowers the agent limits by itself: 'on', 'floor' (never below the minimum, the default) or 'off'. */
+    getAutoLowerLimits(): Promise<'on' | 'floor' | 'off'>
+    setAutoLowerLimits(mode: 'on' | 'floor' | 'off'): Promise<void>
     /** W3-A: minutes between activity digests; 0 is none. */
     getActivityDigestMinutes(): Promise<number>
     setActivityDigestMinutes(n: number): Promise<void>
@@ -2991,6 +2994,13 @@ export interface AgentLimits {
   autoLimit?: { cap: number; cause: AutoLimitCause; at: string; detail: string }
   /** The floor under memory pressure: `value` in force, `isDefault` when the person has not set one. */
   minUnderPressure: { value: number; isDefault: boolean }
+  /** Present when auto-limits.json is read-only: the limits are locked and Astera changes none of them. */
+  locked?: true
+}
+
+/** The answer to a restore: `locked` when auto-limits.json is read-only, so nothing was restored. */
+export interface RestoreAutoLimitResult {
+  locked: boolean
 }
 export interface AutoLimits {
   /** Cap on agents across all plans. */

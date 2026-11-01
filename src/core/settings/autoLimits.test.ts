@@ -1,9 +1,11 @@
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  AutoLimitsReadOnlyError,
   autoLimitsFileIn,
+  autoLimitsReadOnly,
   autoLimitsOf,
   effectiveCap,
   healthFileIn,
@@ -97,6 +99,23 @@ describe('updateAutoLimits / readAutoLimits', () => {
     expect((await readAutoLimits(dir)).workers?.cap).toBe(2)
     if (process.platform === 'linux') expect(statSync(autoLimitsFileIn(dir)).mode & 0o777).toBe(0o600)
   })
+  it('throws AutoLimitsReadOnlyError and writes nothing when the file is read-only', async () => {
+    await updateAutoLimits(dir, (c) => ({ ...c, workers: lim(2) }))
+    const before = readFileSync(autoLimitsFileIn(dir), 'utf8')
+    chmodSync(autoLimitsFileIn(dir), 0o444)
+    try {
+      expect(autoLimitsReadOnly(dir)).toBe(true)
+      await expect(updateAutoLimits(dir, (c) => ({ ...c, workers: lim(1) }))).rejects.toBeInstanceOf(AutoLimitsReadOnlyError)
+      expect(readFileSync(autoLimitsFileIn(dir), 'utf8')).toBe(before)
+      expect(readdirSync(dir).filter((f) => f.endsWith('.tmp'))).toEqual([])
+    } finally {
+      chmodSync(autoLimitsFileIn(dir), 0o666)
+    }
+    expect(autoLimitsReadOnly(dir)).toBe(false)
+    await updateAutoLimits(dir, (c) => ({ ...c, workers: lim(1) }))
+    expect((await readAutoLimits(dir)).workers?.cap).toBe(1)
+  })
+  it('a missing file is not read-only', () => expect(autoLimitsReadOnly(dir)).toBe(false))
   it('serialises concurrent updates', async () => {
     await Promise.all(
       Array.from({ length: 8 }, (_, i) =>
