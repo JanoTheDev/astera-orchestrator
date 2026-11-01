@@ -923,6 +923,8 @@ export interface JobRow {
   deliveredBy?: { jobId: string; title: string }
   /** A `manual` plan finished and waits for its owner to review it and create the PR or merge (Run.deliveryState `awaiting-review`). */
   awaitingReview?: true
+  /** T11: Astera pushes this plan's branch (delivery `pr` or `push`, and the owner has not taken the pushing over): "Push now" applies. */
+  pushesBranch?: true
   /** T3: a delivery that is being retried, failed, waits on the owner or runs now: the Run it is of (for `run-deliver`),
    *  its step and the last reason. Absent while pending or once delivered. */
   delivery?: {

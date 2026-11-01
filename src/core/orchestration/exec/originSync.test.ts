@@ -127,6 +127,18 @@ describe('origin sync of a running plan (T4)', () => {
     expect(p.box.state.runs[0].branchPush).toMatchObject({ state: 'delivered' })
   })
 
+  it('logs the end-cadence 409 refusal of the sync push as not pushed now, not retried later', async () => {
+    const p = await plan()
+    const loop = p.sync()
+    await loop.tick()
+    await teammatePushes('mate.txt', 'hi')
+    p.clock.ms += ORIGIN_SYNC_EVERY_MS
+    await loop.tick()
+    const line = logs.find((l) => l.includes('plan branch push after the origin sync'))
+    expect(line).toContain('not pushed now (push cadence), the delivery pushes it')
+    expect(line).not.toContain('retried later')
+  })
+
   it('a conflicting teammate change opens one integration Task, naming the file, and holds new dispatches', async () => {
     const p = await plan()
     await fs.writeFile(path.join(p.runWt, 'f.txt'), 'plan')

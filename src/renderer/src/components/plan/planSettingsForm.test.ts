@@ -10,13 +10,13 @@ const project: Project = { id: 'p1', path: '/repo', name: 'repo', addedAt: NOW, 
 describe('planSettingsFormOf', () => {
   it("shows the plan's own value, else its project's, else the default", () => {
     const f = planSettingsFormOf(job({ projectId: 'p1', concurrency: 2 }), run(), project, 'running')
-    expect(f.values).toEqual({ concurrency: 2, priority: 0, reviewRounds: MAX_REVIEW_ROUNDS, replan: false, autoApprove: false, handsOff: true, delivery: 'pr' })
+    expect(f.values).toEqual({ concurrency: 2, priority: 0, reviewRounds: MAX_REVIEW_ROUNDS, replan: false, autoApprove: false, handsOff: true, delivery: 'pr', pushCadence: 'end' })
     expect(planSettingsFormOf(job(), undefined, undefined, undefined).values.concurrency).toBe(DEFAULT_CONCURRENCY)
     expect(Object.values(f.fields).every((x) => x.editable && x.reason === undefined)).toBe(true)
   })
   it('a finished plan is read-only throughout, with its reason', () => {
     const f = planSettingsFormOf(job(), run(), undefined, 'completed')
-    expect(Object.values(f.fields)).toEqual(Array(7).fill({ editable: false, reason: 'finished' }))
+    expect(Object.values(f.fields)).toEqual(Array(8).fill({ editable: false, reason: 'finished' }))
     expect(planSettingsFormOf(job({ archivedAt: NOW }), run(), undefined, 'running').fields.priority).toEqual({ editable: false, reason: 'finished' })
   })
   it('delivery alone locks once it has started', () => {
@@ -43,7 +43,7 @@ describe('clamps', () => {
 })
 
 describe('settingsDiff', () => {
-  const base: PlanSettingsValues = { concurrency: 3, priority: 0, reviewRounds: 2, replan: true, autoApprove: false, handsOff: false, delivery: 'pr' }
+  const base: PlanSettingsValues = { concurrency: 3, priority: 0, reviewRounds: 2, replan: true, autoApprove: false, handsOff: false, delivery: 'pr', pushCadence: 'end' }
   it('sends only what changed, in the words jobs-set takes', () => {
     expect(settingsDiff(base, base)).toBeNull()
     expect(settingsDiff(base, { ...base, concurrency: 5 })).toEqual({ concurrency: 5 })
@@ -68,5 +68,20 @@ describe('priorityChoicesOf', () => {
     expect(priorityChoicesOf(0).map((c) => c.value)).toEqual([1, 0, -1])
     expect(priorityChoicesOf(7).map((c) => c.value)).toEqual([7, 1, 0, -1])
     expect(priorityChoicesOf(7)[0].key).toBeUndefined()
+  })
+})
+
+describe('push cadence', () => {
+  it('reads end when unset and round-trips end/wave/task through the form and jobs-set', () => {
+    expect(planSettingsFormOf(job(), run(), undefined, 'running').values.pushCadence).toBe('end')
+    for (const c of ['end', 'wave', 'task'] as const) {
+      const f = planSettingsFormOf(job({ pushCadence: c }), run(), undefined, 'running')
+      expect(f.values.pushCadence).toBe(c)
+      expect(settingsDiff({ ...f.values, pushCadence: c === 'end' ? 'task' : 'end' }, f.values)).toEqual({ pushCadence: c })
+    }
+  })
+  it('locks with the delivery once it has started', () => {
+    const f = planSettingsFormOf(job(), run({ deliveryState: { state: 'delivering', attempts: 1 } }), undefined, 'running')
+    expect(f.fields.pushCadence).toEqual({ editable: false, reason: 'deliveryStarted' })
   })
 })

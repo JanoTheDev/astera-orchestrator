@@ -525,6 +525,8 @@ export function snapshotFor(
         ? { deliveredBy: { jobId: job.deliveredBy.jobId, title: jobNameOf(state.jobs.find((j) => j.id === job.deliveredBy!.jobId) ?? { objective: job.deliveredBy.jobId }) } }
         : {}),
       ...(run?.deliveryState?.state === 'awaiting-review' ? { awaitingReview: true as const } : {}),
+      // T11: Push now is offered only where Astera pushes the plan branch (not `merge`/`manual`, not a branch the owner pushes themselves)
+      ...(['pr', 'push'].includes(job.delivery ?? ix.projectOf(job)?.delivery ?? 'pr') && run?.branchPush?.ownerPushes !== true ? { pushesBranch: true as const } : {}),
       // T3: the plan page's "Retry delivery" (PlanHeader) reads it
       ...(run?.deliveryState &&
       (['delivering', 'retrying', 'failed', 'needs-owner'].includes(run.deliveryState.state) || run.deliveryState.waitingFor !== undefined)
