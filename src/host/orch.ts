@@ -847,6 +847,16 @@ export function createHostOrch(a: {
         await drain(queued).catch((err) => a.log(`pending reports — the drain at the Host's load failed: ${String(err)}`))
       }
       loaded = true
+      // T4: a delivery is in flight only inside the Host that runs it (the Run's `inFlight` mark): one an earlier Host left
+      // `delivering` has nobody delivering it, so it is due again now rather than after DELIVERING_STALE_MS. Before every
+      // command: each waits for this load.
+      const st = store.get()
+      if (st.runs.some((r) => r.deliveryState?.state === 'delivering')) {
+        const runs = st.runs.map((r) => (r.deliveryState?.state === 'delivering' ? { ...r, deliveryState: { ...r.deliveryState, state: 'pending' as const } } : r))
+        await depsFor(throwaway(), HOST_ACTOR)
+          .setState({ ...st, runs })
+          .catch((err) => a.log(`deliveries left delivering by an earlier Host could not be made due again: ${String(err)}`))
+      }
       // T14: plans delivered before this Host started may have carried an earlier plan's branch with them
       recordDeliveredBy(deliveredJobIds(store.get(), a.now()))
       // After `loaded`, so the pass it starts sees a loaded Host (B2). Once: this promise is memoized.
@@ -897,6 +907,9 @@ export function createHostOrch(a: {
   /** The `check --wait` calls this Host serves, for its whole life (final round 2, I-A): built once, not
    *  per call like the deps below, since a wait entered by one call is asked about by another. */
   const checkWaits = createCheckWaits()
+  /** T4: the Runs whose slow git/gh command runs now (OrchServerDeps.inFlight): one map for this Host's life, like the
+   *  waits above, since the call that marks a Run and the one refused for it are two calls. */
+  const inFlight = new Map<string, string>()
   /**
    * **One command at a time** (the Gameful lost dispatches, 2026-10-20). A command reads the state once and commits a whole
    * state after its awaits, so two running together lose the first one's commit: ten parallel `worker-start`s left three
@@ -1210,7 +1223,12 @@ export function createHostOrch(a: {
               outsideChain(() => (x.queueInstall ? startBesideInstall(x, startWorker) : startWorker(x)))
           }
         : {}),
-      ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {})
+      ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {}),
+      // T4: a slow command's git, gh and spawn steps run with the chain handed on (command.ts offChain), one command per Run
+      // at a time; a commit made inside one of them (a start's `onWait`) queues for the chain like any outside caller
+      outsideChain,
+      inChain: <T>(commit: () => Promise<T>): Promise<T> => serially('in-chain', {}, commit),
+      inFlight
     }
   }
 

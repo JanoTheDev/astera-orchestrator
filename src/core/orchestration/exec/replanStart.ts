@@ -8,8 +8,8 @@
 // W8-D several plans in one repo
 import { PROJECT_FOLDER_HANDS_OFF, PROMPTS_MODE_FILL_IN, plannerPlanningSection } from '../handover'
 import { otherPlansBrief } from '../overlap'
-import { collectChanges, rangesFor } from '../changedFiles'
-import { releases, stillStarting, type OrchServerDeps } from '../command'
+import { PARTS_AT_ONCE, collectChanges, mapAtMost, rangesFor } from '../changedFiles'
+import { offChain, releases, stillStarting, type OrchServerDeps } from '../command'
 import { PLANNER_COMMANDS, planFieldsFromArgs, validatePlan, worktreeRefusal } from '../planner'
 import { REPLAN_FOLLOW_UPS_MAX, affectedLeft, cancelRemainingTask, cancelTaskByOwner, deviatingTasks, editRemainingTask, notStarted, replanAccountOf, replanJobOf, replanOn, resolveFailedWait, runTasks, waveOpen, type ReplanEnded, type ReplanRecord } from '../replan'
 import { isIntegrationTask } from '../integrate'
@@ -295,16 +295,17 @@ export function buildReplanBrief(a: {
 /** The Job's Run and its Tasks split for the brief, with each completed Task's changed files read from git. */
 async function briefParts(deps: OrchServerDeps, s: OrchState, runId: string, only?: readonly Task[]): Promise<Pick<Parameters<typeof buildReplanBrief>[0], 'done' | 'failed' | 'running' | 'left'>> {
   const own = s.tasks.filter((t) => t.runId === runId && !isIntegrationTask(t))
-  const done: DoneTask[] = []
-  for (const t of own.filter((x) => x.status === 'completed' && (!only || only.some((o) => o.id === x.id)))) {
+  // T4: the Tasks read PARTS_AT_ONCE at a time, through the changed-files cache `runs-changed-files` fills
+  const completed = own.filter((x) => x.status === 'completed' && (!only || only.some((o) => o.id === x.id)))
+  const done: DoneTask[] = await mapAtMost(completed, PARTS_AT_ONCE, async (t) => {
     let changed: string[] | null = null
     const found = deps.changes ? rangesFor(s, runId, t.id) : null
     if (deps.changes && found && found.parts.length > 0) {
       const got = await collectChanges(found.parts, deps.changes.read).catch(() => null)
       if (got?.read) changed = got.files.map((f) => f.file.path)
     }
-    done.push({ task: t, changed })
-  }
+    return { task: t, changed }
+  })
   const left = own.filter((t) => notStarted(s, t))
   // T36: a failed Task the replan was started for is listed with its report, not as running
   const failed = own.filter((t) => t.status === 'failed' && only?.some((o) => o.id === t.id))
@@ -473,9 +474,10 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
     const accountId = replanAccountOf(job)!
     let sessionId: string
     try {
-      const parts = await briefParts(deps, deps.getState(), runId, deviating)
+      // T4: `replanning` is committed above; the brief's git reads and the planner's spawn run with the chain handed on
+      const at = deps.getState()
       sessionId = (
-        await deps.startCoordinator({
+        await offChain(deps, async () => deps.startCoordinator!({
           runId: jobId,
           cwd: job.cwd,
           accountId,
@@ -487,13 +489,13 @@ export async function replanCommand(deps: OrchServerDeps, caller: Caller, cmd: s
             wave: mark.wave,
             accountId,
             followUps: job.replanFollowUps ?? 0,
-            ...parts,
+            ...(await briefParts(deps, at, runId, deviating)),
             ...(deviating ? { focused: true as const } : {}),
             ...(feedback !== undefined ? { feedback } : {}),
             ...(chat ? { chat: true as const } : {}),
-            otherPlans: otherPlansBrief(deps.getState(), job)
+            otherPlans: otherPlansBrief(at, job)
           })
-        })
+        }))
       ).sessionId
     } catch (e) {
       const why = `the replan planner could not start: ${String(e)}`
