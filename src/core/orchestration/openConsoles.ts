@@ -54,6 +54,10 @@ export interface ConsoleInput {
   running: boolean
 }
 
+/** Mirrors the `converging` test of sessionsDoneWith, for a Task of a convergence Job. */
+const convergingNow = (t: Task, dispatches: readonly Dispatch[]): boolean =>
+  t.status === 'validating' || t.status === 'reviewing' || dispatches.some((x) => x.taskId === t.id && x.repair !== undefined && !x.endedAt)
+
 /** The live consoles of a Run, each with why it is kept. `live` says whether a session is alive. */
 export function consolesIn(i: ConsoleInput, live: (sessionId: string) => boolean, facts: ConsoleFacts = {}): OpenConsole[] {
   const nowMs = facts.nowMs ?? Date.now()
@@ -74,6 +78,9 @@ export function consolesIn(i: ConsoleInput, live: (sessionId: string) => boolean
     else if (typed !== null && nowMs - typed < PERSON_INPUT_KEEPS_MS) reason = 'person-typed'
     else if (i.hasOpenGate(t.id)) reason = 'waiting-for-answer'
     else if (open) reason = d.review ? 'reviewing' : 'working'
+    // worker-release refuses to end a worker while its Task converges (finishedSessions.ts sessionsDoneWith), so an earlier
+    // attempt there is kept for the repair, not idle: 'none' would loop on release's 409
+    else if (!d.review && supersededAttempt(d, last) && i.job?.convergence && convergingNow(t, i.dispatches)) reason = 'reviewing'
     else if (d.review || supersededAttempt(d, last)) reason = 'none'
     else if (t.status === 'dispatched') reason = 'working'
     else if (t.status === 'validating' || t.status === 'reviewing') reason = 'reviewing'

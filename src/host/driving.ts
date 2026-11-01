@@ -510,6 +510,7 @@ export function createHostDriving(d: {
       return payload ? (parseStatusLinePayload(payload)?.context?.usedPercent ?? null) : null
     },
     freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
+    silentMinutes: () => readWorkerSilentMinutes(settingsPath),
     // #117: a hands-off plan's decision, appended to its Job (the feed derives its line from the commit)
     recordDecision: (jobId, decision) => d.orch.internalDeps().setState(addDecision(d.orch.state(), jobId, decision)),
     // A merged Task recorded in the same step as its merge, as a decision is: not queued behind a long command
