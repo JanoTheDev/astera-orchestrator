@@ -9,7 +9,8 @@ import { createPluginManager } from './plugins/manager'
 import { hostJobSources } from './jobSources'
 import { hostCompletionChecks } from './completionChecks'
 import { PLUGIN_STOP_CAP_MS, createPluginRuntime } from './plugins/runtime'
-import { existsSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, promises as fsp, readFileSync, rmSync } from 'node:fs'
+import { CRASH_DIR } from '../core/crash/store'
 import { defaultCwdProbe, setProbeLog } from '../core/sessions/pathProbe'
 import { createRequire } from 'node:module'
 import os from 'node:os'
@@ -199,6 +200,12 @@ async function main(): Promise<void> {
   logUnhandledRejections(process, log)
   // 2026-10-12: an exception nobody caught ended a Host with every session and no line; it is logged before the exit.
   logUncaughtExceptions(process, log, { code: HOST_EXIT.uncaught })
+  // 25a: --report-dir (core/host/spawn.ts) points here, and node writes a fatal-error report to the cwd when it is missing.
+  try {
+    mkdirSync(path.join(profileDir, CRASH_DIR), { recursive: true, mode: 0o700 })
+  } catch (err) {
+    log.write(`could not create the crash folder: ${String(err)}`)
+  }
   // S6-22: the OS certificate store joins Node's default CAs before any HTTPS (the usage lookup), so a
   // TLS-inspecting proxy's root verifies. Never throws; on failure the defaults stay (systemCa.ts).
   trustSystemCa(tls, (m) => log.write(m))

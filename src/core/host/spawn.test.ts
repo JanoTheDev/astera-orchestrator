@@ -35,7 +35,7 @@ describe('hostSpawnPlan', () => {
 
   // A V8 out-of-memory abort or a native crash leaves a node report in the profile's crash folder (2026-11-01).
   it('starts the Host with a fatal-error report aimed at the crash folder, and still hidden', () => {
-    expect(plan.args.slice(0, -1)).toEqual(['--report-on-fatalerror', `--diagnostic-dir=${path.join('C:/Users/someone/AppData/Roaming/astera', 'crash-reports')}`])
+    expect(plan.args.slice(0, -1)).toEqual(['--report-on-fatalerror', `--report-dir=${path.join('C:/Users/someone/AppData/Roaming/astera', 'crash-reports')}`])
     expect(plan.options.windowsHide).toBe(true)
     expect(plan.options.env.ELECTRON_RUN_AS_NODE).toBe('1')
   })

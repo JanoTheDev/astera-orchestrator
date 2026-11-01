@@ -109,8 +109,10 @@ export function hostSpawnPlan(a: {
     command: a.execPath,
     // 2026-11-01: a Host died with no line and no stderr. A V8 out-of-memory abort or a native crash writes a node
     // diagnostic report into the crash folder (host-stderr.log keeps what node prints). Argv, not NODE_OPTIONS: the
-    // Host's workers would inherit that. Both flags are accepted by node and by Electron's run-as-node (measured).
-    args: ['--report-on-fatalerror', `--diagnostic-dir=${path.join(a.profileDir, CRASH_DIR)}`, a.entryPath],
+    // Host's workers would inherit that. --report-dir, not --diagnostic-dir: node 24 ignores the latter for reports and
+    // writes them to the cwd; under Electron run-as-node an OOM with --report-dir lands in the folder (measured). The
+    // folder must exist (node falls back to the cwd), so the Host creates it at boot.
+    args: ['--report-on-fatalerror', `--report-dir=${path.join(a.profileDir, CRASH_DIR)}`, a.entryPath],
     options: {
       detached: true,
       // The Host outlives the app — by a minute in slice 1, indefinitely from slice 3 — and an
