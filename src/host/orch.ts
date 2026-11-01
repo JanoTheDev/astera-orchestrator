@@ -116,6 +116,7 @@ export const READS_OUTSIDE_CHAIN: ReadonlySet<string> = new Set([
   'summaries',
   'sessions-summary',
   'main-plan',
+  'plan-state',
   'jobs-overlaps',
   'dispatch-show',
   'run-configs',

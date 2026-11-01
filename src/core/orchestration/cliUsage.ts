@@ -47,7 +47,7 @@ type NounCommand = {
  *
  *  **`agent-context` has a dash and is still one token.** `spelledCommand` below reads that off
  *  `NOUNS` rather than off this list — `agent` is not a noun, so nothing splits it. */
-const TOP = ['version', 'status', 'help', 'agent-context', 'main-plan'] as const
+const TOP = ['version', 'status', 'help', 'agent-context', 'main-plan', 'plan-state'] as const
 
 export type PublicCommand =
   | NounCommand
@@ -593,6 +593,13 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       'Every plan of a project is a sub-plan of its main plan. Each shows its state and areas; a plan that is running or queued also its Tasks not completed (id, title, status, paths). Links name a Task that waits on another plan\'s Task (`--deps`) or on files another plan holds. --json gives the plans and links in full. Read only. Without --project it is the project of the plan or worker session that calls it.',
     flags: [{ name: 'project', value: '<projectId>', about: 'the project (from `projects list`; default: the calling session\'s Job\'s project)' }]
+  },
+  // T5 one read for planners (command.ts plan-state)
+  'plan-state': {
+    summary: "a Job's whole plan in one read: its Run, every Task with report, review and changed files",
+    detail:
+      'One answer in place of `jobs get`, `tasks list`, `dispatch show` and `runs changed-files`: the Job and its latest Run, every Task with its status, deps, affected paths, criteria, worker report (cut at 4 KB, `truncated` says so), review verdict and issues, the files each completed Task changed (from git, or what its worker reported), the Tasks running now, and the objective items the plan leaves out. A Job with no Run answers its definition Tasks. Read only; it never waits behind a write. Use the single commands only for a detail it cuts.',
+    flags: [{ name: 'job', value: '<jobId | runId>', required: true, about: 'the Job to read (a run id reads its Job)' }]
   },
   'jobs-archive': {
     summary: 'archive a Job: hide it and start nothing new for it',

@@ -70,7 +70,7 @@ import {
 } from './state'
 import { acceptedNotProvable, missingToolOf } from './exec/notProvable'
 import { CLI_PROTOCOL } from './cliOutput'
-import { collectChanges, rangesFor } from './changedFiles'
+import { collectChanges, mapAtMost, PARTS_AT_ONCE, rangesFor } from './changedFiles'
 import type { ChangedFile } from '../git/changes'
 import type { SwitchedCommand } from './cliAgentContext'
 import { rewriteAccountRefs } from '../accounts/duplicateLogins'
@@ -3750,6 +3750,87 @@ export async function handleCommand(
       // **파생값은 접어 실은 그 회차의 것이다.** 회차를 지목해 물었는데 계획의 숫자가 다른
       // 회차를 말하면 한 응답 안에서 두 가지를 말하는 셈이 된다.
       return okBody({ ...jobView(s, job, run), ...(run ? { run: runView(s, run) } : {}) })
+    }
+    // **A planner's whole picture in one read** (answered outside the command chain): the Job, its latest Run and every
+    // Task with its report, review and changed files, what runs and what the plan leaves out. Replaces a chain of
+    // `jobs-get`, `tasks-list`, `dispatch-show` and `runs-changed-files`. Reports are cut at 4 KB; no transcripts.
+    case 'plan-state': {
+      const id = str(args.job) ?? str(args.id)
+      if (!id) return bad('--job is required: the Job whose plan state to read')
+      const named = s.runs.find((r) => r.id === id)
+      const job = s.jobs.find((j) => j.id === id) ?? (named && jobOf(s, named))
+      if (!job) return notFound(`unknown job or run: ${id}`)
+      const run = named ?? latestRunOf(s, job)
+      const own = run ? s.tasks.filter((t) => t.runId === run.id) : s.tasks.filter((t) => t.jobId === job.id)
+      const ids = new Set(own.map((t) => t.id))
+      const byTask = new Map<string, typeof s.dispatches>()
+      for (const d of s.dispatches) if (ids.has(d.taskId)) byTask.set(d.taskId, [...(byTask.get(d.taskId) ?? []), d])
+      const REPORT_MAX = 4096
+      const FILES_MAX = 100
+      const changedOf = async (t: (typeof own)[number]) => {
+        const reported = t.changedFiles ?? t.filesModified ?? []
+        const found = run && deps.changes ? rangesFor(s, run.id, t.id) : null
+        if (deps.changes && found && found.parts.length > 0) {
+          const read = deps.changes.read
+          const got = await offChain(deps, () => collectChanges(found.parts, read)).catch(() => null)
+          if (got?.read) return { source: 'git', files: got.files.slice(0, FILES_MAX).map((f) => f.file.path), total: got.total, ...(got.live ? { live: true } : {}) }
+        }
+        return { source: 'reported', files: reported.slice(0, FILES_MAX), total: reported.length }
+      }
+      const completed = own.filter((t) => t.status === 'completed')
+      const changed = new Map(await mapAtMost(completed, PARTS_AT_ONCE, async (t) => [t.id, await changedOf(t)] as const))
+      const tasks = own.map((t) => {
+        const ds = byTask.get(t.id) ?? []
+        const reviews = ds.filter((d) => d.review).sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+        const open = ds.filter((d) => !d.review && d.endedAt === undefined).at(-1)
+        const verdict = [...reviews].reverse().find((d) => d.verdict !== undefined)?.verdict
+        const spec = t.spec.replace(/\s+/g, ' ')
+        const report = t.result ?? t.gaps ?? t.notProvable
+        return {
+          id: t.id,
+          title: t.title,
+          status: t.status,
+          deps: t.deps,
+          spec: spec.slice(0, 160),
+          spec_truncated: spec.length > 160,
+          affectedPaths: t.affectedPaths ?? [],
+          acceptanceCriteria: t.acceptanceCriteria ?? [],
+          ...(t.noFiles ? { noFiles: true } : {}),
+          ...(t.covers ? { covers: t.covers } : {}),
+          ...(t.kind ? { kind: t.kind } : {}),
+          ...(t.consecutiveFailures > 0 ? { consecutiveFailures: t.consecutiveFailures } : {}),
+          attempts: ds.filter((d) => !d.review).length,
+          ...(report !== undefined
+            ? {
+                report: {
+                  text: (t.result ?? '').slice(0, REPORT_MAX),
+                  truncated: (t.result ?? '').length > REPORT_MAX,
+                  ...(t.gaps ? { gaps: t.gaps } : {}),
+                  ...(t.notProvable ? { notProvable: t.notProvable } : {})
+                }
+              }
+            : {}),
+          ...(reviews.length > 0 || t.reviewIssues?.length
+            ? {
+                review: {
+                  ...(verdict ? { verdict } : {}),
+                  rounds: reviews.length,
+                  issues: (t.reviewIssues ?? []).slice(0, 10).map((i) => ({ severity: i.severity, blocking: i.blocking, title: i.title, ...(i.file ? { file: i.file } : {}) })),
+                  issuesTotal: t.reviewIssues?.length ?? 0
+                }
+              }
+            : {}),
+          ...(open ? { running: { dispatchId: open.id, accountId: open.accountId, workerState: open.workerState, startedAt: open.startedAt } } : {}),
+          ...(changed.has(t.id) ? { changedFiles: changed.get(t.id) } : {})
+        }
+      })
+      return okBody({
+        job: jobView(s, job, run),
+        run: run ? runView(s, run) : null,
+        tasks,
+        running: tasks.filter((t) => 'running' in t).map((t) => t.id),
+        leftOut: job.leftOut ?? []
+      })
     }
     // W1-C plan lifecycle (lifecycle.ts). Each answers the Job as `jobs get` does, without the folded Run.
     case 'jobs-rename': {

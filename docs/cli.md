@@ -767,6 +767,7 @@ astera jobs    rename --id <jobId> --title <text>
 astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|none>] [--areas <a,b,c|none>] [--left-out <json array>] [--planning <chat|auto>] [--priority <n>] [--review-rounds <n>] [--replan <waves|off>] [--auto-approve <on|off>] [--hands-off <on|off>] [--delivery <pr|push|manual>] [--delivery-branch <branch>] [--effort <low|medium|high|xhigh|max|none>] [--project <projectId>]
 astera jobs    overlaps --id <jobId>
 astera main-plan [--project <projectId>]
+astera plan-state --job <jobId | runId>
 astera jobs    archive --id <jobId> [--kill-sessions]
 astera jobs    unarchive --id <jobId>
 astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push|manual>] [--no-review] [--auto-approve <on|off>] [--hands-off <on|off>] [--planning <chat|auto>]
@@ -952,6 +953,12 @@ kept that has only an error. All three are refused from an agent session and an 
 request was merged or closed on GitHub reads delivered by itself (a closed one with the note "closed on
 GitHub"), and a `push` delivery stopped because your branch cannot fast-forward to origin (code
 `main-diverged`) keeps retrying, so it lands once you fix your branch.
+
+**`plan-state` is a planner's one read.** `astera plan-state --job <jobId> --json` answers the Job, its latest Run, every
+Task (status, deps, affected paths, criteria, worker report cut at 4 KB with `truncated`, review verdict and issues), the
+files each completed Task changed (from git, read once per commit, else what its worker reported), the Tasks running now
+and the objective items left out, in place of `jobs get`, `tasks list`, `dispatch show` and `runs changed-files`. A Job
+with no Run answers its definition Tasks. It is read only and never waits behind a write.
 
 **`jobs get` takes either id.** Give it a Job and it folds in that Job's latest run; give it a run
 and it folds in that one. A Job is the plan, a run is one execution of it. Jobs that only ever run

@@ -114,6 +114,8 @@ describe('jobs-replan', () => {
     expect(brief).toContain(`${id('B')} (B)`)
     expect(brief).toContain(`--run ${runId}`)
     expect(brief).toContain('the rest of the plan goes on meanwhile')
+    // T5: one read first, then the single commands only for a detail
+    expect(brief).toContain(`astera plan-state --job ${jobId} --json`)
     expect(deriveActivity(before, r.state()).map((e) => e.type)).toContain('plan.replanning')
   })
 

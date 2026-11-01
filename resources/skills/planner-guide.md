@@ -171,7 +171,7 @@ gets a slower worker.
 
 ## 4. Hand over
 
-Read the plan back (`astera tasks list --run <jobId> --json`). Then print a short summary in your terminal:
+Read the plan back (`astera plan-state --job <jobId> --json`: the Job, its Tasks and the objective items left out in one call; `astera tasks list --run <jobId> --json` only for a Task's full spec). Then print a short summary in your terminal:
 the Tasks in order, what runs in parallel and why that is safe, the open questions. Tell the person to press
 **Approve & execute** on the Job in Astera, and wait. Approval is refused while a Task has no prompt or no
 acceptance criterion or no basis, depends on a Task outside the plan, or the dependencies form a cycle, and while an
@@ -208,8 +208,10 @@ really changed (from git) until its plan delivers, so another plan's workers wai
 changed nothing recorded falls back to its declared paths.
 
 Your brief lists, for every completed Task, its worker's report, its review and the files it changed, then what is
-running and what is left. Read the changed code (`astera runs-changed-files --id <runId> --task <taskId> --json`, then
-the files) before you change anything.
+running and what is left. Call `astera plan-state --job <jobId> --json` first: one answer with the Run, every Task
+(status, deps, paths, criteria, report cut at 4 KB, review verdict, changed files) and what is running. Use `tasks get`,
+`dispatch-show` or `runs-changed-files --id <runId> --task <taskId> --json` only for a detail it cuts. Read the changed code
+(the files themselves) before you change anything.
 
 You may:
 - change a Task that has **not started** with `astera task-update --id <taskId>` and the planner flags;
