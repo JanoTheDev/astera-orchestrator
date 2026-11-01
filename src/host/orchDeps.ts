@@ -478,7 +478,11 @@ const NOT_FORWARDED = [
   // T5
   'worktreesOps',
   // exec/adopt.ts: orch.ts adds the Host's live workers beside these deps
-  'liveWorkers'
+  'liveWorkers',
+  // T4: orch.ts adds its command chain's hand-off and the Runs in flight beside these deps
+  'outsideChain',
+  'inChain',
+  'inFlight'
 ] as const
 
 /** Every name the groups above classify between them. Nothing is unsupplied any more: the four
@@ -536,6 +540,10 @@ const EFFECTFUL: Record<Classified, boolean> = {
   profileDir: false, // W8-A
   // NOT_FORWARDED: a read of the Host's registry
   liveWorkers: false,
+  // NOT_FORWARDED (T4): the chain's hand-off and its in-flight marks change nothing; what runs inside is marked itself
+  outsideChain: false,
+  inChain: false,
+  inFlight: false,
   // HOST_LOCAL — the same values these names had in PROPAGATES and SWALLOWED before S2 (the six), and
   // in PROPAGATES before S3 (the three worktree names).
   startWorker: true,

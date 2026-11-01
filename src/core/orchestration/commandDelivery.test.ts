@@ -71,7 +71,7 @@ const setup = (o: { project?: Partial<Project>; tasks?: Task[]; run?: Partial<Jo
   } as unknown as OrchServerDeps
   const call = (cmd: string, args: Record<string, unknown>, sessionId = HOST_CALLER, role?: 'mcp') =>
     handleCommand(deps, { sessionId, ...(role ? { role } : {}) }, cmd, args)
-  return { call, pushes, removed, opened, cleaned, state: () => box.state }
+  return { call, deps, pushes, removed, opened, cleaned, state: () => box.state }
 }
 
 describe('run-deliver (W6-H)', () => {
@@ -1162,5 +1162,33 @@ describe('run-mark-merged', () => {
   it('is refused while the Run is still working', async () => {
     const h = setup({ run: awaiting, tasks: [task({ status: 'dispatched' })] })
     expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+  })
+})
+
+// T4: on the Host a delivery's git runs with the command chain handed on, so a Run takes one slow command at a time
+describe('one slow command per Run (T4 inFlight)', () => {
+  const withInFlight = (h: ReturnType<typeof setup>, inFlight: Map<string, string>) => (cmd: string, args: Record<string, unknown>) =>
+    handleCommand({ ...h.deps, inFlight }, { sessionId: HOST_CALLER }, cmd, args)
+
+  it('answers 409 running while another slow command holds the Run, and marks the Run only while it runs', async () => {
+    const h = setup({ project: { delivery: 'push', deliveryBranch: 'main' } })
+    const inFlight = new Map([['r1', 'run-draft-pr']])
+    const call = withInFlight(h, inFlight)
+    const r = await call('run-deliver', { run: 'r1' })
+    expect(r).toMatchObject({ status: 409, body: { code: 'running' } })
+    expect(h.pushes).toEqual([])
+    // A loop step that only records is not refused
+    expect((await call('run-deliver', { run: 'r1', pending: true })).status).toBe(200)
+    inFlight.clear()
+    expect((await call('run-deliver', { run: 'r1' })).status).toBe(200)
+    expect(h.pushes).toHaveLength(1)
+    expect(inFlight.size).toBe(0)
+  })
+
+  it("lets the PR route's own run-open-pr through", async () => {
+    const h = setup()
+    const r = await withInFlight(h, new Map())('run-deliver', { run: 'r1' })
+    // The PR route reached run-open-pr, which answers for itself (no GitHub here), not "running"
+    expect(JSON.stringify(r.body)).toContain('GitHub commands are answered by the Astera Host')
   })
 })

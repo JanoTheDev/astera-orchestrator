@@ -105,6 +105,35 @@ describe('runs-changed-files', () => {
     expect((await call(deps, 'runs-changed-files', { runId: 'run_x' })).status).toBe(404)
     expect((await call(deps, 'runs-changed-files', {})).status).toBe(400)
   })
+  // T4: a list between two commits never changes, so a Run whose tips did not move is not read from git again
+  it('a second read with unchanged tips runs no git, and a moved tip is read', async () => {
+    const answers = { 'P aaaaaaa..bbbbbbb': [file('r1', 'root.ts')], 'T1 ccccccc..ddddddd': [file('t1', 'task.ts')], 'P aaaaaaa..eeeeeee': [file('r3', 'moved.ts')] }
+    const { deps, asked } = parallel(answers)
+    const first = (await call(deps, 'runs-changed-files', { runId: 'run1' })).body
+    expect(asked).toEqual(['P aaaaaaa..bbbbbbb', 'T1 ccccccc..ddddddd'])
+    expect((await call(deps, 'runs-changed-files', { runId: 'run1' })).body).toEqual(first)
+    // runs-diff reads the same list from the same cache: only its diff runs git
+    const id = (first as { git: { files: ChangedFile[] } }).git.files[0].id
+    expect((await call(deps, 'runs-diff', { runId: 'run1', fileId: id })).status).toBe(200)
+    expect(asked).toHaveLength(2)
+    const s = deps.getState()
+    await deps.setState({ ...s, runs: s.runs.map((r) => ({ ...r, git: { base: 'aaaaaaa', head: 'eeeeeee' } })) })
+    expect((await call(deps, 'runs-changed-files', { runId: 'run1' })).body).toMatchObject({ git: { files: [{ path: 'moved.ts' }, { path: 'task.ts' }] } })
+    expect(asked).toEqual(['P aaaaaaa..bbbbbbb', 'T1 ccccccc..ddddddd', 'P aaaaaaa..eeeeeee'])
+  })
+  it('a working tree is read every time', async () => {
+    const state = {
+      ...emptyState(),
+      jobs: [{ id: 'job1', cwd: 'P' }],
+      runs: [{ id: 'run1', jobId: 'job1', git: { base: 'aaaaaaa' } }],
+      tasks: [{ id: 't1', runId: 'run1' }],
+      dispatches: [{ id: 'd1', taskId: 't1', cwd: 'P', startedAt: '1' }]
+    } as unknown as OrchState
+    const { deps, asked } = makeDeps({ state, answers: { 'P aaaaaaa..worktree': [FILE] } })
+    await call(deps, 'runs-changed-files', { runId: 'run1' })
+    await call(deps, 'runs-changed-files', { runId: 'run1' })
+    expect(asked).toEqual(['P aaaaaaa..worktree', 'P aaaaaaa..worktree'])
+  })
   it('a list cut by git says how many files there were', async () => {
     const cut = Object.defineProperty([FILE], 'total', { value: 5000, enumerable: false }) as ChangedFile[]
     const { deps, runId } = await seeded({ answers: { 'D:/p bbbbbbb..ccccccc': cut } })
