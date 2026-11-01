@@ -2888,6 +2888,35 @@ describe('a delivery that finishes by itself (T3)', () => {
     expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
   })
 
+  it('T15: a pre-push gate failure in a hands-off plan with no plan worktree opens a fix Task in its own worktree, and delivers after it', async () => {
+    let calls = 0
+    const gate: Push = async () => ({
+      ok: false,
+      reason: 'the pre-push hook failed on the merged main, so nothing was pushed:\nstorybook typecheck: error TS2375',
+      branch: 'main',
+      code: 'push-refused'
+    })
+    const h = pushPlan(async (a) => (++calls === 1 ? gate(a) : ok(a)))
+    handsOff(h)
+    await pass(h)
+    const s = h.state()
+    h.setState({ ...s, runs: s.runs.map((r) => ({ ...r, worktree: undefined })) })
+    finishAll(h)
+    await pass(h)
+    expect(fixes(h)).toHaveLength(1)
+    const fix = fixes(h)[0]
+    expect(fix.spec).toContain('error TS2375')
+    // its fork starts from the project's branch with every Task of the plan merged in, never in the owner's folder
+    expect(fix.deps.length).toBeGreaterThan(0)
+    expect(h.startWorker.mock.calls.find(([a]) => a.taskId === fix.id)?.[0]).toMatchObject({ worktree: 'new' })
+    expect(questions(h)).toEqual([])
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(calls).toBe(2)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+  })
+
   it('T1: a fix Task of a plan whose Tasks name no account starts on the account with most room, with no Gate', async () => {
     const h = pushPlan(checksFailed)
     handsOff(h)

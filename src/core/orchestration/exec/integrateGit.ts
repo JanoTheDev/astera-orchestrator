@@ -6,14 +6,17 @@
 //
 // This module must stay importable by the Host: no electron, nothing from src/main.
 
+import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { killProcessTree } from '../../run/kill'
 import type { OrchServerDeps } from '../command'
 import { t, type Message, type MessageKey, type MessageParams } from '../../i18n'
 import { comparablePath, isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
 import { workerBaseFailure } from '../../worktrees/base'
-import { git as realGit, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
+import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
 import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup, type InstallTurn } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
@@ -1055,6 +1058,77 @@ export function gitWhy(r: { stderr: string; stdout: string }, max = 2000): strin
   return [r.stdout.trim(), r.stderr.trim()].filter((x) => x !== '').map(tail).join('\n')
 }
 
+/** T15: how long the repository's pre-push hook may run before delivery (a monorepo typecheck takes minutes). */
+export const PRE_PUSH_GATE_TIMEOUT_MS = 15 * 60 * 1000
+
+/** T15: **the repository's own pre-push hook, run before Astera pushes**, in the merged folder `cwd`, as git would run it
+ *  for `git push origin <branch>`: git's arguments (`origin <url>`) and its stdin line, from a temp file. The hook is
+ *  found the way git finds it (`rev-parse --git-path`, which honours core.hooksPath); none, or no answer, is no gate
+ *  (git push still runs whatever hook there is). `git hook run --to-stdin` when this git has it, else the hook file
+ *  through git's own sh. Failed: the end of its output (200 lines), for the fix Task to quote. */
+export async function runPrePushGate(
+  cwd: string,
+  branch: string,
+  run: typeof realGit,
+  log: (m: string) => void
+): Promise<{ ok: true } | { ok: false; output: string }> {
+  const where = await run(['rev-parse', '--git-path', 'hooks/pre-push'], { cwd })
+  if (!where.ok || where.stdout === '') return { ok: true }
+  const hook = path.resolve(cwd, where.stdout)
+  if (!(await fs.stat(hook).then((s) => s.isFile(), () => false))) return { ok: true }
+  const url = await run(['remote', 'get-url', '--push', 'origin'], { cwd })
+  const local = await run(['rev-parse', 'HEAD'], { cwd })
+  const remote = await run(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { cwd })
+  const ref = `refs/heads/${branch}`
+  const line = `${ref} ${local.stdout} ${ref} ${remote.ok ? remote.stdout : '0'.repeat(local.stdout.length || 40)}\n`
+  const args = ['origin', url.ok ? url.stdout : 'origin']
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-pre-push-'))
+  const stdin = path.join(dir, 'stdin')
+  try {
+    await fs.writeFile(stdin, line)
+    log(`delivery: running the pre-push hook ${hook} in ${cwd} before pushing ${branch}`)
+    const help = await run(['hook', 'run', '-h'], { cwd })
+    const r = /--to-stdin/.test(help.stdout + help.stderr)
+      ? await run(['hook', 'run', '--ignore-missing', `--to-stdin=${stdin}`, 'pre-push', '--', ...args], { cwd, timeoutMs: PRE_PUSH_GATE_TIMEOUT_MS, trim: false })
+      : await runHookFile(hook, args, line, cwd, run)
+    if (r.ok) return { ok: true }
+    const out = [r.stdout, r.stderr].map((x) => x.trim()).filter((x) => x !== '').join('\n')
+    const why = r.timedOut ? `the hook ran past ${PRE_PUSH_GATE_TIMEOUT_MS / 60_000} minutes and was stopped` : `exit ${r.exitCode ?? '?'}`
+    return { ok: false, output: `${out.split('\n').slice(-200).join('\n')}\n(${why})` }
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+/** The hook file run directly, for a git with no `hook run --to-stdin`: through git's own sh on Windows (next to
+ *  `git --exec-path`, as git runs hooks there), `sh` elsewhere; hidden window, the gate's time limit, the tree killed. */
+async function runHookFile(hook: string, args: string[], stdin: string, cwd: string, run: typeof realGit): Promise<GitResult> {
+  let sh = 'sh'
+  if (process.platform === 'win32') {
+    const exec = await run(['--exec-path'], { cwd })
+    // <git>/mingw64/libexec/git-core -> <git>/bin/sh.exe
+    if (exec.ok) sh = path.resolve(exec.stdout, '..', '..', '..', 'bin', 'sh.exe')
+  }
+  return new Promise((resolve) => {
+    let timedOut = false
+    // sh executes the file, so its own shebang (sh, node, …) picks the interpreter as git's run would
+    const child = execFile(sh, ['-c', '"$0" "$@"', hook, ...args], { cwd, windowsHide: true, maxBuffer: 64 * 1024 * 1024 }, (err, stdout, stderr) => {
+      clearTimeout(deadline)
+      const code = (err as { code?: unknown } | null)?.code
+      resolve({
+        ok: !err,
+        stdout: String(stdout ?? ''),
+        stderr: String(stderr ?? '') || (err && typeof code !== 'number' ? String(err.message) : ''),
+        ...(typeof code === 'number' ? { exitCode: code } : {}),
+        ...(timedOut ? { timedOut: true as const } : {})
+      })
+    })
+    const deadline = setTimeout(() => ((timedOut = true), killProcessTree(child)), PRE_PUSH_GATE_TIMEOUT_MS)
+    child.stdin?.on('error', () => {}) // a hook that never reads its stdin closes the pipe early
+    child.stdin?.end(stdin)
+  })
+}
+
 export type PushResult =
   | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
   | { ok: false; reason: string; branch?: string; code?: PushStop; /** origin-conflict: origin's commit the plan clashes with */ conflictWith?: string }
@@ -1225,6 +1299,11 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     const sha = await run(['rev-parse', 'HEAD'], { cwd })
     return { ok: true, branch, sha: sha.ok ? sha.stdout : '', merged: merged.merged, validated: checked.ran }
   }
+
+  // T15: the repository's pre-push hook, before the push: a refusal stops here as a push the hook refused would, the
+  // merges undone, and a hands-off plan's fix Task quotes the output
+  const gate = await runPrePushGate(cwd, branch, run, ctx.log)
+  if (!gate.ok) return undo(`the pre-push hook failed on the merged ${branch}, so nothing was pushed:\n${gate.output}\n`, 'push-refused')
 
   // 6. Origin can move on while the validation runs (another plan's delivery, a teammate's push). Its commits are merged
   // in, the result validated again (a clean merge can still clash, e.g. two migrations taking one number), then pushed;

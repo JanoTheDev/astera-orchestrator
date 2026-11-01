@@ -2,7 +2,7 @@
 // is a stop: an unexpected argv fails the push instead of passing it by accident.
 import { afterEach, describe, it, expect } from 'vitest'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { git as realGit, type GitResult } from '../../worktrees/git'
@@ -483,23 +483,65 @@ describe('deliverByPush over a real bare origin (T3)', () => {
     expect(stop).toMatchObject({ ok: false, reason: expect.stringContaining('uncommitted change') })
   })
 
-  it('T1: a real pre-push hook that fails stops at once as push-refused, its report in the reason, the merges undone', async () => {
-    const r = repos()
-    const before = r.sh(r.work, 'rev-parse', 'HEAD')
-    const hook = path.join(r.work, '.git', 'hooks', 'pre-push')
-    writeFileSync(hook, '#!/bin/sh\necho "typecheck: error TS2345 in article-rules.test.ts"\nexit 1\n', { mode: 0o755 })
-    const pushes: string[][] = []
+  /** ctxOf with every git call recorded, and (`oldGit`) a git whose `hook run` has no --to-stdin, so the gate runs the
+   *  hook file itself. */
+  function recording(r: ReturnType<typeof repos>, o: { oldGit?: boolean } = {}) {
+    const calls: string[][] = []
     const ctx = ctxOf(r, { file: 'plan.txt', text: 'plan' })
     const inner = ctx.git!
     ctx.git = async (args, opts) => {
-      if (args[0] === 'push') pushes.push(args)
+      calls.push(args)
+      if (o.oldGit && args.join(' ') === 'hook run -h') return { ok: false, stdout: 'usage: git hook run <hook-name> [-- <hook-args>]', stderr: '' }
       return inner(args, opts)
     }
-    const res = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, ctx)
-    expect(res).toMatchObject({ ok: false, code: 'push-refused', reason: expect.stringContaining('error TS2345') })
-    expect(pushes).toHaveLength(1)
+    return { ctx, calls, pushes: () => calls.filter((a) => a[0] === 'push') }
+  }
+  // Echoes git's first argument and the stdin line's local ref, so a test sees both reached the hook
+  const failing = '#!/bin/sh\nread lref lsha rref rsha\necho "typecheck: error TS2345 in article-rules.test.ts ($1 $lref)"\nexit 1\n'
+
+  it('T15: a failing pre-push hook stops the delivery before any push as push-refused, its output in the reason, the merges undone', async () => {
+    const r = repos()
+    const before = r.sh(r.work, 'rev-parse', 'HEAD')
+    writeFileSync(path.join(r.work, '.git', 'hooks', 'pre-push'), failing, { mode: 0o755 })
+    const h = recording(r)
+    const res = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, h.ctx)
+    expect(res).toMatchObject({ ok: false, code: 'push-refused', reason: expect.stringContaining('error TS2345 in article-rules.test.ts (origin refs/heads/main)') })
+    expect(h.pushes()).toEqual([])
     expect(r.sh(r.work, 'rev-parse', 'HEAD')).toBe(before)
     expect(r.sh(r.origin, 'rev-parse', 'main')).toBe(before)
+  })
+
+  it('T15: the gate finds the hook through core.hooksPath, and runs the hook file itself on a git without hook run --to-stdin', async () => {
+    for (const oldGit of [false, true]) {
+      const r = repos()
+      const before = r.sh(r.work, 'rev-parse', 'HEAD')
+      mkdirSync(path.join(r.work, '.githooks'))
+      writeFileSync(path.join(r.work, '.githooks', 'pre-push'), failing, { mode: 0o755 })
+      r.sh(r.work, 'config', 'core.hooksPath', '.githooks')
+      const h = recording(r, { oldGit })
+      const res = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, h.ctx)
+      expect(res).toMatchObject({ ok: false, code: 'push-refused', reason: expect.stringContaining('(origin refs/heads/main)') })
+      expect(h.pushes()).toEqual([])
+      expect(r.sh(r.origin, 'rev-parse', 'main')).toBe(before)
+    }
+  })
+
+  it('T15: a passing pre-push hook lets the push through', async () => {
+    const r = repos()
+    writeFileSync(path.join(r.work, '.git', 'hooks', 'pre-push'), '#!/bin/sh\ncat > /dev/null\nexit 0\n', { mode: 0o755 })
+    const h = recording(r)
+    const res = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, h.ctx)
+    expect(res).toMatchObject({ ok: true })
+    expect(h.calls.some((a) => a[0] === 'hook' && a[1] === 'run' && a.includes('pre-push'))).toBe(true)
+    expect(r.sh(r.origin, 'show', 'main:plan.txt')).toBe('plan')
+  })
+
+  it('T15: with no pre-push hook there is no gate', async () => {
+    const r = repos()
+    const h = recording(r)
+    const res = await deliverByPush({ cwd: r.work, branch: 'main', worktrees: [], message: 'm' }, h.ctx)
+    expect(res).toMatchObject({ ok: true })
+    expect(h.calls.some((a) => a[0] === 'hook')).toBe(false)
   })
 
   it('catches up with a teammate push by a merge commit with no git identity configured', async () => {

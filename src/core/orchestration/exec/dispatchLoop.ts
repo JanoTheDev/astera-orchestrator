@@ -915,7 +915,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // T5: a hands-free plan's checks failed on the merged result: a fix Task in the plan branch makes them pass, and
         // once it completes the Run is delivered (validated) again; FAILURE_LIMIT of them, then run-deliver asks the owner.
         // T1: a push refused by the repository (a pre-push hook) too, its output quoted in the Task
-        if ((body?.code === 'validation-failed' || body?.code === 'push-refused') && anchor) await startDeliveryFix(run.id, anchor, why, typeof body.branch === 'string' ? body.branch : undefined)
+        if ((body?.code === 'validation-failed' || body?.code === 'push-refused') && anchor)
+          await startDeliveryFix(run.id, anchor, why, typeof body.branch === 'string' ? body.branch : undefined, body.code)
         return
       }
       log(
@@ -931,28 +932,31 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   }
 
   /** T5: the next delivery fix Task of a Run whose validation failed (`deliveryFixOf`), hung off `anchor` and started
-   *  in the plan branch as a merge Task is (`startMergeWorker` finds it by its numbered mark). Never throws. */
-  const startDeliveryFix = async (runId: string, anchor: Task, reason: string, branch: string | undefined): Promise<void> => {
+   *  in the plan branch as a merge Task is (`startMergeWorker` finds it by its numbered mark). T15: a Run with no plan
+   *  worktree has no plan branch: its fix Task depends on the Run's completed Tasks and forks a worktree of its own,
+   *  their worktrees merged in (forkForDeps), never the owner's folder. Never throws. */
+  const startDeliveryFix = async (runId: string, anchor: Task, reason: string, branch: string | undefined, code: string): Promise<void> => {
     const s = c.getState()
     const run = s.runs.find((r) => r.id === runId)
     if (!run || deliveryFixOf(s, run) !== 'fix') return
     const n = deliveryFixesOf(s, runId).length + 1
     const job = jobOf(s, run)
+    const own = run.worktree === undefined
     try {
       const made = await c.handle('task-create', {
         runId,
         parent: anchor.id,
-        deps: [],
+        deps: own ? s.tasks.filter((x) => x.runId === runId && x.status === 'completed').map((x) => x.id) : [],
         account: (anchor.accountIds ?? []).join(','),
         noReview: true,
         title: t(c.lang(), 'jobs.deliveryFix.title', { n, limit: FAILURE_LIMIT }).slice(0, 80),
-        spec: buildDeliveryFixSpec({ runRoot: runRootOf(run, job), ...(branch !== undefined ? { branch } : {}), reason, n })
+        spec: buildDeliveryFixSpec({ ...(own ? {} : { runRoot: runRootOf(run, job) }), ...(branch !== undefined ? { branch } : {}), reason, n, code })
       })
       if (made.status >= 400) {
         log(`run=${runId}: the delivery fix task could not be made: ${JSON.stringify(made.body)}`)
         return
       }
-      await startMergeWorker({ runId, taskId: anchor.id, key: `${DELIVERY_FIX_MARK} (fix ${n} of ${FAILURE_LIMIT})`, reason, worktrees: [] })
+      await startMergeWorker({ runId, taskId: anchor.id, key: `${DELIVERY_FIX_MARK} (fix ${n} of ${FAILURE_LIMIT})`, reason, worktrees: [], ...(own ? { fork: true } : {}) })
       planActivity(runId, `Fix Task ${n} of ${FAILURE_LIMIT} created in plan ${job ? jobNameOf(job) : runId} for its failed delivery checks`)
     } catch (e) {
       log(`run=${runId}: the delivery fix task failed to start: ${String(e)}`)
@@ -2647,6 +2651,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     worktrees: { path: string; branch: string | null }[]
     /** T11: the merge Task is the one under `taskId` whose spec holds this (a delivered commit), not any merge Task. */
     key?: string
+    /** T15: the worker forks a worktree of its own (`--worktree new`), for a Run with no plan worktree to work in. */
+    fork?: true
   }): Promise<void> => {
     let s = c.getState()
     const run = s.runs.find((r) => r.id === a.runId)
@@ -2694,7 +2700,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       await gateSlot(merge.id, t(c.lang(), 'jobs.gate.noAccountAnyProvider'))
       return
     }
-    const start = (id?: string) => c.handle('worker-start', { task: merge!.id, agent: providerOf(on), ...(id ? { account: id } : {}), worktree: runRoot })
+    const start = (id?: string) =>
+      c.handle('worker-start', { task: merge!.id, agent: providerOf(on), ...(id ? { account: id } : {}), worktree: a.fork ? 'new' : runRoot })
     let reply = await start(named?.id)
     // That account is out of usage (paused until its window resets): any other with room, as worker-start picks
     if (named && reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined) reply = await start()
