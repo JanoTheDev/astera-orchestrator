@@ -111,13 +111,13 @@ describe('loadTaskInfo', () => {
       'runs-get': { status: 200, body: { outcome: 'running' } }
     })
     const info = await loadTaskInfo(d, 't1')
-    expect(info).toEqual({ task: { id: 't1', prompt: 'P' }, attempts: [{ id: 'd1' }], outcome: 'running' })
+    expect(info).toEqual({ task: { id: 't1', prompt: 'P' }, attempts: [{ id: 'd1' }], reviews: [], outcome: 'running' })
     expect(d.calls).toContainEqual(['tasks-list', { run: 'run_1' }])
   })
 
   it('a plan’s own Task reads by its Job and has no Run; a refusal is null', async () => {
     const d = door({ 'tasks-get': { status: 200, body: { id: 't1', jobId: 'job_1', attempts: [] } }, 'tasks-list': { status: 200, body: [{ id: 't1' }] } })
-    expect(await loadTaskInfo(d, 't1')).toEqual({ task: { id: 't1' }, attempts: [] })
+    expect(await loadTaskInfo(d, 't1')).toEqual({ task: { id: 't1' }, attempts: [], reviews: [] })
     expect(d.calls.map((c) => c[0])).not.toContain('runs-get')
     expect(await loadTaskInfo(door({}), 't1')).toBeNull()
   })

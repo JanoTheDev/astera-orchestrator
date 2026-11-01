@@ -478,6 +478,7 @@ const api = {
     hostGate: invoke('orch.hostGate'),
     runDetail: invoke('orch.runDetail'),
     completion: invoke('orch.completion'),
+    reviewTranscript: invoke('orch.reviewTranscript'),
     command: invoke('orch.command'),
     // W3-A: the activity feed, a page after a cursor, and its summary since a time
     activity: invoke('orch.activity'),

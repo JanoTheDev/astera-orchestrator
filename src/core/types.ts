@@ -2530,6 +2530,8 @@ export interface OrchApi {
    *  `null` 은 둘 중 하나다 — 보여 줄 것이 없거나, 이 프로젝트가 볼 수 없는 Run·Task 다.
    *  구분해 주지 않는 것이 의도다(ipc.ts 의 orch.completion). */
   completion(projectPath: string, runId: string, taskId: string, runtimeId?: string): Promise<CompletionDetail | null>
+  /** T26: a finished review's transcript for read-only preview, by its Dispatch id. Null: not a finished review of this app, or unreadable. */
+  reviewTranscript(dispatchId: string): Promise<TranscriptPreview | null>
   // ── W3-A activity feed (core/orchestration/activity.ts) ──
   /** The local Host's activity lines after `after` (an event id or cursor; none: the oldest held), a page at a time.
    *  The answer is `activity-poll`'s: `{ events, cursor, gap }` on 200. */
