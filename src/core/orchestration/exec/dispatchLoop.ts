@@ -59,7 +59,7 @@ import { REPLAN_LIFT_HOLD } from './replanStart'
 import { failedRetriesDue, failedRetryOf } from './failedRetry'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
-import { refreshOnto, type Integration, type Refresh } from './integrateGit'
+import { refreshOnto, tipOf, type Integration, type Refresh } from './integrateGit'
 import { createOriginSync, originSyncHold, ORIGIN_SYNC_EVERY_MS } from './originSync'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
 import {
@@ -290,6 +290,8 @@ export interface DispatchLoopContext {
    *  delivery is retried on when they move (delivery.ts `deliveryDue`). Optional: defaults to `git rev-parse` over the
    *  real folders; a value that cannot be read is left out. */
   deliveryHeads?(a: { worktree: string; projectCwd: string; branch?: string }): Promise<DeliveryHeads>
+  /** T19: the commit `ref` names in `cwd` (a merge-failed delivery's target tip). Optional: defaults to the real git. */
+  readTip?(cwd: string, ref: string): Promise<string | null>
   /** Asked on entry and again before each slot (§4.3). */
   mayStart(): boolean
   /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
@@ -868,7 +870,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   /** T3: a Run seen running has its delivery pending on the Run itself (`deliveryState`), so a restarted Host still
    *  delivers it; a Run that was already done before this existed has none and gets no delivery it never asked for. */
   const seenRunning = (runId: string): boolean => c.getState().runs.find((r) => r.id === runId)?.deliveryState !== undefined
-  type DeliveryStep = { run: JobRun; push: boolean; action: 'auto' | 'retry' | 'self'; outcome: string; heads: DeliveryHeads }
+  type DeliveryStep = { run: JobRun; push: boolean; action: 'auto' | 'retry' | 'self'; outcome: string; heads: DeliveryHeads; targetTip?: string }
   /** The plan branch head and origin's tip for a Run's delivery (one `git rev-parse` each); empty when unreadable. */
   const headsOf = async (run: JobRun, job: Job): Promise<DeliveryHeads> => {
     if (run.worktree === undefined) return {}
@@ -939,8 +941,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       // The heads an attempt runs against, and which a failed delivery is retried at once on when they moved
       const attempts = (p.state === 'pending' || p.state === 'retrying' || p.state === 'needs-owner') && p.ownerPushes !== true
       const heads = attempts ? await headsOf(run, job) : {}
+      // T19: a merge failure is tried again once the target moved: its tip now (local refs, as the last fetch left them)
+      const onto = run.delivery?.branch
+      const tip =
+        p.lastCode === 'merge-failed' && p.judgedOn?.target !== undefined && onto !== undefined
+          ? ((await (c.readTip ?? tipOf)(job.cwd, mode === 'merge' ? onto : `origin/${onto}`)) ?? undefined)
+          : undefined
       const action: DeliveryStep['action'] | null =
-        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs, heads) ? 'auto' : null
+        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs, heads, { branch: run.git?.head, target: tip }) ? 'auto' : null
       if (action === null) continue
       // W6-D: the PR waits for the final check (replan.ts completionSettled). W8-E (#99): a failed plan has none
       if (outcome === 'completed' && !completionSettled(s, job, run.id)) continue
@@ -952,7 +960,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!push && run.worktree === undefined) continue
       const key = projectKeyOf(s, job)
       const list = due.get(key)
-      const step = { run, push, action, outcome, heads }
+      const step = { run, push, action, outcome, heads, ...(tip !== undefined ? { targetTip: tip } : {}) }
       if (list) list.push(step)
       else due.set(key, [step])
     }
@@ -983,7 +991,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    *  git asked whether the commits reached the branch). Each attempt is recorded on the Run by `run-deliver` (T3:
    *  retried with backoff, the owner asked once after the last automatic one). T7: a background job; once `alive()` is
    *  false it was abandoned, and what it finds out late is left alone. Never throws. */
-  const deliverOne = async ({ run, push, action, outcome, heads }: DeliveryStep, alive: () => boolean): Promise<void> => {
+  const deliverOne = async ({ run, push, action, outcome, heads, targetTip }: DeliveryStep, alive: () => boolean): Promise<void> => {
     if (!c.mayStart()) return
     const job = jobOf(c.getState(), run)
     const plan = job ? jobNameOf(job) : run.id
@@ -1025,7 +1033,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     try {
       // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
       const seen = { ...(heads.head !== undefined ? { head: heads.head } : {}), ...(heads.origin !== undefined ? { origin: heads.origin } : {}) }
-      const r = await c.handle('run-deliver', action === 'retry' ? { run: run.id, force: true, ...seen } : { run: run.id, auto: true, ...seen })
+      const r = await c.handle('run-deliver', action === 'retry' ? { run: run.id, force: true, ...seen } : { run: run.id, auto: true, ...seen, ...(targetTip !== undefined ? { targetTip } : {}) })
       if (!alive()) return
       const body = r.body as {
         url?: unknown

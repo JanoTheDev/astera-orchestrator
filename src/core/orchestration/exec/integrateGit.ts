@@ -258,9 +258,11 @@ export async function mergeDepsInto(
 }
 
 /** W8-A: the arguments after `merge` for merging `ref` (the ref last): `message` with the Wave 8 trailers of the work
- *  `ref` brings in (`trailersOfRef`), with `--no-ff` so a delivery always writes its commit; without a message, git's
- *  own merge message, plus the trailers when there are any. */
+ *  `ref` brings in (`trailersOfRef`), with `--no-ff` so a delivery writes its commit; without a message, git's
+ *  own merge message, plus the trailers when there are any. T19: a delivery (`message`) into a target that `ref` already
+ *  holds is a fast-forward instead, with no merge commit. */
 async function attributedMergeArgs(cwd: string, ref: string, message: string | undefined, run: typeof realGit): Promise<string[]> {
+  if (message !== undefined && (await run(['merge-base', '--is-ancestor', 'HEAD', ref], { cwd })).ok) return ['--ff-only', ref]
   const trailers = await trailersOfRef(cwd, ref, run)
   if (message !== undefined) return ['--no-ff', '-m', withTrailers(message, trailers), ref]
   if (trailers.length === 0) return ['--no-edit', ref]
@@ -590,26 +592,16 @@ export async function integrateWorktrees(
     }
     // merge-tree --write-tree writes tree objects and on a big repository can run long; the long write
     // ceiling keeps a slow probe from being killed and misreported as "could not test".
-    const probe = await (ctx.git ?? realGit)(['merge-tree', '--write-tree', 'HEAD', ref], {
-      cwd: mergeInto,
-      timeoutMs: GIT_WRITE_TIMEOUT_MS
-    })
-    if (!probe.ok)
+    const probe = await probeMerge(mergeInto, 'HEAD', ref, ctx.git ?? realGit)
+    if (probe.kind !== 'clean')
       return {
         kind: 'agent',
-        // **0 이 아닌 것에는 두 가지가 섞여 있다** — 충돌과 "명령이 아예 못 돌았다"(없는 ref,
-        // 커밋이 없는 HEAD …). git() 은 ok 하나만 주므로 종료 코드로는 가를 수 없고, 임시
-        // 저장소에서 실측한 결과 둘 다 exit 1 이었다(오류가 128 이라는 보장도 없다). 대신
-        // **stderr 가 갈라 준다**: 충돌일 때 merge-tree 는 결과를 stdout 에 쓰고 stderr 를
-        // 비우며(273바이트/0바이트), 없는 ref 에서는 stdout 이 비고 stderr 에
-        // "merge-tree: refs/heads/nope - not something we can merge" 가 온다.
-        //
-        // 가는 곳은 어느 쪽이든 에이전트다. 가르는 것은 **문장**이다: 실제로는 ref 가 잘못된
-        // 것인데 spec 의 첫 문장이 "충돌한다"이면 에이전트는 없는 충돌을 찾아 헤매다 결국
-        // `git merge` 를 돌려 진짜 오류를 다시 발견해야 한다. 앱이 아는 것을 그대로 넘긴다.
-        reason: probe.stderr
-          ? `the app could not test whether ${target.branch} merges into the branch this folder is on — git merge-tree failed: ${probe.stderr}`
-          : `git merge-tree says ${target.branch} does not merge cleanly into the branch this folder is on`,
+        // T19: only git's exit 1 with conflicted files is a conflict (probeMerge); anything else (a timeout, a missing
+        // object, a locked ref) is said as the failure it is, so nobody looks for a conflict that is not there.
+        reason:
+          probe.kind === 'error'
+            ? `the app could not test whether ${target.branch} merges into the branch this folder is on — git merge-tree failed: ${probe.why}`
+            : `git merge-tree says ${target.branch} does not merge cleanly into the branch this folder is on`,
         worktrees: targets
       }
     // `--no-edit` 는 편집기를 막는 것이다. 이 자리에는 사람이 없고, 편집기가 뜨면 그 git 프로세스는
@@ -632,7 +624,7 @@ export async function integrateWorktrees(
     const how = await attributedMergeArgs(mergeInto, ref, opts.message, ctx.git ?? realGit)
     const mergeOpId = await ctx.gitOp.begin('job-merge', mergeInto)
     try {
-      // W6-H: a delivery names its merges (`Fixes #n`), and a fast-forward would carry no message, so it gets a commit
+      // W6-H: a delivery names its merges (`Fixes #n`) in a merge commit; T19: unless the target is an ancestor (a fast-forward)
       const mergeOnce = (): ReturnType<typeof realGit> =>
         (ctx.git ?? realGit)([...ident, 'merge', ...how], { cwd: mergeInto, timeoutMs: GIT_WRITE_TIMEOUT_MS })
       let merged = await mergeOnce()
@@ -794,19 +786,6 @@ export function worktreeDeps(ctx: {
   // git 을 돌리지도 않는다 — 닿지 않는 폴더를 cwd 로 띄우는 것 자체가 같은 자리에서 멈출 수 있다.
   // The action lane (one call per root), and a refusal asked again: see askUntilAnswered.
   const presenceOf = (p: string): Promise<CheckResult> => askUntilAnswered(ctx.presence ?? defaultActionPresenceCheck, p)
-  const sort = async (paths: string[]): Promise<{ alive: string[]; gone: string[]; unknown: string[] }> => {
-    const folders = await Promise.all(paths.map((p) => presenceOf(p)))
-    // A folder that is there without its `.git` link is a worktree half removed (the link went, the files stayed):
-    // git cannot read it, so nothing in it can merge, and it counts as gone. Only a `.git` that answers missing says so.
-    const answers = await Promise.all(
-      folders.map(async (a, i) => (a === 'present' && (await presenceOf(path.join(paths[i]!, '.git'))) === 'missing' ? 'missing' : a))
-    )
-    return {
-      alive: paths.filter((_, i) => answers[i] === 'present'),
-      gone: paths.filter((_, i) => answers[i] === 'missing'),
-      unknown: paths.filter((_, i) => answers[i] !== 'present' && answers[i] !== 'missing')
-    }
-  }
   return {
     // `run-merge`(사람이 상세 창에서 누른다)와 `run-delete --merge` 가 부른다.
     // integrateWorktrees 의 'agent'(충돌 → 에이전트에게 넘김)도 여기서는 실패다 — 사람이 결과를
@@ -826,7 +805,7 @@ export function worktreeDeps(ctx: {
     // 그것만 거른다. 닿지 않는 폴더는 합치지 않고 notMerged 로 올린다: 그 폴더의 커밋되지 않은
     // 변경을 셀 수 없고, `run-delete --merge --remove-worktrees` 는 그 폴더를 남긴다.
     mergeWorktrees: async (runCwd, paths, opts) => {
-      const { alive, gone, unknown } = await sort(paths)
+      const { alive, gone, unknown } = await sortFolders(paths, ctx.presence)
       if (gone.length > 0)
         ctx.log(`merge: skipping ${gone.length} removed worktree(s): ${gone.join(', ')}`)
       if (unknown.length > 0)
@@ -908,6 +887,38 @@ export function worktreeDeps(ctx: {
   }
 }
 
+/** T19: `merge-tree --write-tree ours theirs` in `cwd`. A conflict only when git exits 1 with conflicted files in its
+ *  output (one `<mode> <object> <stage> TAB <path>` line each, then the `CONFLICT` messages); any other failure (a timeout,
+ *  a missing object, a locked ref) is an `error` with what git said, never read as "does not merge cleanly". */
+async function probeMerge(
+  cwd: string,
+  ours: string,
+  theirs: string,
+  run: typeof realGit
+): Promise<{ kind: 'clean' } | { kind: 'conflict' } | { kind: 'error'; why: string }> {
+  // merge-tree writes tree objects and can run long on a big repository: the write ceiling keeps it from being killed
+  const r = await run(['merge-tree', '--write-tree', ours, theirs], { cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+  if (r.ok) return { kind: 'clean' }
+  if (r.exitCode === 1 && /^(\d{6} [0-9a-f]+ [123]\t|CONFLICT )/m.test(r.stdout)) return { kind: 'conflict' }
+  return { kind: 'error', why: gitWhy(r) || (r.timedOut ? 'timed out' : `no output (exit code ${r.exitCode ?? 'none'})`) }
+}
+
+/** Sorts worktree folders by whether they are there, asked through `presence` (askUntilAnswered). A folder that is there
+ *  without its `.git` link is a worktree half removed (the link went, the files stayed): git cannot read it, so nothing in
+ *  it can merge, and it counts as gone. Only a `.git` that answers missing says so; an unknown answer is `unknown`. */
+async function sortFolders(paths: string[], presence: PresenceCheck = defaultActionPresenceCheck): Promise<{ alive: string[]; gone: string[]; unknown: string[] }> {
+  const presenceOf = (p: string): Promise<CheckResult> => askUntilAnswered(presence, p)
+  const folders = await Promise.all(paths.map((p) => presenceOf(p)))
+  const answers = await Promise.all(
+    folders.map(async (a, i) => (a === 'present' && (await presenceOf(path.join(paths[i]!, '.git'))) === 'missing' ? 'missing' : a))
+  )
+  return {
+    alive: paths.filter((_, i) => answers[i] === 'present'),
+    gone: paths.filter((_, i) => answers[i] === 'missing'),
+    unknown: paths.filter((_, i) => answers[i] !== 'present' && answers[i] !== 'missing')
+  }
+}
+
 // ── T11: a plan refreshed onto another plan's delivery ──────────────────────────────────────────────────────────────
 
 /** How `refreshOnto` ended: `current` the worktree already holds the commit, `merged` it was merged in, `conflict` it
@@ -951,13 +962,11 @@ export async function refreshOnto(
     return { kind: 'human', reason: `${worktree} has uncommitted changes (or its git status cannot be read), so ${base} was not merged into it` }
   if (!(await (ctx.gitAtLeast ?? gitVersionAtLeast)(2, 38)))
     return { kind: 'conflict', reason: `this git is older than 2.38, so the app cannot test whether ${base} merges into ${worktree}` }
-  const probe = await run(['merge-tree', '--write-tree', 'HEAD', base], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
-  if (!probe.ok)
+  const probe = await probeMerge(worktree, 'HEAD', base, run)
+  if (probe.kind !== 'clean')
     return {
       kind: 'conflict',
-      reason: probe.stderr
-        ? `git merge-tree could not test ${base} against ${worktree}: ${probe.stderr}`
-        : `${base} does not merge cleanly into ${worktree}`
+      reason: probe.kind === 'error' ? `git merge-tree could not test ${base} against ${worktree}: ${probe.why}` : `${base} does not merge cleanly into ${worktree}`
     }
   const ident = await mergeIdentityArgs(worktree, run)
   const merged = await run([...ident, 'merge', '--no-ff', '-m', message, base], { cwd: worktree, timeoutMs: GIT_WRITE_TIMEOUT_MS })
@@ -1003,13 +1012,44 @@ async function fetchMissing(
   return said.join('; ')
 }
 
-/** The worktrees whose HEAD no other one in the list already holds: merging those brings everything. A worktree whose
- *  HEAD cannot be read is kept, so nothing is dropped on a guess. */
-async function tipsOf(worktrees: string[], run: typeof realGit): Promise<string[]> {
-  const heads = await Promise.all(worktrees.map(async (w) => {
+/** T19: the commit `ref` names in `cwd`, or null when git cannot say. */
+export async function tipOf(cwd: string, ref: string, run: typeof realGit = realGit): Promise<string | null> {
+  const r = await run(['rev-parse', ref], { cwd })
+  return r.ok ? r.stdout : null
+}
+
+/** Each worktree's HEAD, null where it cannot be read. */
+const headsOf = (worktrees: string[], run: typeof realGit): Promise<(string | null)[]> =>
+  Promise.all(worktrees.map(async (w) => {
     const r = await run(['rev-parse', 'HEAD'], { cwd: w })
     return r.ok ? r.stdout : null
   }))
+
+/** T19: before a delivery's merge failure is declared, both sides are read again: the target (`landed`, fetched once
+ *  unless `local`) and the HEADs of the worktrees merged last (`judged`, read before that merge). What moved, for the log
+ *  and the reason, or null when neither did (or the folder cannot go back to `base`), and the failure stands. */
+async function recheckTips(
+  a: { cwd: string; landed: string; local: boolean; branch: string; base: string; list: string[]; judged: (string | null)[]; backToBase(): Promise<string | null> },
+  run: typeof realGit
+): Promise<string | null> {
+  if ((await a.backToBase()) !== null) return null
+  // A failed fetch leaves origin's ref as it was: read as not moved
+  if (!a.local) await run(['fetch', 'origin', a.branch], { cwd: a.cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+  const target = await run(['rev-parse', a.landed], { cwd: a.cwd })
+  if (target.ok && target.stdout !== a.base) return `${a.landed} moved to ${target.stdout.slice(0, 7)}`
+  const heads = await headsOf(a.list, run)
+  const i = heads.findIndex((h, j) => h !== a.judged[j])
+  return i === -1 ? null : `${a.list[i]} moved to ${heads[i]?.slice(0, 7) ?? 'an unreadable HEAD'}`
+}
+
+/** The worktrees whose HEAD no other one in the list already holds: merging those brings everything. A worktree whose
+ *  HEAD cannot be read is kept, so nothing is dropped on a guess; T19: but one gone or half removed (sortFolders) is
+ *  dropped, as mergeWorktrees drops it: refreshing it can only fail. */
+async function tipsOf(all: string[], run: typeof realGit, presence?: PresenceCheck, onGone?: (gone: string[]) => void): Promise<string[]> {
+  const { gone } = await sortFolders(all, presence)
+  if (gone.length > 0) onGone?.(gone)
+  const worktrees = all.filter((w) => !gone.includes(w))
+  const heads = await headsOf(worktrees, run)
   const out: string[] = []
   for (let i = 0; i < worktrees.length; i++) {
     const h = heads[i]
@@ -1060,7 +1100,7 @@ export interface PushContext {
   gitAtLeast?: typeof gitVersionAtLeast
   /** T3: who is told Astera moves HEAD for the catch-up merge with origin (integrateWorktrees' own). Optional. */
   gitOp?: IntegrateContext['gitOp']
-  /** Test seam for the retry's `.git` link check; defaults to the action-lane check (worktrees/presence.ts). */
+  /** Test seam for the retry's `.git` link check and which worktrees are there (tipsOf); defaults to the action-lane check (worktrees/presence.ts). */
   presence?: PresenceCheck
 }
 
@@ -1153,7 +1193,16 @@ async function runHookFile(hook: string, args: string[], stdin: string, cwd: str
 
 export type PushResult =
   | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
-  | { ok: false; reason: string; branch?: string; code?: PushStop; /** origin-conflict: origin's commit the plan clashes with */ conflictWith?: string }
+  | {
+      ok: false
+      reason: string
+      branch?: string
+      code?: PushStop
+      /** origin-conflict: origin's commit the plan clashes with */
+      conflictWith?: string
+      /** T19 merge-failed: the target's tip it was judged on (`origin/<branch>`, the local branch when `local`) */
+      target?: string
+    }
 
 /**
  * **Lands a finished plan on a branch and pushes it, with no person reviewing** (W6-H). Every guard stops the push and
@@ -1164,7 +1213,9 @@ export type PushResult =
  * 3. `fetch`, then `merge --ff-only` from origin; a local branch that cannot fast-forward is a stop;
  * 4. the Run's worktrees merge (`mergeWorktrees`). T11: when that fails (another plan landed on the branch first), the
  *    folder goes back to the commit recorded before it, the plan's worktrees are refreshed onto that commit
- *    (`refreshOnto`) and merged once more; T3: a second failure undoes the merges as 5 does;
+ *    (`refreshOnto`) and merged once more; T19: before a failure is declared, origin's branch is fetched and both tips
+ *    read again (`recheckTips`), and when either moved since the failed merge it is merged once more onto them; T3: a
+ *    last failure undoes the merges as 5 does;
  * 5. the validation runs on the merged folder, after an install when the merges changed package.json or a lockfile; a failure resets to the commit recorded before 4, which undoes only
  *    Astera's merges (the folder was clean at 2);
  * 6. `push origin <branch>`, **never forced**; a rejected push fetches, and when origin moved on merges it in and runs
@@ -1246,39 +1297,48 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   // 4.
   const before = await run(['rev-parse', 'HEAD'], { cwd })
   if (!before.ok) return fail(`could not read HEAD in ${cwd}: ${why(before)}`)
-  const base = before.stdout
-  let merged = await ctx.mergeWorktrees(cwd, a.worktrees, { message: a.message })
+  let base = before.stdout
+  /** Back to `base` before merging again; null once there, else why not. Only Astera's own merges are above `base` (the
+   *  folder was clean at 2), as in `undo` below. */
+  const backToBase = async (): Promise<string | null> => {
+    const now = await run(['rev-parse', 'HEAD'], { cwd })
+    if (now.ok && now.stdout === base) return null
+    if ((await backupRef(cwd, 'HEAD', 'reset-hard-delivery-retry', ctx.log, run)) === null) return `could not write a backup ref of HEAD before going back to ${base}`
+    const reset = await run(['reset', '--hard', base], w)
+    const back = await run(['rev-parse', 'HEAD'], { cwd })
+    return reset.ok && back.ok && back.stdout === base ? null : `could not go back to ${base} to try again: ${why(reset)}`
+  }
+  // T19: the worktrees merged last and their HEADs then, which a failure is judged on
+  let list = a.worktrees
+  let judged = await headsOf(list, run)
+  let merged = await ctx.mergeWorktrees(cwd, list, { message: a.message })
   // T11: refresh, then deliver once more. The worktrees holding everything are refreshed onto `base` and only they merge
   if (!merged.ok) {
     ctx.log(`delivery: merging into ${branch} failed (${merged.reason}); refreshing the plan onto ${base} and trying once more`)
-    let stop: string | null = null
-    const now = await run(['rev-parse', 'HEAD'], { cwd })
-    if (!now.ok || now.stdout !== base) {
-      // Only Astera's own merges are above `base` (the folder was clean at 2), as in `undo` below
-      if ((await backupRef(cwd, 'HEAD', 'reset-hard-delivery-retry', ctx.log, run)) === null) stop = `could not write a backup ref of HEAD before going back to ${base}`
-      else {
-        const reset = await run(['reset', '--hard', base], w)
-        const back = await run(['rev-parse', 'HEAD'], { cwd })
-        if (!reset.ok || !back.ok || back.stdout !== base) stop = `could not go back to ${base} to try again: ${why(reset)}`
-      }
-    }
-    // A worktree without its `.git` link (half removed, or gone) is skipped as mergeWorktrees does: refreshing it would
-    // run git where git cannot run and stop the delivery on a folder that holds nothing to merge
-    const linked = stop === null
-      ? await Promise.all(a.worktrees.map(async (wt) => (await askUntilAnswered(ctx.presence ?? defaultActionPresenceCheck, path.join(wt, '.git'))) !== 'missing'))
-      : []
-    const skipped = a.worktrees.filter((_, i) => linked[i] === false)
-    if (skipped.length > 0) ctx.log(`delivery: skipping ${skipped.length} removed worktree(s) on the retry: ${skipped.join(', ')}`)
-    const tips = stop === null ? await tipsOf(a.worktrees.filter((_, i) => linked[i]), run) : []
+    let stop = await backToBase()
+    const tips = stop === null ? await tipsOf(a.worktrees, run, ctx.presence, (gone) => ctx.log(`delivery: skipping ${gone.length} removed worktree(s) on the retry: ${gone.join(', ')}`)) : []
     for (const wt of tips) {
       if (stop !== null) break
       const r = await refreshOnto(wt, base, `Refresh onto ${branch} before delivery`, { log: ctx.log, git: run, ...(ctx.gitAtLeast ? { gitAtLeast: ctx.gitAtLeast } : {}) })
       if (r.kind === 'conflict' || r.kind === 'human') stop = r.reason
     }
     if (stop === null) {
-      const again = await ctx.mergeWorktrees(cwd, tips, { message: a.message })
+      list = tips
+      judged = await headsOf(list, run)
+      const again = await ctx.mergeWorktrees(cwd, list, { message: a.message })
       merged = again.ok ? again : { ok: false, reason: `${merged.reason}; after refreshing onto ${base}: ${again.reason}` }
     } else merged = { ok: false, reason: `${merged.reason}; refreshing onto ${base} did not help: ${stop}` }
+  }
+  if (!merged.ok) {
+    const moved = await recheckTips({ cwd, landed, local: a.local === true, branch, base, list, judged, backToBase }, run)
+    if (moved !== null) {
+      ctx.log(`delivery: ${moved} since the merge failed; merging once more`)
+      // A target that moved is taken first; one that cannot fast-forward is merged into as it stands
+      const target = await run(['rev-parse', landed], { cwd })
+      if (target.ok && target.stdout !== base && (await run(['merge', '--ff-only', target.stdout], w)).ok) base = target.stdout
+      const again = await ctx.mergeWorktrees(cwd, list, { message: a.message })
+      merged = again.ok ? again : { ok: false, reason: `${merged.reason}; after ${moved}: ${again.reason}` }
+    }
   }
   /** Undoes Astera's merges: back to `base`, the clean commit recorded before them. T3: only while the folder is still on
    *  `branch` with no tracked change (the owner may have moved on meanwhile; their work is never reset). */
@@ -1302,7 +1362,11 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     ctx.log(`delivery: undid Astera's merges in ${cwd}, back at ${base}`)
     return fail(`${reason} Astera's merges were undone; ${branch} is back at ${base}.`, code, conflictWith)
   }
-  if (!merged.ok) return undo(`merging the plan's worktrees failed: ${merged.reason}`, 'merge-failed')
+  if (!merged.ok) {
+    const out = await undo(`merging the plan's worktrees failed: ${merged.reason}`, 'merge-failed')
+    const target = await tipOf(cwd, landed, run) // T19: read after recheckTips' fetch: a later move makes it due again
+    return target !== null && !out.ok ? { ...out, target } : out
+  }
   const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
   if (left.length > 0) return undo(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`)
 

@@ -238,7 +238,7 @@ describe('deliverByPush (W6-H)', () => {
   })
 
   it('a refresh that conflicts stops without a second merge', async () => {
-    const h = setup({ ...refreshable(), 'merge-tree --write-tree HEAD base': { ok: false, stderr: '' } }, { merge: 'conflict' })
+    const h = setup({ ...refreshable(), 'merge-tree --write-tree HEAD base': { ok: false, exitCode: 1, stdout: 'tree\n100644 abc 1\twt.txt', stderr: '' } }, { merge: 'conflict' })
     const r = await h.go()
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('does not merge cleanly into') })
     expect(h.merges).toHaveLength(1)

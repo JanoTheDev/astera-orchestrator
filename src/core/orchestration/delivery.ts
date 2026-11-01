@@ -209,12 +209,13 @@ export const DELIVERY_RETRY_NOW = 'Retry now'
 export const DELIVERY_OWNER_PUSHES = "I'll push it myself"
 
 /** The record after one attempt: delivered, or one more failure with its retry time. `ask: false` (a plan-branch push)
- *  never reads `needs-owner`: only the end delivery asks the owner. */
+ *  never reads `needs-owner`: only the end delivery asks the owner. T19: a `merge-failed` stop keeps the plan branch
+ *  `head` and the `target` tip it was judged on (`judgedOn`). */
 export function afterAttempt(
   prev: DeliveryProgress | undefined,
   at: string,
   error?: string,
-  opts?: { ask?: boolean; /** T1: the stop's code (PushStop), kept as `lastCode` */ code?: string; /** the heads the attempt ran against */ heads?: DeliveryHeads }
+  opts?: { ask?: boolean; /** T1: the stop's code (PushStop), kept as `lastCode` */ code?: string; /** the heads the attempt ran against */ heads?: DeliveryHeads; /** T19: the tips a merge failure is judged on */ head?: string; target?: string }
 ): DeliveryProgress {
   const attempts = (prev?.attempts ?? 0) + 1
   const keep = prev?.questionId !== undefined ? { questionId: prev.questionId } : {}
@@ -229,6 +230,9 @@ export function afterAttempt(
     ...(opts?.code !== undefined ? { lastCode: opts.code } : {}),
     ...(opts?.heads?.head !== undefined ? { headAtAttempt: opts.heads.head } : {}),
     ...(opts?.heads?.origin !== undefined ? { originAtAttempt: opts.heads.origin } : {}),
+    ...(opts?.code === 'merge-failed' && (opts.head !== undefined || opts.target !== undefined)
+      ? { judgedOn: { ...(opts.head !== undefined ? { branch: opts.head } : {}), ...(opts.target !== undefined ? { target: opts.target } : {}) } }
+      : {}),
     ...keep
   }
 }
@@ -249,13 +253,22 @@ const originMoved = (p: DeliveryProgress, heads: DeliveryHeads | undefined): boo
 
 /** Whether the driving loop attempts the end delivery now: once pending, after a failure when its retry time came or the
  *  plan branch head or origin moved since its attempt (the owner's "I'll push it myself" is checked instead,
- *  `ownerCheckDue`; a dismissed one never), and a `delivering` left by a dead process. */
-export function deliveryDue(p: DeliveryProgress | undefined, nowMs: number, heads?: DeliveryHeads): boolean {
+ *  `ownerCheckDue`; a dismissed one never), and a `delivering` left by a dead process.
+ *  T19: a merge failure is also due at once when either tip moved since `judgedOn`: the plan branch (`tips.branch`, the
+ *  Run's `git.head`) or the target (`tips.target`, `origin/<branch>`, the local branch for a `merge` delivery). */
+export function deliveryDue(
+  p: DeliveryProgress | undefined,
+  nowMs: number,
+  heads?: DeliveryHeads,
+  tips?: { branch?: string | undefined; target?: string | undefined }
+): boolean {
   if (!p) return false
   if (p.state === 'pending') return true
   if (p.state === 'delivering') return p.lastAttemptAt === undefined || nowMs - Date.parse(p.lastAttemptAt) >= DELIVERING_STALE_MS
   if (p.state !== 'retrying' && p.state !== 'needs-owner') return false
   if (p.ownerPushes === true) return false
+  const moved = (was: string | undefined, now: string | undefined): boolean => was !== undefined && now !== undefined && was !== now
+  if (p.lastCode === 'merge-failed' && (moved(p.judgedOn?.branch, tips?.branch) || moved(p.judgedOn?.target, tips?.target))) return true
   return headMoved(p, heads) || originMoved(p, heads) || p.nextRetryAt === undefined || Date.parse(p.nextRetryAt) <= nowMs
 }
 
