@@ -564,6 +564,19 @@ describe('worktreeDeps', () => {
     expect(calls).toEqual([])   // no git runs over an empty list (it would still check the folder)
     expect(logs.join('\n')).toMatch(/skipping 1 removed worktree/)
   })
+  it('mergeWorktrees skips a worktree half removed (the folder is there, its .git link is not) and merges the rest', async () => {
+    const calls: unknown[] = []
+    const d = worktreeDeps({
+      integrate: async (...a) => { calls.push(a); return { kind: 'merged', uncommitted: 0 } },
+      reap: async () => true,
+      log: logTo(),
+      presence: async (p) => (p.replace(/\\/g, '/') === 'D:/half/.git' ? 'missing' : 'present')
+    })
+    expect(await d.mergeWorktrees('D:/p', ['D:/half', 'D:/ok'])).toMatchObject({ ok: true, merged: ['D:/ok'] })
+    expect(calls).toEqual([['D:/p', ['D:/ok'], { reap: false }]])
+    expect(logs.join('\n')).toMatch(/skipping 1 removed worktree\(s\): D:\/half/)
+  })
+
   it('mergeWorktrees passes on the worktrees whose status could not be checked', async () => {
     const d = worktreeDeps({
       integrate: async () => ({ kind: 'merged', uncommitted: 0, unchecked: ['D:/wt/a'] }),
