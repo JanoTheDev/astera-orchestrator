@@ -2,6 +2,7 @@
 // The about/version/updates/host status (info) rows moved to AboutSettings (T28). The JSX is the settings modal's, moved unchanged.
 import { HistorySettings } from '../HistorySettings'
 import { GeneratorSettings } from '../GeneratorSettings'
+import { WindowDiagnosticSetting } from '../WindowDiagnosticSetting'
 import { toast } from '../../lib/toast'
 import { SettingRow, type GroupProps } from './SettingRow'
 import { Button, Icon, Switch, Tooltip } from '../ui'
@@ -83,6 +84,11 @@ export function AdvancedSettings(p: GroupProps): React.JSX.Element | null {
       <SettingRow a="history" only={only}>
         <HistorySettings />
       </SettingRow>
+      {window.api.platform === 'win32' && (
+        <SettingRow a="windowDiagnostic" only={only}>
+          <WindowDiagnosticSetting />
+        </SettingRow>
+      )}
     </>
   )
 }

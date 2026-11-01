@@ -4724,6 +4724,11 @@ export function registerIpc(
     if (typeof on !== 'boolean') throw new Error('autoCleanWorktrees must be a boolean')
     await core.appSettings.setAutoCleanWorktrees(on)
   })
+  ipcMain.handle('settings.getWindowDiagnostic', () => core.appSettings.getWindowDiagnostic())
+  ipcMain.handle('settings.setWindowDiagnostic', async (_e, on: unknown) => {
+    if (typeof on !== 'boolean') throw new Error(`INVALID_WINDOW_DIAGNOSTIC: ${String(on)}`)
+    await core.appSettings.setWindowDiagnostic(on)
+  })
   ipcMain.handle('settings.setStallWatch', async (_e, on: unknown) => {
     if (typeof on !== 'boolean') throw new Error(`INVALID_STALL_WATCH: ${String(on)}`)
     await core.appSettings.setStallWatch(on)

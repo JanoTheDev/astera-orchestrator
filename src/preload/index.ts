@@ -269,6 +269,8 @@ const api = {
     setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
     getStallWatch: invoke('settings.getStallWatch'),
     setStallWatch: invoke('settings.setStallWatch'),
+    getWindowDiagnostic: invoke('settings.getWindowDiagnostic'),
+    setWindowDiagnostic: invoke('settings.setWindowDiagnostic'),
     getCrashReports: invoke('settings.getCrashReports'), // T27
     setCrashReports: invoke('settings.setCrashReports'),
     getStartAtLogin: invoke('settings.getStartAtLogin'),
