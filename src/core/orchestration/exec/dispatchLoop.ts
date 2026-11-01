@@ -75,8 +75,10 @@ import {
   handsOffOf,
   readLandingOf,
   ownerCheckDue,
-  projectOfJob
+  projectOfJob,
+  type DeliveryHeads
 } from '../delivery'
+import { git as realGit } from '../../worktrees/git'
 // W8-C plan after plan
 import { afterStartsDue, afterSweep } from '../after'
 // Coordinator rotation and finished tabs
@@ -284,6 +286,10 @@ export interface DispatchLoopContext {
   activity?(d: ActivityDraft): void
   /** T32: what a plan's folder is set up for (exec/deliverySetup.ts). Optional: without it every plan delivers as saved. */
   deliverySetup?(cwd: string): Promise<DeliverySetup>
+  /** The plan branch's head (the Run's worktree) and origin's last fetched tip of the delivery branch, which a failed
+   *  delivery is retried on when they move (delivery.ts `deliveryDue`). Optional: defaults to `git rev-parse` over the
+   *  real folders; a value that cannot be read is left out. */
+  deliveryHeads?(a: { worktree: string; projectCwd: string; branch?: string }): Promise<DeliveryHeads>
   /** Asked on entry and again before each slot (§4.3). */
   mayStart(): boolean
   /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
@@ -862,7 +868,23 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   /** T3: a Run seen running has its delivery pending on the Run itself (`deliveryState`), so a restarted Host still
    *  delivers it; a Run that was already done before this existed has none and gets no delivery it never asked for. */
   const seenRunning = (runId: string): boolean => c.getState().runs.find((r) => r.id === runId)?.deliveryState !== undefined
-  type DeliveryStep = { run: JobRun; push: boolean; action: 'auto' | 'retry' | 'self'; outcome: string }
+  type DeliveryStep = { run: JobRun; push: boolean; action: 'auto' | 'retry' | 'self'; outcome: string; heads: DeliveryHeads }
+  /** The plan branch head and origin's tip for a Run's delivery (one `git rev-parse` each); empty when unreadable. */
+  const headsOf = async (run: JobRun, job: Job): Promise<DeliveryHeads> => {
+    if (run.worktree === undefined) return {}
+    const a = { worktree: run.worktree, projectCwd: job.cwd, ...(deliveryBranchOf(c.getState(), job) !== undefined ? { branch: deliveryBranchOf(c.getState(), job) } : {}) }
+    try {
+      if (c.deliveryHeads) return await c.deliveryHeads(a)
+      const sha = async (cwd: string, ref: string): Promise<string | undefined> => {
+        const r = await realGit(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd })
+        return r.ok && r.stdout.trim() !== '' ? r.stdout.trim() : undefined
+      }
+      const [head, origin] = await Promise.all([sha(a.worktree, 'HEAD'), a.branch === undefined ? undefined : sha(a.projectCwd, `refs/remotes/origin/${a.branch}`)])
+      return { ...(head !== undefined ? { head } : {}), ...(origin !== undefined ? { origin } : {}) }
+    } catch {
+      return {}
+    }
+  }
   const openCompletedRunPrs = async (): Promise<void> => {
     const s = c.getState()
     const nowMs = c.nowMs()
@@ -914,8 +936,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (p === undefined) continue
       const push = mode === 'push' || mode === 'merge' // T6: a local merge lands the same way
       const answer = deliveryAnswerOf(s, p)
+      // The heads an attempt runs against, and which a failed delivery is retried at once on when they moved
+      const attempts = (p.state === 'pending' || p.state === 'retrying' || p.state === 'needs-owner') && p.ownerPushes !== true
+      const heads = attempts ? await headsOf(run, job) : {}
       const action: DeliveryStep['action'] | null =
-        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs) ? 'auto' : null
+        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs, heads) ? 'auto' : null
       if (action === null) continue
       // W6-D: the PR waits for the final check (replan.ts completionSettled). W8-E (#99): a failed plan has none
       if (outcome === 'completed' && !completionSettled(s, job, run.id)) continue
@@ -927,7 +952,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!push && run.worktree === undefined) continue
       const key = projectKeyOf(s, job)
       const list = due.get(key)
-      const step = { run, push, action, outcome }
+      const step = { run, push, action, outcome, heads }
       if (list) list.push(step)
       else due.set(key, [step])
     }
@@ -958,7 +983,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    *  git asked whether the commits reached the branch). Each attempt is recorded on the Run by `run-deliver` (T3:
    *  retried with backoff, the owner asked once after the last automatic one). T7: a background job; once `alive()` is
    *  false it was abandoned, and what it finds out late is left alone. Never throws. */
-  const deliverOne = async ({ run, push, action, outcome }: DeliveryStep, alive: () => boolean): Promise<void> => {
+  const deliverOne = async ({ run, push, action, outcome, heads }: DeliveryStep, alive: () => boolean): Promise<void> => {
     if (!c.mayStart()) return
     const job = jobOf(c.getState(), run)
     const plan = job ? jobNameOf(job) : run.id
@@ -999,7 +1024,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
     try {
       // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
-      const r = await c.handle('run-deliver', action === 'retry' ? { run: run.id, force: true } : { run: run.id, auto: true })
+      const seen = { ...(heads.head !== undefined ? { head: heads.head } : {}), ...(heads.origin !== undefined ? { origin: heads.origin } : {}) }
+      const r = await c.handle('run-deliver', action === 'retry' ? { run: run.id, force: true, ...seen } : { run: run.id, auto: true, ...seen })
       if (!alive()) return
       const body = r.body as {
         url?: unknown
@@ -1018,6 +1044,12 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           `run=${run.id} completed, and it was not delivered: ${why}` +
             (next?.state === 'retrying' || next?.state === 'needs-owner' ? ` (${String(next.state)}, next try at ${String(next.nextRetryAt)})` : '')
         )
+        // The attempt's own fetch moved origin's ref: record the tip it left, so only a later move retries at once
+        if (heads.origin !== undefined && (next?.state === 'retrying' || next?.state === 'needs-owner')) {
+          const job = jobOf(c.getState(), run)
+          const after = job ? (await headsOf(run, job)).origin : undefined
+          if (after !== undefined) await c.handle('run-deliver', { run: run.id, originSeen: after })
+        }
         // T3: a push plan that ended failed is never pushed: the feed says so, once (the Run now reads `failed`)
         if (body?.code === 'not-completed') planActivity(run.id, `Plan ${plan} was not delivered: ${why}`)
         // T3: origin moved on and conflicts with the plan: the owner's branch is back where it was, and an integration
