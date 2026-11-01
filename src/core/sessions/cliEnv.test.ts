@@ -8,6 +8,15 @@ const account = (configDir: string): Account =>
   ({ id: 'acc', label: 'x', configDir, color: '#fff', createdAt: '2026-07-20T00:00:00Z', provider: 'codex' }) as Account
 
 describe('cliEnvFor', () => {
+  it("turns Claude Code's update check off on Windows (its detached npm opens a console window), keeping a value the person set", () => {
+    const claude = (base: NodeJS.ProcessEnv, platform: NodeJS.Platform): Record<string, string | undefined> =>
+      cliEnvFor({ base, account: account('C:/accounts/c1'), descriptor: descriptors.claude, homeDir: 'C:/Users/me', platform })
+    expect(claude({}, 'win32').DISABLE_AUTOUPDATER).toBe('1')
+    expect(claude({ DISABLE_AUTOUPDATER: '0' }, 'win32').DISABLE_AUTOUPDATER).toBe('0')
+    expect('DISABLE_AUTOUPDATER' in claude({}, 'darwin')).toBe(false)
+    const codex = cliEnvFor({ base: {}, account: account('C:/accounts/a1'), descriptor: descriptors.codex, homeDir: 'C:/Users/me', platform: 'win32' })
+    expect('DISABLE_AUTOUPDATER' in codex).toBe(false)
+  })
   it('sets CODEX_HOME to a managed dir and drops the app-managed keys', () => {
     const env = cliEnvFor({
       base: { PATH: 'p', ASTERA_SESSION: 's', CODEX_HOME: 'old' },
