@@ -41,6 +41,14 @@ export async function unmergedPlanBranches(s: OrchState, project: Project, run: 
  *  branch, else the branch the project folder stands on. `null`: git cannot tell (no branch, a git error), so the Run is
  *  left as it is. The target branch itself never counts, and neither does a branch that no longer exists. */
 export async function branchInDeliveryBranch(s: OrchState, runOf: JobRun, run: typeof realGit = realGit): Promise<boolean | null> {
+  const t = await planTargetOf(s, runOf, run)
+  if (!t) return null
+  return isAncestor(t.branch, t.into, t.cwd, run)
+}
+
+/** The Run's plan branch and delivery branch, and the repo folder to ask git in; null when either is unknown, they are the
+ *  same, or the plan branch no longer exists. */
+async function planTargetOf(s: OrchState, runOf: JobRun, run: typeof realGit): Promise<{ branch: string; into: string; cwd: string } | null> {
   const job = jobOf(s, runOf)
   if (!job) return null
   const head = async (cwd: string): Promise<string | null> => {
@@ -51,7 +59,21 @@ export async function branchInDeliveryBranch(s: OrchState, runOf: JobRun, run: t
   const into = deliveryBranchOf(s, job) ?? projectOfJob(s, job)?.defaultBranch ?? (await head(job.cwd))
   if (!branch || !into || branch === into) return null
   if (!(await run(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: job.cwd })).ok) return null
-  const merged = await run(['merge-base', '--is-ancestor', `refs/heads/${branch}`, into], { cwd: job.cwd })
+  return { branch, into, cwd: job.cwd }
+}
+
+async function isAncestor(branch: string, into: string, cwd: string, run: typeof realGit): Promise<boolean | null> {
+  const merged = await run(['merge-base', '--is-ancestor', `refs/heads/${branch}`, into], { cwd })
   if (merged.ok) return true
   return merged.stderr.trim() === '' ? false : null // exit 1, no message: not an ancestor; anything else, git failed
+}
+
+/** Whether the Run's plan branch tip is already in `origin/<delivery branch>`, as when the owner merged it by hand and
+ *  pushed: one `git fetch origin <delivery branch>` first. `null`: git cannot tell (no branch, no origin, a failed fetch). */
+export async function branchInOrigin(s: OrchState, runOf: JobRun, run: typeof realGit = realGit): Promise<boolean | null> {
+  const t = await planTargetOf(s, runOf, run)
+  if (!t) return null
+  const ref = `refs/remotes/origin/${t.into}`
+  if (!(await run(['fetch', 'origin', `+refs/heads/${t.into}:${ref}`], { cwd: t.cwd })).ok) return null
+  return isAncestor(t.branch, ref, t.cwd, run)
 }

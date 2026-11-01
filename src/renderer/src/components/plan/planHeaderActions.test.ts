@@ -179,6 +179,14 @@ describe('planActionsOf markMerged', () => {
     expect(act({ awaitingReview: true }).markMerged).toBe(true)
   })
 
+  it('offers Mark as merged on a Failed plan whose delivery failed, not on one that failed in its Tasks', () => {
+    expect(act({ outcome: 'failed', deliveryError: 'push refused' }).markMerged).toBe(true)
+    expect(act({ outcome: 'failed', delivery: { state: 'needs-owner' } as never }).markMerged).toBe(true)
+    expect(act({ outcome: 'failed', deliveryError: 'x', pr: { ...pr, landed: 'merged' } }).markMerged).toBe(false)
+    expect(act({ outcome: 'failed', deliveryError: 'x' }, false).markMerged).toBe(false)
+    expect(act({ outcome: 'failed' }).markMerged).toBe(false)
+  })
+
   it('offers nothing for a landed, draft, archived, running or paired-Runtime plan', () => {
     expect(act({ pr: { ...pr, landed: 'merged' } }).markMerged).toBe(false)
     expect(act({ pr: { ...pr, draft: true } }).markMerged).toBe(false)

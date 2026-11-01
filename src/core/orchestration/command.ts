@@ -122,7 +122,7 @@ import { isPathWithin } from '../files/tree'
 import { buildHandoverPrompt, buildPlannerBrief } from './handover'
 import { read as readOwner } from '../prompts/ownerInstructions'
 import { consoleIdStore, ensureChat, ensureConsole, isChatSession } from '../console/console'
-import { branchInDeliveryBranch, noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
+import { branchInDeliveryBranch, branchInOrigin, noRemoteNote, unmergedPlanBranches } from './unmergedBranches' // W8-G (#101)
 // W2-A planner stage
 import { editPlanTask, kindOf, leftOutArg, orchestrationRoleOf, planFieldsFromArgs, plannerJobOf, plannerRefusal, taskProblems, validatePlan, withPreviousAttempt, workerSpecOf, worktreeRefusal } from './planner'
 import { parseReviewFile, type ReviewIssueInput } from './review'
@@ -265,6 +265,8 @@ import {
   // T1: delivery state machine
   dismissDelivery,
   landedOnGitHub,
+  landedOutside,
+  deliveryFailedOf,
   ownerMaySettle,
   withoutDeliveryError,
   // T5: a hands-free plan mends a failed delivery validation itself
@@ -1296,6 +1298,8 @@ const waitingForApprovalIn = async (deps: OrchServerDeps, ds: readonly Dispatch[
 /** T6 `runs-pr-sync`: PRs asked about per call, and how long a still-open one is left alone. */
 const PR_SYNC_BATCH = 20
 const PR_SYNC_FRESH_MS = 2 * 60_000
+/** How long a run is left alone after `runs-pr-sync` asked origin whether its plan branch landed outside Astera. */
+const OUTSIDE_FRESH_MS = 10 * 60_000
 
 /** Commands only the orchestrator may call. Workers do not need check (the worker preamble uses only
  *  send and ask) — and on top of that the single unacknowledged Delivery is shared per Run with the
@@ -7548,7 +7552,8 @@ export async function handleCommand(
       const run = s.runs.find((r) => r.id === id)
       if (!run) return notFound(`unknown run: ${id}`)
       if (run.pr?.landed !== undefined) return conflict(`This Run was already ${run.pr.landed}`)
-      const unmerged = (run.pr?.url !== undefined && run.pr.draft !== true) || run.deliveryState?.state === 'awaiting-review'
+      // unmerged, or finished with a delivery that failed (the owner merged it by hand after the failure)
+      const unmerged = (run.pr?.url !== undefined && run.pr.draft !== true) || run.deliveryState?.state === 'awaiting-review' || deliveryFailedOf(s, run)
       if (!unmerged) return conflict('This Run has no unmerged work to mark merged')
       if (outcomeOf(s, id) === 'running') return conflict('This Run is still working')
       await deps.setState(landedOnGitHub(s, id, 'merged', deps.now?.() ?? now))
@@ -7587,8 +7592,27 @@ export async function handleCommand(
           return { run: r, state: byHand === true ? 'MERGED' : gh }
         })
       )
+      // A finished Run that is Failed, retrying, waiting on the owner or Unmerged, whose plan branch the owner merged into
+      // origin's delivery branch outside Astera. The git work (one fetch) is done here, before the state is read again; each
+      // Run is asked at most once per OUTSIDE_FRESH_MS, whatever git answers.
+      const landedByGh = new Set(states.filter((x) => x.state === 'MERGED' || x.state === 'CLOSED').map((x) => x.run.id))
+      const outsideDue = s.runs
+        .filter((r) => {
+          if (r.pr?.landed !== undefined || landedByGh.has(r.id) || Date.parse(at) - Date.parse(r.outsideCheckedAt ?? '') < OUTSIDE_FRESH_MS) return false
+          if (!(readyPr(r) || r.deliveryState?.state === 'awaiting-review' || deliveryFailedOf(s, r)) || outcomeOf(s, r.id) === 'running') return false
+          const job = jobOf(s, r)
+          return job !== undefined && (!project || jobInProject(s, job, project))
+        })
+        .slice(0, PR_SYNC_BATCH)
+      const outside = await Promise.all(outsideDue.map(async (r) => ({ run: r, inOrigin: await branchInOrigin(s, r, attributionGit).catch(() => null) })))
       let next = deps.getState()
       const landed: { runId: string; landed: 'merged' | 'closed' }[] = []
+      for (const { run, inOrigin } of outside) {
+        if (inOrigin === true) {
+          next = landedOutside(next, run.id, at)
+          landed.push({ runId: run.id, landed: 'merged' })
+        } else next = { ...next, runs: next.runs.map((r) => (r.id === run.id ? { ...r, outsideCheckedAt: at } : r)) }
+      }
       for (const { run, state } of states) {
         if (state === 'MERGED' || state === 'CLOSED') {
           const to = state === 'MERGED' ? 'merged' : 'closed'
@@ -7598,7 +7622,8 @@ export async function handleCommand(
           next = { ...next, runs: next.runs.map((r) => (r.id === run.id ? (r.pr ? { ...r, pr: { ...r.pr, landedCheckedAt: at } } : { ...r, landedCheckedAt: at }) : r)) }
         }
       }
-      if (due.length > 0) await deps.setState(next)
+      if (due.length > 0 || outside.length > 0) await deps.setState(next)
+      for (const { run, inOrigin } of outside) if (inOrigin === true) await cleanAfterDelivery(deps, run.id)
       return okBody({ checked: due.length, landed })
     }
     /**

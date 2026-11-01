@@ -5,7 +5,7 @@ import type { JobRow } from '../../../../core/types'
 import { approveViewOf } from './planPage'
 import { isFinishedOutcome } from './planSummary'
 import { runningCount } from '../../../../core/orchestration/running'
-import { isUnmergedPlan } from './planList'
+import { isFailedDeliveryPlan, isUnmergedPlan } from './planList'
 import { canChat, planTalkView } from './planTalkModel'
 
 export type HeaderRow = Pick<
@@ -107,7 +107,7 @@ export function planActionsOf(row: PlanActionRow, local: boolean): PlanActions {
     mergeAll: !archived && !notStarted && worktrees,
     ...(openPr ? { openPr } : {}),
     ...(mergePr ? { mergePr } : {}),
-    markMerged: local && isUnmergedPlan(row as JobRow),
+    markMerged: local && (isUnmergedPlan(row as JobRow) || isFailedDeliveryPlan(row as JobRow)),
     folder: worktrees
   }
 }

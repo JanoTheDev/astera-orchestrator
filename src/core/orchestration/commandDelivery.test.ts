@@ -1163,4 +1163,40 @@ describe('run-mark-merged', () => {
     const h = setup({ run: awaiting, tasks: [task({ status: 'dispatched' })] })
     expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(409)
   })
+
+  describe('a Run whose delivery failed', () => {
+    const failed = {
+      delivery: { at: NOW, error: 'push refused' },
+      deliveryState: { state: 'failed', attempts: 5, lastError: 'push refused' }
+    } as Partial<JobRun>
+
+    it('is marked merged by a person: recorded merged, the error cleared, worktrees cleaned', async () => {
+      const h = setup({ run: failed })
+      expect(outcomeOf(h.state(), 'r1')).toBe('failed')
+      expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(200)
+      expect(h.state().runs[0].pr?.landed).toBe('merged')
+      expect(h.state().runs[0].deliveryState?.state).toBe('delivered')
+      expect(h.state().runs[0].delivery?.error).toBeUndefined()
+      expect(outcomeOf(h.state(), 'r1')).not.toBe('failed')
+      expect(h.cleaned).toEqual(['r1'])
+    })
+
+    it.each(['retrying', 'needs-owner'] as const)('accepts a %s delivery', async (state) => {
+      const h = setup({ run: { deliveryState: { state, attempts: 2 } } })
+      expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(200)
+    })
+
+    it('is still refused from an agent session and an MCP client, and a landed Run', async () => {
+      const h = setup({ run: failed })
+      expect((await h.call('run-mark-merged', { run: 'r1' }, 'sess_agent')).status).toBe(403)
+      expect((await h.call('run-mark-merged', { run: 'r1' }, '', 'mcp')).status).toBe(403)
+      expect(h.state().runs[0].pr).toBeUndefined()
+      expect((await setup({ run: { ...failed, pr: { at: NOW, landed: 'merged' } } }).call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+    })
+
+    it('is refused while a Task is still working', async () => {
+      const h = setup({ run: failed, tasks: [task({ status: 'dispatched' })] })
+      expect((await h.call('run-mark-merged', { run: 'r1' })).status).toBe(409)
+    })
+  })
 })
