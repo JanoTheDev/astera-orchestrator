@@ -243,3 +243,36 @@ it('goes on at once when recovery left the remaining lost workers waiting for a 
   expect(sleeps).toEqual([])
   expect(feed[0].payload.reason).toBe('Recovered after a crash: resumed 1 worker, 0 coordinators; 1 worker waits for a free slot')
 })
+
+// T34: a lost worker brought back by any door counts, so the line never says 0 while workers came back.
+it('counts a lost Task re-dispatched by a worker-start (no retryOf) as brought back', async () => {
+  const before = stateFromLegacy({
+    runs: [{ id: 'run_1', objective: 'o', cwd: dir, createdAt: NOW, autoDispatch: true }],
+    tasks: [task({ id: 'tsk_1' }), task({ id: 'tsk_2' }), task({ id: 'tsk_3' })],
+    dispatches: [dispatch({ id: 'dsp_1', taskId: 'tsk_1', sessionId: 's1' }), dispatch({ id: 'dsp_2', taskId: 'tsk_2', sessionId: 's2' }), dispatch({ id: 'dsp_3', taskId: 'tsk_3', sessionId: 's3' })]
+  })
+  const after = {
+    ...before,
+    dispatches: [
+      ...before.dispatches.map((d) => ({ ...d, endedAt: NOW, workerState: 'outcome_unknown' as const })),
+      // resumed by the recovery
+      dispatch({ id: 'dsp_1r', taskId: 'tsk_1', sessionId: 's1r', retryOf: 'dsp_1' }),
+      // started again by a worker-start, which sets no retryOf
+      dispatch({ id: 'dsp_2w', taskId: 'tsk_2', sessionId: 's2w' })
+    ],
+    gates: [{ id: 'gat_1', taskId: 'tsk_3', question: 'q', options: [], status: 'open' as const, createdAt: NOW }]
+  }
+  const feed: ActivityDraft[] = []
+  const r = await resumeAfterCrash({
+    readFile: () => before,
+    ready: async () => {},
+    state: () => after as never,
+    settle: async () => {},
+    handle: async () => ({ status: 200, body: {} }),
+    activity: (a) => feed.push(a),
+    log: () => {},
+    sleep: async () => {}
+  })
+  expect(r).toEqual({ workers: 2, coordinators: 0 })
+  expect(feed[0].payload.reason).toBe('Recovered after a crash: resumed 2 workers, 0 coordinators')
+})

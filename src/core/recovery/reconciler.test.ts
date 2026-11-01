@@ -735,3 +735,93 @@ describe('onLeftForLater', () => {
     expect(left).toContain('dsp_1')
   })
 })
+
+// T34: after a crash every lost worker that fits starts at once, and one whose conversation is known resumes in it.
+describe('RecoveryReconciler after a crash (T34)', () => {
+  const many = (n: number, concurrency: number): OrchState =>
+    state({
+      runs: [run({ concurrency })],
+      tasks: Array.from({ length: n }, (_, i) => task({ id: `tsk_${i}` })),
+      dispatches: Array.from({ length: n }, (_, i) => dispatch({ id: `dsp_${i}`, taskId: `tsk_${i}`, sessionId: `sess-${i}` }))
+    })
+  function crashRig(start: OrchState, over: { cap?: number; nativeIdOf?: (sid: string) => Promise<string | null> } = {}) {
+    let current = start
+    let open!: () => void
+    const held = new Promise<void>((r) => (open = r))
+    const executed: Array<{ dispatchId: string; strategy: string; native?: string }> = []
+    const journal = {
+      append: () => 0,
+      eventsFor: (_runId: string, page?: EventsPage) => [{ type: 'PROMPT_WRITE_CONFIRMED', dispatchId: page?.dispatchId }] as never,
+      firstCheckpointFor: () => null,
+      startRecoveryAction: () => ({ recoveryActionId: 'rec_1' }) as never,
+      finishRecoveryAction: () => {}
+    }
+    const r = new RecoveryReconciler({
+      getState: () => current,
+      setState: async (n: OrchState) => { current = n },
+      journal: journal as never,
+      readGitFacts: async () => ({ exists: true, head: 'aaa', dirty: false, inProgress: null, conflicts: false, branch: 'main' }),
+      smartResume: () => false,
+      execute: async (a: { attempt: LostAttempt; decision: { strategy: string } }) => {
+        executed.push({ dispatchId: a.attempt.dispatchId, strategy: a.decision.strategy, ...(a.attempt.nativeSessionId ? { native: a.attempt.nativeSessionId } : {}) })
+        await held
+        const id = `${a.attempt.dispatchId}_r`
+        current = { ...current, dispatches: [...current.dispatches, dispatch({ id, taskId: a.attempt.taskId, sessionId: `s-${id}`, startedAt: NOW, endedAt: undefined, workerState: 'ready', retryOf: a.attempt.dispatchId })] }
+        return { ok: true as const, newDispatchId: id }
+      },
+      log: () => {},
+      now: () => NOW,
+      ...(over.cap !== undefined ? { workerCap: () => over.cap! } : {}),
+      ...(over.nativeIdOf ? { nativeIdOf: over.nativeIdOf } : {})
+    } as never)
+    return { r, executed, open: () => open(), get state() { return current } }
+  }
+
+  it('starts every candidate that has room side by side, not one awaited after another', async () => {
+    const h = crashRig(many(15, 50))
+    const sweeping = h.r.reconcileAll()
+    await expect.poll(() => h.executed.length).toBe(15)
+    h.open()
+    expect(await sweeping).toBe(15)
+  })
+
+  it('the starts under way hold their slots: no more than the Run allows, the rest left for later', async () => {
+    const h = crashRig(many(6, 4))
+    const left: string[] = []
+    const r = new RecoveryReconciler({ ...(h.r as unknown as { deps: object }).deps, onLeftForLater: (s: { dispatch: { id: string } }) => left.push(s.dispatch.id) } as never)
+    const sweeping = r.reconcileAll()
+    await expect.poll(() => h.executed.length).toBe(4)
+    h.open()
+    expect(await sweeping).toBe(4)
+    expect(left).toEqual(['dsp_4', 'dsp_5'])
+    expect(h.state.dispatches.filter((d) => !d.endedAt && !d.outcome)).toHaveLength(4)
+  })
+
+  it('the app-wide cap binds the starts under way too', async () => {
+    const h = crashRig(many(6, 50), { cap: 2 })
+    const sweeping = h.r.reconcileAll()
+    await expect.poll(() => h.executed.length).toBe(2)
+    h.open()
+    expect(await sweeping).toBe(2)
+  })
+
+  it('resumes in the conversation the dead session named when the Dispatch recorded none', async () => {
+    const asked: string[] = []
+    const h = crashRig(many(1, 3), { nativeIdOf: async (sid) => (asked.push(sid), 'native-0') })
+    h.open()
+    await h.r.reconcileAll()
+    expect(asked).toEqual(['sess-0'])
+    expect(h.executed).toEqual([{ dispatchId: 'dsp_0', strategy: 'resume-native', native: 'native-0' }])
+  })
+
+  it('a Dispatch that recorded its own conversation keeps it, and a lookup that fails is no conversation', async () => {
+    const own = crashRig(state({ dispatches: [dispatch({ nativeSessionId: 'native-own' })] }), { nativeIdOf: async () => 'other' })
+    own.open()
+    await own.r.reconcileAll()
+    expect(own.executed[0]).toMatchObject({ strategy: 'resume-native', native: 'native-own' })
+    const failing = crashRig(many(1, 3), { nativeIdOf: async () => { throw new Error('no hook events') } })
+    failing.open()
+    await failing.r.reconcileAll()
+    expect(failing.executed[0]).toMatchObject({ strategy: 'redispatch' })
+  })
+})
