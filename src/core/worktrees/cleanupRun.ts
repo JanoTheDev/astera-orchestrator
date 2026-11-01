@@ -73,7 +73,7 @@ export interface CleanResult {
  *  branch Astera pushed loses its copy on origin with the local branch (remove.ts deleteRemoteBranch). */
 export async function cleanRows(
   rows: readonly WorktreeRow[],
-  deps: { registry: WorktreeStore; isPathInUse: (p: string) => string | null; log?: (m: string) => void }
+  deps: { registry: WorktreeStore; isPathInUse: (p: string) => string | null; log?: (m: string) => void; stopProcessesIn?: (dir: string) => Promise<unknown> }
 ): Promise<CleanResult> {
   const out: CleanResult = { removed: [], kept: [] }
   // A plan's own folder goes after the Tasks forked from its branch: a Task branch is deleted once it is in that branch
@@ -85,6 +85,7 @@ export async function cleanRows(
         id: r.item.id,
         registry: deps.registry,
         isPathInUse: deps.isPathInUse,
+        ...(deps.stopProcessesIn ? { stopProcessesIn: deps.stopProcessesIn } : {}),
         ...(r.owner?.pushed ? { deleteRemoteBranch: true } : {})
       })
       out.removed.push(r.item.path)
@@ -117,6 +118,8 @@ interface CleanDeps {
   log?: (m: string) => void
   /** One line for the plan's activity feed: what was kept and why. */
   activity?: (runId: string, line: string) => void
+  /** Stops what still runs in a folder before it is removed (remove.ts `stopProcessesIn`). */
+  stopProcessesIn?: (dir: string) => Promise<unknown>
 }
 
 /** Removes what is ready among `rows`, and tells the feed what a finished plan kept: one line per folder held back by

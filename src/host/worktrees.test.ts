@@ -31,7 +31,7 @@ const rig = (over: Partial<HostWorktreesDeps> & { state?: () => OrchState } = {}
   })
   const procs = new ProcRegistry({ spawn: () => ({ pid: 2, onData() {}, onExit() {}, write() {}, kill() {} }), log: () => {} })
   const wt = createHostWorktrees({ profileDir: profile, homeDir: home, ptys, procs, getState: over.state ?? (() => emptyState()),
-    broadcast: (m) => sent.push(m), log: (m) => logs.push(m), app: noApp, closeTimeoutMs: 500, pollMs: 10, ...over })
+    broadcast: (m) => sent.push(m), log: (m) => logs.push(m), app: noApp, closeTimeoutMs: 500, pollMs: 10, stopProcessesIn: async () => [], ...over })
   const open = (id: string, cwd: string, meta?: PtyMeta) => ptys.open({ id, file: 'x', args: [], opts: { cwd, cols: 80, rows: 24, env: {} }, meta })
   const session = (id: string, cwd: string) => open(`pty_${id}`, cwd, { kind: 'session', id, restore: { title: id } })
   return { wt, ptys, procs, sent, logs, session, open }
@@ -578,5 +578,14 @@ describe('createHostWorktrees — the loop’s members', () => {
     expect(await h.wt.reap(a)).toBe(true)
     expect(h.wt.paths()).toEqual([])
     expect(await h.wt.reap(path.join(home, 'wt', 'nowhere'))).toBe(false)
+  })
+  it('stops what still runs in a folder right before the reap and the remove command remove it (T22)', async () => {
+    const seen: Array<[string, boolean]> = []
+    const h = rig({ stopProcessesIn: async (dir) => { seen.push([dir, await fs.stat(dir).then(() => true, () => false)]) } })
+    const a = await h.wt.fork({ repoPath: repo, name: 'a' })
+    const b = await h.wt.fork({ repoPath: repo, name: 'b' })
+    expect(await h.wt.reap(a)).toBe(true)
+    await h.wt.ops.remove(h.wt.infoOf(b)!.id, true, false)
+    expect(seen).toEqual([[a, true], [b, true]])
   })
 })

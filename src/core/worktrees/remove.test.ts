@@ -157,6 +157,35 @@ describe('removeWorktree', () => {
     expect(await fs.readFile(path.join(trash, kept!, 'untracked.txt'), 'utf8')).toBe('u')
   })
 
+  // T22: a process holding the folder (a server a worker left, its cwd in the worktree) left it half removed.
+  it('stops what still runs in the folder right before git removes it, and not when the removal is refused', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'held', registry: reg })
+    const seen: Array<[string, boolean]> = []
+    const stopProcessesIn = async (dir: string): Promise<void> => {
+      seen.push([dir, existsSync(path.join(dir, 'f.txt'))])
+    }
+    await fs.writeFile(path.join(info.path, 'd.txt'), 'd', 'utf8')
+    await expect(removeWorktree({ id: info.id, registry: reg, isPathInUse: noUse, stopProcessesIn })).rejects.toThrow(/DIRTY/)
+    expect(seen).toEqual([])
+    await removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: noUse, stopProcessesIn })
+    expect(seen).toEqual([[info.path, true]])
+    expect(existsSync(info.path)).toBe(false)
+  })
+
+  it('stops what still runs in a folder git forgot right before it is moved aside, and not when it is refused', async () => {
+    const { info } = await createWorktree({ repoPath: repo, name: 'held-orphan', registry: reg })
+    await fs.rm(path.join(repo, '.git', 'worktrees', path.basename(info.path)), { recursive: true, force: true })
+    const seen: Array<[string, boolean]> = []
+    const stopProcessesIn = async (dir: string): Promise<void> => {
+      seen.push([dir, existsSync(path.join(dir, 'f.txt'))])
+    }
+    await expect(removeWorktree({ id: info.id, registry: reg, isPathInUse: noUse, stopProcessesIn })).rejects.toThrow(/ORPHAN_UNVERIFIABLE/)
+    expect(seen).toEqual([])
+    await removeWorktree({ id: info.id, force: true, registry: reg, isPathInUse: noUse, stopProcessesIn })
+    expect(seen).toEqual([[info.path, true]])
+    expect(existsSync(info.path)).toBe(false)
+  })
+
   it('branch -D first writes a backup ref at the branch head', async () => {
     const { info } = await createWorktree({ repoPath: repo, name: 'backup', registry: reg })
     await fs.writeFile(path.join(info.path, 's.txt'), 's', 'utf8')
