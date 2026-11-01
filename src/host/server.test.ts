@@ -23,6 +23,7 @@ import { emptyState } from '../core/orchestration/state'
 import { versionOnlyOrchCall, AppUnreachable } from '../core/host/orchProtocol'
 import { HOST_UNRESPONSIVE_MS } from '../core/host/unresponsive'
 import { hostProof } from '../core/publicContract'
+import type { StopBlocker } from '../core/orchestration/running'
 
 let dir: string
 let open: HostServer[] = []
@@ -44,6 +45,7 @@ const server = async (
     profile?: string
     onMessage?: HostServerDeps['onMessage']
     liveCounts?: HostServerDeps['liveCounts']
+    stopBlockers?: HostServerDeps['stopBlockers']
     workingTasks?: HostServerDeps['workingTasks']
     orch?: HostServerDeps['orch']
     features?: HostServerDeps['features']
@@ -83,6 +85,7 @@ const server = async (
     onIdle: over.onIdle ?? ((): void => {}),
     onMessage: over.onMessage,
     liveCounts: over.liveCounts,
+    stopBlockers: over.stopBlockers,
     workingTasks: over.workingTasks,
     orch: over.orch ?? versionOnlyOrchCall({ version }),
     features: over.features,
@@ -170,6 +173,7 @@ const messageChannel = (sock: net.Socket): { send(m: ClientMessage): void; next(
 const start = async (
   over: {
     liveCounts?: HostServerDeps['liveCounts']
+    stopBlockers?: HostServerDeps['stopBlockers']
     /** The default is the version-only stub, which is what almost every test here wants. Overridden
      *  by the one test that has to talk to the real command layer over a real socket. */
     orch?: HostServerDeps['orch']
@@ -324,6 +328,26 @@ describe('startHostServer', () => {
     const m = await client.next()
     expect(m).toEqual({ t: 'retire-refused', sessions: 2, runs: 1 })
     expect(h.stopped).toBe(false)
+  })
+
+  it('names each blocker in the refusal, and counts only them, not every live console', async () => {
+    const blockers: StopBlocker[] = [
+      { kind: 'session', id: 's1', role: 'worker', taskId: 't1', runId: 'r1', title: 'fix login' },
+      { kind: 'run', id: 'r1', title: 'ship it', why: 'dispatched' }
+    ]
+    const h = await start({ liveCounts: () => ({ sessions: 5, runs: 1 }), stopBlockers: () => blockers })
+    const client = await h.connect()
+    client.send({ t: 'retire', reason: 'user' })
+    expect(await client.next()).toEqual({ t: 'retire-refused', sessions: 1, runs: 1, blockers })
+    expect(h.stopped).toBe(false)
+  })
+
+  it('leaves when nothing blocks, however many consoles are open', async () => {
+    const h = await start({ liveCounts: () => ({ sessions: 5, runs: 0 }), stopBlockers: () => [] })
+    const client = await h.connect()
+    client.send({ t: 'retire', reason: 'user' })
+    await new Promise((r) => setTimeout(r, 100))
+    expect(h.stopped).toBe(true)
   })
 
   it('일하는 것이 없으면 사람의 retire 를 그대로 받아들인다', async () => {

@@ -77,7 +77,7 @@ import { sourcedObjective } from '../core/sources/objective'
 import { readUnderstandingFile } from '../core/understanding/read'
 import { createHostUnderstanding } from '../host/hostUnderstanding'
 import { createHostWorkUnits, readWorkUnitTracking, wireSessionExits, workUnitSessionsOf, type HostWorkUnits } from '../host/hostWorkUnits'
-import { outcomeOf } from '../core/orchestration/running'
+import { outcomeOf, stopBlockers } from '../core/orchestration/running'
 import { readFileRetrying } from '../core/renameRetry'
 import { readHostMerges, hostMergesPathIn } from '../core/git/hostMerges'
 import type { PipelineDeps } from '../core/understanding/pipeline'
@@ -755,6 +755,12 @@ async function hostRig(
       units.clientGone(from.socket)
     },
     liveCounts: () => ({ sessions: registry.liveCount() + procs.liveCount(), runs: orch.runningRuns() }),
+    // As index.ts: the refusal names what holds the Host.
+    stopBlockers: () =>
+      stopBlockers(
+        orch.state(),
+        [...registry.liveEntries(), ...procs.liveEntries()].map((e) => ({ id: e.meta?.id ?? e.id, kind: e.meta?.kind ?? ('terminal' as const) }))
+      ),
     orch,
     features: hostFeatures({ spawns: true, slack: false }),
     ...wiring.serverHooks,
@@ -926,7 +932,10 @@ describe('the public CLI against a real Host (§48, §49)', { timeout: 60_000 },
     // `host stop` refuses over it, with the counts in `error.details` (docs/cli.md "The Host").
     const stop = await astera(['host', 'stop'], h.env)
     expect(stop.code).toBe(6)
-    expect(stop.envelope.error).toMatchObject({ code: 'CONFLICT', details: { sessions: 1, runs: 1 } })
+    expect(stop.envelope.error).toMatchObject({
+      code: 'CONFLICT',
+      details: { sessions: 1, runs: 1, blockers: [expect.objectContaining({ kind: 'run', id: runId, why: 'dispatched' }), expect.objectContaining({ kind: 'session', role: 'worker', taskId, runId })] }
+    })
   })
 
   // §48 "Integration — question" and Scenario C. **A worker cannot open a Gate itself** — `gate-create`

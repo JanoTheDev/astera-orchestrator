@@ -24,6 +24,7 @@ import {
   type ClientMessage,
   type HostMessage
 } from '../core/host/protocol'
+import type { StopBlocker } from '../core/orchestration/running'
 import { encodeLine, createLineReader } from './framing'
 import type { HostLog } from './log'
 import { AppUnreachable, type OrchCall, type OrchCaller } from '../core/host/orchProtocol'
@@ -110,6 +111,10 @@ export interface HostServerDeps {
    *  (conformance audit #100). A Host holding nothing still leaves. */
   /** `remote`: Remote is on, so the Host waits for controllers rather than leave idle (remote runtime N3). */
   liveCounts?(): { sessions: number; runs: number; remote?: boolean }
+  /** What holds a plain `host stop`, named (running.ts `stopBlockers`): a narrower set than `liveCounts` counts, as a
+   *  finished worker's console or a planner idle at its prompt does not hold it. When given, the refusal is built from
+   *  it and carries the list; when not, from `liveCounts`. */
+  stopBlockers?(): StopBlocker[]
   /** The Tasks actively working (sessionRestore.ts `workingTaskCount`): a `resume` retire is refused while any is. */
   workingTasks?(): number
   /** What a `restart` asks of this Host (T13). HOST_FEATURE_RESTART is announced only when this is given: serving the
@@ -768,10 +773,15 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
           // Host's sessions are unreachable to the app asking anyway, and refusing would strand it
           // there instead of letting a Host it can talk to take the address (design §12).
           if (m.reason === 'user') {
-            const counts = deps.liveCounts?.() ?? { sessions: 0, runs: 0 }
+            // The blockers when the Host can name them (a finished worker or an idle planner holds nothing); the raw
+            // counts of everything live otherwise.
+            const blockers = deps.stopBlockers?.()
+            const counts = blockers
+              ? { sessions: blockers.filter((b) => b.kind === 'session').length, runs: blockers.filter((b) => b.kind === 'run').length }
+              : (deps.liveCounts?.() ?? { sessions: 0, runs: 0 })
             if (counts.sessions > 0 || counts.runs > 0) {
               deps.log.write(`asked to retire but ${counts.sessions} session(s) and ${counts.runs} run(s) are still running — refusing`)
-              send({ t: 'retire-refused', sessions: counts.sessions, runs: counts.runs })
+              send({ t: 'retire-refused', sessions: counts.sessions, runs: counts.runs, ...(blockers ? { blockers } : {}) })
               return
             }
           }

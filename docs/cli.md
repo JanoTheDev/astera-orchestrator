@@ -100,10 +100,19 @@ asks an older Host to leave first and then starts one. **The sessions that Host 
 which is why this is a flag you choose and not what happens on its own. Opening Astera does the
 same. A Host of a newer protocol is never replaced.
 
-`astera host stop` refuses while the Host still holds sessions or running **runs**, and says how many.
+`astera host stop` refuses while the Host still holds sessions or running **runs**, and says which.
 That refusal is the Host protecting work in progress. Stop the work first, then stop the Host. The
-refusal is exit 6 (`CONFLICT`), and the counts are in `error.details.sessions` and
-`error.details.runs`.
+refusal is exit 6 (`CONFLICT`). The message lists each blocker on its own line, and
+`error.details.blockers` holds the same list: `{ kind: "session", id, role, taskId?, runId?, title }`
+(`role` is `worker`, `reviewer`, `coordinator`, `chat` or `terminal`) or
+`{ kind: "run", id, title, why }` (`why` is `merging`, `validating`, `reviewing`, `dispatched` or
+`coordinator`). The counts stay in `error.details.sessions` and `error.details.runs`.
+
+What blocks it: a worker or reviewer session whose Dispatch is open, a coordinator of a run that is
+not paused, a chat or terminal you opened (stopping the Host would end your shell), and a run with a
+Task being validated, reviewed, merged or worked on. What does not: a worker whose Dispatch has
+ended (its console may still be open), a planner idle at its prompt (the next Host restores it, or
+you reopen it), and anything of a **paused** run, whose merge resumes with the run.
 
 A Host that accepts the stop first lets any worker or coordinator start it is in the middle of
 finish, for up to 20 seconds, and takes no new one. `host stop` therefore waits up to 35 seconds for

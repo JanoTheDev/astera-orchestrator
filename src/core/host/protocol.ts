@@ -6,6 +6,7 @@
 // renderer.
 import type { GatewayState } from '../remote/gatewayState'
 import type { OrchState } from '../orchestration/state'
+import type { StopBlocker } from '../orchestration/running'
 import type { CloseReason, HostDriverReport, RollStateEvent, SessionInfo, WorktreeInfo } from '../types'
 import type { ForwardedEvent } from '../connections/forwarded'
 import type { SessionSignal } from '../sessions/sessionSignal'
@@ -475,6 +476,9 @@ export type HostMessage =
       runs: number
       /** A `resume` retire's refusal: the Tasks actively working (a worker, a check, a review or a merge). */
       tasks?: number
+      /** Each session and Run holding a plain `host stop`, so the refusal can name them; `sessions` and `runs` are the
+       *  counts of these. Absent from a Host that predates it. */
+      blockers?: StopBlocker[]
     }
   /** A restart's progress (HOST_FEATURE_RESTART), to the clients that asked for it and to every greeted app: once as
    *  it begins, then every RESTART_PROGRESS_MS, the last one right before the handover. Nothing answers it.

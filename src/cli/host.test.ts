@@ -19,6 +19,7 @@ import {
 } from './host'
 import { userDataDir, ensureHostKey, hostProof } from '../core/publicContract'
 import { pendingReportsDirIn } from '../core/orchestration/pendingReports'
+import type { StopBlocker } from '../core/orchestration/running'
 import { hostAddress } from '../host/address'
 import { startHostServer, type HostServerDeps } from '../host/server'
 import { HOST_FEATURE_RESTART, HOST_PROTOCOL, RESTART_WAIT_MAX_MS, type ClientMessage, type HostMessage } from '../core/host/protocol'
@@ -130,6 +131,26 @@ describe('hostStopResult', () => {
         code: 'CONFLICT',
         message: 'Cannot stop Host: 2 sessions and 1 run are still running.',
         details: { sessions: 2, runs: 1 }
+      }
+    })
+  })
+
+  it('lists each blocking session and Run in the message and in details.blockers', () => {
+    const blockers: StopBlocker[] = [
+      { kind: 'session', id: 's1', role: 'worker', taskId: 't1', runId: 'r1', title: 'fix login' },
+      { kind: 'session', id: 's2', role: 'chat', title: 'my chat' },
+      { kind: 'run', id: 'r1', title: 'ship it', why: 'merging' }
+    ]
+    expect(hostStopResult({ outcome: 'refused', sessions: 2, runs: 1, blockers })).toEqual({
+      ok: false,
+      error: {
+        code: 'CONFLICT',
+        message:
+          'Cannot stop Host: 2 sessions and 1 run are still running.\n' +
+          '  session s1 (worker), task t1, run r1: fix login\n' +
+          '  session s2 (chat): my chat\n' +
+          '  run r1 (merging): ship it',
+        details: { sessions: 2, runs: 1, blockers }
       }
     })
   })

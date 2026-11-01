@@ -282,23 +282,90 @@ export function isStoppedWorker(t: JobTask): boolean {
  *
  *  **아직 시작하지 않은 계획은 세지 않는다.** Task 가 전부 pending·ready 인 회차는 사람이 Host 를
  *  멈추는 것을 막을 이유가 없다 — 지킬 일이 아직 없고, 그 상태로 막으면 세워 둔 계획 하나가
- *  `host stop` 을 영영 거절한다. 문서가 약속하는 것도 "진행 중인 일" 이다(docs/cli.md). */
+ *  `host stop` 을 영영 거절한다. 문서가 약속하는 것도 "진행 중인 일" 이다(docs/cli.md).
+ *
+ *  **A paused Run holds nothing in flight** (owner feedback item 20): `runs stop` closed its Dispatches, and a paused
+ *  Run never merges, validates or reviews, so a Task left `merging` there waits for the Run to resume. Counting it made
+ *  a Host with a paused Run refuse `host stop` for ever; the merge resumes with the Run, wherever it runs. */
 export function runningRunCount(s: OrchState): number {
+  return runBlockers(s).length
+}
+
+/** What `host stop` names for a Run: why it counts. `coordinator` is a coordinator planning or placing; the others are
+ *  the status of a Task of it that is in flight. */
+export type RunBlockWhy = 'merging' | 'validating' | 'reviewing' | 'dispatched' | 'coordinator'
+
+/** One thing that holds `astera host stop`, and what it is: a live session (`role`, with its Task and Run when state
+ *  knows them) or a Run with work in flight (`why`). `title` is what a person recognises it by. */
+export type StopBlocker =
+  | { kind: 'session'; id: string; role: 'worker' | 'reviewer' | 'coordinator' | 'planner' | 'chat' | 'terminal'; taskId?: string; runId?: string; title: string }
+  | { kind: 'run'; id: string; title: string; why: RunBlockWhy }
+
+/** The Runs `runningRunCount` counts, each with the reason. */
+function runBlockers(s: OrchState): Extract<StopBlocker, { kind: 'run' }>[] {
   const open = s.dispatches.filter((d) => !d.outcome && !d.endedAt)
-  return s.runs.filter((run) =>
+  const out: Extract<StopBlocker, { kind: 'run' }>[] = []
+  for (const run of s.runs) {
+    if (run.paused === true) continue
     // **A Run with its coordinator attached counts while it has work left** (e2e 2026-10-01:
     // `runsRunning: 0` beside a coordinator planning a Task-less Run). That coordinator is the work in
-    // flight: it plans and places. Not once the Run is paused (`runs stop` stopped it) or finished
-    // (a manual Run keeps its coordinator for a grace after its Tasks end, and that is not work).
-    // A Run waiting on its final check (`checking`) still has work in flight: the check
-    (run.coordinatorSessionId !== undefined && run.paused !== true && ['running', 'checking'].includes(outcomeOf(s, run.id))) ||
-    s.tasks.some(
-      (t) =>
-        t.runId === run.id &&
-        (t.status === 'validating' ||
-          (t.status === 'reviewing' && !reviewerEnded(s.dispatches, t.id)) ||
-          t.status === 'merging' ||
-          (t.status === 'dispatched' && open.some((d) => d.taskId === t.id)))
-    )
-  ).length
+    // flight: it plans and places. Not once the Run is finished (a manual Run keeps its coordinator for a grace
+    // after its Tasks end, and that is not work). A Run waiting on its final check (`checking`) still has work in flight.
+    const why: RunBlockWhy | undefined =
+      run.coordinatorSessionId !== undefined && ['running', 'checking'].includes(outcomeOf(s, run.id))
+        ? 'coordinator'
+        : s.tasks
+            .filter((t) => t.runId === run.id)
+            .map((t): RunBlockWhy | undefined =>
+              t.status === 'validating' || t.status === 'merging'
+                ? t.status
+                : t.status === 'reviewing' && !reviewerEnded(s.dispatches, t.id)
+                  ? 'reviewing'
+                  : t.status === 'dispatched' && open.some((d) => d.taskId === t.id)
+                    ? 'dispatched'
+                    : undefined
+            )
+            .find((w) => w !== undefined)
+    if (why !== undefined) out.push({ kind: 'run', id: run.id, title: jobOf(s, run)?.objective ?? run.id, why })
+  }
+  return out
+}
+
+/** A live pty or line process of the Host, as `stopBlockers` sees it: its app id and the note's `kind`. */
+export interface StopSession {
+  id: string
+  kind: 'session' | 'run' | 'terminal' | 'chat'
+  title?: string
+}
+
+/** **What holds a plain `astera host stop`** (owner feedback item 20): the live sessions that are working and the Runs
+ *  with work in flight, each named. A worker holds it while its Dispatch is open, a reviewer likewise, a coordinator while
+ *  its Run counts, and a chat or terminal a person opened always (closing the Host would lose their shell).
+ *  What does not: a worker whose Dispatch ended (its console may still be open), a planner idle at its prompt (the next
+ *  Host restores it, or it can be reopened), and any session of a paused Run. A session state does not know is a
+ *  person's own agent chat. */
+export function stopBlockers(s: OrchState | null, live: readonly StopSession[]): StopBlocker[] {
+  const out: StopBlocker[] = s ? runBlockers(s) : []
+  for (const l of live) {
+    if (l.kind !== 'session' || !s) {
+      out.push({ kind: 'session', id: l.id, role: l.kind === 'chat' || l.kind === 'session' ? 'chat' : 'terminal', title: l.title ?? l.id })
+      continue
+    }
+    const dispatches = s.dispatches.filter((d) => d.sessionId === l.id)
+    const d = dispatches.find((x) => !x.outcome && !x.endedAt)
+    const task = s.tasks.find((t) => t.id === (d ?? dispatches[0])?.taskId)
+    const coord = s.runs.find((r) => r.coordinatorSessionId === l.id)
+    const planner = s.jobs.some((j) => j.plannerSessionIds?.includes(l.id) || j.replanning?.sessionId === l.id)
+    const runOf = (runId: string | undefined) => s.runs.find((r) => r.id === runId)
+    if (d && task) {
+      if (runOf(task.runId)?.paused === true) continue
+      out.push({ kind: 'session', id: l.id, role: d.review === true ? 'reviewer' : 'worker', taskId: task.id, ...(task.runId ? { runId: task.runId } : {}), title: task.title })
+    } else if (coord) {
+      if (coord.paused !== true && ['running', 'checking'].includes(outcomeOf(s, coord.id)))
+        out.push({ kind: 'session', id: l.id, role: 'coordinator', runId: coord.id, title: jobOf(s, coord)?.objective ?? coord.id })
+    } else if (!planner && dispatches.length === 0) {
+      out.push({ kind: 'session', id: l.id, role: 'chat', title: l.title ?? l.id })
+    }
+  }
+  return out
 }
