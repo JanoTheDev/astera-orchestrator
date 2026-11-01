@@ -30,7 +30,7 @@ import {
   type KindFilter,
   type needsYouOf,
   nowOf,
-  reasonText,
+  cardReasonText,
   reasonTone,
   reuseOf,
   stepStateOf,
@@ -408,7 +408,7 @@ function TaskRow({
   const [allFiles, setAllFiles] = useState(false)
   const [showAnswers, setShowAnswers] = useState(false)
   const reason = tk.board?.reason
-  const text = reason ? reasonText(reason, nowMs, label) : undefined
+  const text = cardReasonText(tk, nowMs, label)
   const account = tk.accountId ?? tk.accountIds?.[0]
   const files = tk.affectedPaths ?? []
   const shown = allFiles ? files : files.slice(0, FILES_SHOWN)

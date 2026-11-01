@@ -4,9 +4,8 @@
 // The gate is per Task (`waveOpen`, asked by `slotsToFill`, `worker-start` and the coordinator's inbox): a Task starts
 // once every Task it waits on (its deps, transitively) has completed. Unrelated Tasks of a lower wave never hold it, and
 // a failure holds back only what depends on it. With replanning on, a completed Task that did not go as planned
-// (`deviatingTasks`) holds the not-started Tasks it can affect (`affectedLeft`: downstream of it, or sharing paths with
-// it) until a replan has looked at it. T36: so does a failed Task nothing else retries (no coordinator, or its tries used
-// up) while not-started Tasks wait on it (`failedBlocks`): the replan may retry it, accept it as done, or rewire what
+// (`deviatingTasks`) holds the not-started Tasks it can affect (`affectedLeft`: downstream of it; sharing paths holds nothing) until a replan has looked
+// at it. T36: so does a failed Task nothing else retries (no coordinator, or its tries used up) while not-started Tasks wait on it (`failedBlocks`): the replan may retry it, accept it as done, or rewire what
 // waits. A Run whose only way on is through a failed Task is stalled (`stallOf`): the driving loop then asks the owner
 // once (`failedWaitQuestion`) and carries out the answer (`resolveFailedWait`). The driving loop starts that replan (`replansDue`, exec/dispatchLoop.ts) through
 // `jobs-replan` (exec/replanStart.ts); such a replan is *scoped*: it holds only those Tasks, the rest of the plan goes
@@ -363,25 +362,34 @@ export function resolveFailedWait(
   return { ok: true, state: next, value: next.tasks.find((t) => t.id === taskId)! }
 }
 
-/** The not-started Tasks `deviating` can affect: waiting on one of them (or on a Task so affected), or sharing paths
- *  with what one planned or changed. */
+/** The not-started Tasks `deviating` can affect: those waiting on one of them, directly or through another affected
+ *  Task. Sharing paths with it is no reason to hold a Task: the planner sees those paths in its brief (`pathsSharedWith`). */
 export function affectedLeft(deviating: readonly Task[], left: readonly Task[]): Task[] {
-  const paths = deviating.flatMap((t) => [...(t.affectedPaths ?? []), ...(t.filesModified ?? [])])
   const hit = new Set<string>(deviating.map((t) => t.id))
   const out = new Set<string>()
   for (let grew = true; grew; ) {
     grew = false
     for (const t of left) {
-      if (out.has(t.id)) continue
-      if (t.deps.some((d) => hit.has(d)) || (t.affectedPaths ?? []).some((p) => paths.some((q) => pathsOverlap(p, q)))) {
-        out.add(t.id)
-        hit.add(t.id)
-        grew = true
-      }
+      if (out.has(t.id) || !t.deps.some((d) => hit.has(d))) continue
+      out.add(t.id)
+      hit.add(t.id)
+      grew = true
     }
   }
   return left.filter((t) => out.has(t.id))
 }
+
+/** The not-started Tasks of `left` that share paths with what `deviating` planned or changed, and are not already in
+ *  `affected`: shown to a wave replan as information only, they are not held. */
+export function pathsSharedWith(deviating: readonly Task[], left: readonly Task[], affected: readonly Task[]): Task[] {
+  const paths = deviating.flatMap((t) => [...(t.affectedPaths ?? []), ...(t.filesModified ?? [])])
+  return left.filter((t) => !affected.includes(t) && (t.affectedPaths ?? []).some((p) => paths.some((q) => pathsOverlap(p, q))))
+}
+
+/** Whether this Run's final check has run: its last replan was a completion pass, or a Task it added is in the Run (a
+ *  wave replan of those follow-ups may have replaced `lastReplan` since). The final check runs once per Run. */
+const finalCheckRan = (s: OrchState, job: Job, runId: string): boolean =>
+  (job.lastReplan?.runId === runId && job.lastReplan.mode === 'completion') || runTasks(s, runId).some((t) => t.addedBy?.kind === 'final-check')
 
 /**
  * The replans the driving loop should start now, one per Run at most:
@@ -389,7 +397,8 @@ export function affectedLeft(deviating: readonly Task[], left: readonly Task[]):
  *   left (`heldForReplan`). Its `wave` is the lowest wave of those Tasks. A plan that goes as planned never replans
  *   before the end. T36: a failed Task that holds back not-started Tasks and that nothing else retries counts too
  *   (`unplanned`): the replan looks at it once; still failed after that, the Run stalls and the owner is asked.
- * - `completion`: every Task is completed and the last replan was not a completion pass over this many done Tasks.
+ * - `completion`: every Task is completed and the Run's final check has not run yet (`finalCheckRan`): once per Run, the
+ *   follow-up Tasks it adds are judged by their own reviews and no second pass looks at them.
  *   Only for a Run `seenRunning` says this process watched run, so a Run that ended before (or before this existed)
  *   is not reopened.
  */
@@ -401,9 +410,8 @@ export function replansDue(s: OrchState, seenRunning: (runId: string) => boolean
     const ts = runTasks(s, run.id)
     if (ts.length === 0) continue
     const done = completedIn(ts)
-    const last = job.lastReplan?.runId === run.id ? job.lastReplan : undefined
     if (ts.every((t) => t.status === 'completed')) {
-      if (!seenRunning(run.id) || (last?.mode === 'completion' && last.done === done)) continue
+      if (!seenRunning(run.id) || finalCheckRan(s, job, run.id)) continue
       out.push({ runId: run.id, mode: 'completion', wave: 1 + Math.max(...ts.map((t) => waveOf(t, s.tasks))), done })
       continue
     }
@@ -414,19 +422,14 @@ export function replansDue(s: OrchState, seenRunning: (runId: string) => boolean
   return out
 }
 
-/** Whether a Run that has completed is really done: replanning is off, or its completion pass ran over exactly these
- *  completed Tasks and was not handed to a person who still holds the Job. Until then its PR, its "plan done" and its
- *  coordinator's stop wait. */
+/** Whether a Run that has completed is really done: replanning is off, or its final check ran (once per Run, whatever
+ *  the follow-ups it added have done since) and was not handed to a person who still holds the Job. Until then its PR,
+ *  its "plan done" and its coordinator's stop wait. */
 export function completionSettled(s: OrchState, job: Job, runId: string): boolean {
   if (!replanOn(job)) return true
   if (job.replanning) return false
   const last = job.lastReplan
-  return (
-    last?.runId === runId &&
-    last.mode === 'completion' &&
-    last.done === completedIn(runTasks(s, runId)) &&
-    !(last.escalated !== undefined && job.dispatchHold)
-  )
+  return finalCheckRan(s, job, runId) && !(last?.runId === runId && last.escalated !== undefined && job.dispatchHold)
 }
 
 /** The Job whose replan session `sessionId` is, if it is one. */

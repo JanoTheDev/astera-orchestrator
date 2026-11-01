@@ -336,7 +336,9 @@ const SESSION = {
       // W6-A: what the planner found of the item; a plan Task without it cannot be approved
       { name: 'basis', value: '<missing|partial|broken>', about: "the item's state as found before planning (with --evidence)" },
       { name: 'evidence', value: '<text>', about: 'with --basis: file:line, an issue or PR number, a Job id' },
-      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: 'the sort of work; picks the worker skills (T9)' }
+      { name: 'kind', value: '<bugfix|feature|refactor|ui|audit|docs|test|ops>', about: 'the sort of work; picks the worker skills (T9)' },
+      // T32: required from a replan planner; the plan view shows "Added by the final check: <why>"
+      { name: 'why', value: '<text>', about: "from a replan planner (required there): one line, why this Task is added; the plan view shows it" }
     ]
   },
   'task-update': {
