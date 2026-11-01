@@ -62,6 +62,8 @@ export interface HostRecoveryDeps {
   readResumeStrategy?(settingsPath: string): Promise<ResumeStrategy>
   readMaxConcurrentWorkers?(settingsPath: string): Promise<number>
   executeRecovery?: typeof realExecuteRecovery
+  /** T34: a dead worker session's conversation id; the orchestration's `agentSessionOf` when left out. */
+  nativeIdOf?(sessionId: string): Promise<string | null>
 }
 
 export interface HostRecovery {
@@ -150,6 +152,8 @@ export function createHostRecovery(d: HostRecoveryDeps): HostRecovery {
     readGitFacts: (cwd) => (d.readGitFacts ?? realReadGitFacts)(cwd),
     smartResume: () => smart,
     workerCap: () => workerCap,
+    // T34: a lost worker whose conversation is known resumes in it (decide.ts `resume-native`), as a handover does.
+    nativeIdOf: async (sid) => (d.nativeIdOf ? d.nativeIdOf(sid) : ((await d.orch.internalDeps().agentSessionOf?.(sid)) ?? null)),
     // The last gate before a worker is spawned: the reads before it waited on git and the journal, and the Host
     // may have stopped driving, begun to leave, or met an app that takes recovery back in the meantime. The
     // reconciler journals the refusal as RECOVERY_FAILED, the honest record of what happened.
@@ -215,15 +219,18 @@ export function createHostRecovery(d: HostRecoveryDeps): HostRecovery {
         const asked = [...waiting]
         waiting.clear()
         await readStrategy()
+        // T34: every one that fits now starts side by side (each takes its slot before its first await), not one
+        // after another; reconcileOne tells onLeftForLater again when there is still no room.
+        const asking: Promise<void>[] = []
         for (const id of asked) {
           if (!lostNow.has(id)) continue
           if (!owns()) {
             waiting.add(id)
             continue
           }
-          // reconcileOne tells onLeftForLater again when there is still no room.
-          await track(reconciler.reconcileOne(id))
+          asking.push(track(reconciler.reconcileOne(id)))
         }
+        await Promise.all(asking)
       } catch (err) {
         log(`recovery: catching up failed: ${String(err)}`)
       }

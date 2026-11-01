@@ -8,6 +8,8 @@ import type { GitFacts } from '../core/recovery/types'
 import type { ResumeStrategy } from '../core/types'
 import { HOST_YIELD_RECOVERY } from '../core/host/protocol'
 import { createLostGateGuard, type LostGateGuard } from './lostGateGuard'
+import { CRASH_RESUME_NOTE, resumeAfterCrash } from '../core/orchestration/exec/crashResume'
+import type { ActivityDraft } from '../core/orchestration/activity'
 
 const NOW = '2026-10-08T10:00:00.000Z'
 const EARLIER = '2026-10-08T09:00:00.000Z'
@@ -39,12 +41,19 @@ function rig(over: {
   guard?: LostGateGuard
   /** The app-wide worker cap the recovery reads; 50 when left out, so only a Run's own limit binds. */
   cap?: number
+  /** Awaited inside each execute, after it is recorded: a start that takes its time. */
+  holdExecute?: () => Promise<void>
+  /** T34: the real executor, over a startWorker that records what it was asked to start. */
+  realExecute?: boolean
+  /** T34: the orchestration's `agentSessionOf`. */
+  agentSessionOf?: (sid: string) => Promise<string | null>
 } = {}) {
   let current = over.state ?? lostState()
   const appended: Array<{ type: string }> = []
   const executed: Array<{ dispatchId: string; strategy: string }> = []
   const handled: Array<{ cmd: string; args: Record<string, unknown> }> = []
   const logs: string[] = []
+  const started: Array<{ worktree: string; resume?: { nativeSessionId?: string; briefing?: string } }> = []
   const box = { mayStart: over.mayStart ?? (() => true), keeps: over.keeps ?? false, writes: over.writes ?? true }
   const deps: HostRecoveryDeps = {
     journal: {
@@ -60,7 +69,17 @@ function rig(over: {
     server: { hasApp: () => over.hasApp ?? false, appsKeep: (duty) => duty === HOST_YIELD_RECOVERY && box.keeps },
     mayStart: () => box.mayStart(),
     orch: {
-      internalDeps: () => ({ getState: () => current, setState: async (n: OrchState) => { current = n }, startWorker: async () => { throw new Error('not here') } }) as never,
+      internalDeps: () =>
+        ({
+          getState: () => current,
+          setState: async (n: OrchState) => { current = n },
+          startWorker: async (w: (typeof started)[number]) => {
+            if (!over.realExecute) throw new Error('not here')
+            started.push(w)
+            return { sessionId: `sess-new-${started.length}`, cwd: w.worktree, specPath: 'spec.md' }
+          },
+          ...(over.agentSessionOf ? { agentSessionOf: over.agentSessionOf } : {})
+        }) as never,
       handle: async (cmd, args) => { handled.push({ cmd, args }); return { status: 200, body: {} } },
       state: () => current
     },
@@ -75,14 +94,15 @@ function rig(over: {
     },
     readResumeStrategy: async () => (over.strategy ? over.strategy() : 'original'),
     readMaxConcurrentWorkers: async () => over.cap ?? 50,
-    executeRecovery: async (a) => {
+    ...(over.realExecute ? {} : { executeRecovery: async (a: Parameters<NonNullable<HostRecoveryDeps['executeRecovery']>>[0]) => {
       executed.push({ dispatchId: a.attempt.dispatchId, strategy: a.decision.strategy })
+      if (over.holdExecute) await over.holdExecute()
       const id = a.attempt.dispatchId === 'dsp_1' ? 'dsp_2' : `${a.attempt.dispatchId}_retry`
       current = { ...current, dispatches: [...current.dispatches, lost({ id, taskId: a.attempt.taskId, sessionId: `sess-${id}`, startedAt: NOW, endedAt: undefined, workerState: 'ready', retryOf: a.attempt.dispatchId })] }
       return { ok: true as const, newDispatchId: id }
-    }
+    } })
   }
-  return { r: createHostRecovery(deps), box, appended, executed, handled, logs, set: (f: (s: OrchState) => OrchState) => { current = f(current) } }
+  return { r: createHostRecovery(deps), box, appended, executed, handled, logs, started, get state() { return current }, set: (f: (s: OrchState) => OrchState) => { current = f(current) } }
 }
 
 describe('createHostRecovery (remote runtime design §2.6, Phase 3R)', () => {
@@ -241,5 +261,89 @@ describe('createHostRecovery (remote runtime design §2.6, Phase 3R)', () => {
     h.box.keeps = true
     await h.r.catchUp()
     expect(h.executed).toEqual([])
+  })
+})
+
+// T34: after a crash every lost worker comes back at once, up to the cap, in its own conversation when it is known.
+describe('createHostRecovery after a crash (T34)', () => {
+  const lostMany = (n: number): OrchState =>
+    stateFromLegacy({
+      runs: [run({ concurrency: 50 })],
+      tasks: Array.from({ length: n }, (_, i) => task({ id: `tsk_w${i}` })),
+      dispatches: Array.from({ length: n }, (_, i) => lost({ id: `dsp_w${i}`, taskId: `tsk_w${i}`, sessionId: `sess-w${i}` }))
+    })
+  const witnessed = (n: number) => Array.from({ length: n }, (_, i) => ({ type: 'PROMPT_WRITE_CONFIRMED', dispatchId: `dsp_w${i}` }))
+  /** A gate every held start waits on, opened by the test. */
+  const gate = () => {
+    let open!: () => void
+    let p = new Promise<void>((r) => (open = r))
+    return { wait: () => p, open: () => open(), reset: () => void (p = new Promise<void>((r) => (open = r))) }
+  }
+
+  it('15 lost workers and room for all: every one starts in the first pass, side by side, and the feed says resumed 15', async () => {
+    const g = gate()
+    const h = rig({ state: lostMany(15), events: witnessed(15), holdExecute: g.wait })
+    // The file as the crash left it: the same Dispatches, still open.
+    const before: OrchState = { ...h.state, dispatches: h.state.dispatches.map(({ endedAt: _e, workerState: _w, ...d }) => ({ ...d, workerState: 'ready' as const })) }
+    const feed: ActivityDraft[] = []
+    const r = await resumeAfterCrash({
+      readFile: () => before,
+      ready: async () => {
+        void h.r.sweep('the load')
+        // Every start is under way while none has finished: they were not awaited one after another.
+        await expect.poll(() => h.executed.length).toBe(15)
+        g.open()
+      },
+      state: () => h.state,
+      settle: () => h.r.catchUp(),
+      waiting: () => h.r.waiting(),
+      handle: async () => ({ status: 200, body: {} }),
+      activity: (a) => feed.push(a),
+      log: () => {},
+      sleep: async () => {}
+    })
+    expect(new Set(h.executed.map((e) => e.dispatchId)).size).toBe(15)
+    expect(h.r.waiting().size).toBe(0)
+    expect(r).toEqual({ workers: 15, coordinators: 0 })
+    expect(feed[0].payload.reason).toBe('Recovered after a crash: resumed 15 workers, 0 coordinators')
+  })
+
+  it('room for k: k start in the first pass, and the rest as slots free, every freed slot at once', async () => {
+    const g = gate()
+    const h = rig({ state: lostMany(15), events: witnessed(15), cap: 5, holdExecute: g.wait })
+    const sweeping = h.r.sweep('the load')
+    await expect.poll(() => h.executed.length).toBe(5)
+    g.open()
+    await sweeping
+    expect(h.executed).toHaveLength(5)
+    expect(h.r.waiting().size).toBe(10)
+    // Three restarted workers report at once: one catch-up starts all three, side by side.
+    g.reset()
+    const done = h.executed.slice(0, 3).map((e) => `${e.dispatchId}_retry`)
+    h.set((s) => ({ ...s, dispatches: s.dispatches.map((d) => (done.includes(d.id) ? { ...d, endedAt: NOW, outcome: 'succeeded' as const } : d)) }))
+    const catching = h.r.catchUp()
+    await expect.poll(() => h.executed.length).toBe(8)
+    g.open()
+    await catching
+    expect(h.executed).toHaveLength(8)
+    expect(h.r.waiting().size).toBe(7)
+    // Never past the cap: five open at the end, as at the start.
+    expect(h.state.dispatches.filter((d) => !d.endedAt && !d.outcome)).toHaveLength(5)
+  })
+
+  it('a lost worker whose conversation is known resumes in it, in its own worktree, told of the crash', async () => {
+    const h = rig({ realExecute: true, agentSessionOf: async (sid) => (sid === 'sess-1' ? 'native-1' : null) })
+    await h.r.sweep('the load')
+    expect(h.started).toHaveLength(1)
+    expect(h.started[0].worktree).toBe('D:/wt')
+    expect(h.started[0].resume?.nativeSessionId).toBe('native-1')
+    expect(h.started[0].resume?.briefing).toContain(CRASH_RESUME_NOTE)
+  })
+
+  it('with no conversation known it starts fresh', async () => {
+    const h = rig({ realExecute: true, agentSessionOf: async () => null })
+    await h.r.sweep('the load')
+    expect(h.started).toHaveLength(1)
+    expect(h.started[0].resume?.nativeSessionId).toBeUndefined()
   })
 })

@@ -55,13 +55,15 @@ export function inFlightOf(s: OrchState): { dispatchIds: string[]; coordinatorRu
   }
 }
 
-/** A lost Dispatch recovery is done with: it reported after all, or it was closed and its Task has a new attempt, an
- *  open Gate, or is no longer waiting on it. */
+/** A lost Dispatch recovery is done with: it reported after all, or it was closed and its Task has a new attempt (by
+ *  any door: T34, a worker-start sets no `retryOf`), an open Gate, or is no longer waiting on it. */
 function settled(s: OrchState, id: string): boolean {
-  const d = s.dispatches.find((x) => x.id === id)
+  const at = s.dispatches.findIndex((x) => x.id === id)
+  const d = s.dispatches[at]
   if (!d || d.outcome) return true
   if (!d.endedAt) return false
-  if (s.dispatches.some((x) => x.retryOf === id)) return true
+  // Dispatches are appended as they open, so a later one is a newer attempt.
+  if (s.dispatches.some((x, i) => x.retryOf === id || (i > at && x.taskId === d.taskId))) return true
   if (s.gates.some((g) => g.taskId === d.taskId && g.status === 'open')) return true
   const task = s.tasks.find((t) => t.id === d.taskId)
   return !task || task.status !== 'dispatched'
@@ -117,8 +119,12 @@ export async function resumeAfterCrash(d: CrashResumeDeps): Promise<{ workers: n
       }
       await sleep(POLL_MS)
     }
+    // T34: a worker brought back is a lost Task with a Dispatch the crash did not leave, by any door: the recovery's
+    // resume or re-dispatch (`retryOf`), or a worker-start for it. Counting `retryOf` alone said 0 while they came back.
     const lost = new Set(was.dispatchIds)
-    const workers = d.state().dispatches.filter((x) => x.retryOf !== undefined && lost.has(x.retryOf)).length
+    const lostTasks = new Set(before.dispatches.filter((x) => lost.has(x.id)).map((x) => x.taskId))
+    const left = new Set(before.dispatches.map((x) => x.id))
+    const workers = new Set(d.state().dispatches.filter((x) => !left.has(x.id) && lostTasks.has(x.taskId)).map((x) => x.taskId)).size
 
     let coordinators = 0
     for (const runId of was.coordinatorRuns) {
