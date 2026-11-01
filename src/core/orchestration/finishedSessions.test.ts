@@ -51,4 +51,37 @@ describe('sessionsDoneWith', () => {
   it('keeps a session a later attempt reuses', () => {
     expect(ids(state([task('t1', 'completed')], [dsp('d1', 't1', 'w1'), dsp('d2', 't1', 'w1', { endedAt: undefined, outcome: undefined })]))).toEqual([])
   })
+
+  describe('an earlier attempt of a retried Task (T13)', () => {
+    const retried = (over: Partial<Dispatch> = {}, status: Task['status'] = 'dispatched') =>
+      state([task('t1', status)], [dsp('d1', 't1', 'w1', { outcome: 'failed', ...over }), dsp('d2', 't1', 'w2', { endedAt: undefined, outcome: undefined })])
+
+    it('is done with once the new attempt has opened, even while the Task runs again', () => {
+      expect(ids(retried())).toEqual(['d1'])
+    })
+
+    it('is done with when the new attempt is a pending start, and when the Task failed again', () => {
+      const s = state([task('t1', 'failed')], [dsp('d1', 't1', 'w1', { outcome: 'failed' }), dsp('d2', 't1', 'pending:ab12', { endedAt: undefined, outcome: undefined })])
+      expect(ids(s)).toEqual(['d1'])
+      const again = state([task('t1', 'failed')], [dsp('d1', 't1', 'w1', { outcome: 'failed' }), dsp('d2', 't1', 'w2', { outcome: 'failed' })])
+      expect(ids(again)).toEqual(['d1'])
+    })
+
+    it('keeps a retained old attempt, and one a new attempt took the session of (a same-session repair)', () => {
+      expect(ids(retried({ retained: true }))).toEqual([])
+      const reused = state([task('t1', 'dispatched')], [dsp('d1', 't1', 'w1', { outcome: 'failed' }), dsp('d2', 't1', 'w1', { endedAt: undefined, outcome: undefined })])
+      expect(ids(reused)).toEqual([])
+    })
+
+    it('does not count a reviewer as an attempt', () => {
+      expect(ids(state([task('t1', 'failed')], [dsp('d1', 't1', 'w1', { outcome: 'failed' }), dsp('d2', 't1', 'rev', { review: true })]))).toEqual([])
+    })
+
+    it('leaves an old attempt of a converging Task to the repair, which worker-release refuses to end', () => {
+      const s = retried()
+      ;(s.jobs[0] as { convergence?: object }).convergence = {}
+      s.tasks[0].status = 'validating'
+      expect(ids(s)).toEqual([])
+    })
+  })
 })

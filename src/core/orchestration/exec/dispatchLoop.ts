@@ -1319,6 +1319,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     getState: () => c.getState(),
     sessionAlive: (id) => c.sessionAlive(id),
     lastPersonInputAt: (id) => c.lastPersonInputAt?.(id) ?? null,
+    sessionBusy: (id) => c.sessionBusy(id),
     activity: (runId, taskId, reason) => c.activity?.(watchdogActivity(c.getState(), runId, reason, taskId)),
     sessionContextPct: (id) => c.sessionContextPct?.(id) ?? null,
     freshCoordinatorPct: () => c.freshCoordinatorPct?.() ?? 0,

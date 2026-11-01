@@ -2,6 +2,7 @@ import type { ApprovalMode } from './settings/approvalDefault'
 import type { CrashOffer, CrashReportsSetting, RENDERER_KINDS } from './crash/report' // T27
 import type { Decision, IssuePick, PlanFeedback } from './orchestration/types'
 import type { DeliverySetup } from './orchestration/deliveryChoices'
+import type { OpenConsole } from './orchestration/openConsoles'
 import type { WorktreeDetail, WorktreeRow } from './worktrees/cleanup'
 import type { ChangeMap } from './review/changeMap'
 import type { SlashCommand } from './commands/slashCommands'
@@ -830,6 +831,8 @@ export interface JobRow {
   plannerSessionId?: string
   /** A replan is under way (Job.replanning): the 0-based wave it stands before. */
   replanWave?: number
+  /** T13: the consoles a running plan has open, each with the reason it is kept (openConsoles.ts). Absent: none open. */
+  consoles?: { count: number; list: OpenConsole[] }
   /** T14 Coordinator strip: the plan's wave being worked on and its wave count, both 1-based (replan.ts `waveOf`);
    *  `at` is the first wave with a Task not completed, `of` once all are. Absent: the plan has no Tasks yet. */
   wave?: { at: number; of: number }

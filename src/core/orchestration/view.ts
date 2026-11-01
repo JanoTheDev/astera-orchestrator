@@ -29,6 +29,7 @@ import { jobNameOf } from './jobName'
 import { objectiveItemsOf } from './objectiveItems'
 import { stallOf, waveOf } from './replan'
 import { holdOf } from './holds'
+import { consolesIn } from './openConsoles'
 import { autoApproveOf, handsOffOf, planApprovable } from './exec/plannerFeedback'
 import type { ScheduleLimits } from './schedule'
 
@@ -469,6 +470,15 @@ export function snapshotFor(
       run ? runWorktreesFrom(run, ix.jobById.get(run.jobId)?.cwd, ix.dispatchesByRun.get(run.id) ?? []) : []
     ).filter(exists)
     const outcome = outcomeOfRun(ownedTasks, run, state)
+    const consolesOf = (r: JobRun | undefined, o: RunOutcome): Pick<JobRow, 'consoles'> | undefined => {
+      if (r === undefined || o !== 'running') return undefined
+      const list = consolesIn(
+        { run: r, job, tasks: ownedTasks, dispatches: ix.dispatchesByRun.get(r.id) ?? [], hasOpenGate: (id) => ix.openGatesByTask.has(id), running: true },
+        isKnownSession,
+        { nowMs }
+      )
+      return list.length > 0 ? { consoles: { count: list.length, list } } : undefined
+    }
     const finishedAt = finishedAtOf(job, run, outcome, ownedTasks, ownedTasks.flatMap((t) => ix.dispatchesByTask.get(t.id) ?? []))
     return {
       id: rowId,
@@ -569,6 +579,8 @@ export function snapshotFor(
         ? { plannerSessionId: job.plannerSessionIds[job.plannerSessionIds.length - 1] }
         : {}),
       ...(job.replanning ? { replanWave: job.replanning.wave } : {}),
+      // T13: the consoles a running plan has open and why each stays (the view has no record of a person's typing: those read `none`)
+      ...(consolesOf(run, outcome) ?? {}),
       ...(ownedTasks.length > 0 ? { wave: waveProgressOf(ownedTasks) } : {}),
       ...(job.feedback && job.feedback.length > 0 ? { feedback: job.feedback } : {}),
       ...(job.autoStartedAt !== undefined ? { autoStartedAt: job.autoStartedAt } : {}),
