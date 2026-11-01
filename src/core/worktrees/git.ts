@@ -401,6 +401,8 @@ export async function listBranches(repo: string): Promise<BranchRef[] | null> {
 export interface GitWorktreeRow {
   path: string
   branch: string | null // short name with refs/heads/ stripped, null when detached
+  /** The commit the worktree's HEAD is at, as git's own record holds it (read even when the folder lost its `.git`). */
+  head?: string
   /** Set when git has the worktree locked (`git worktree lock`); a plain remove refuses it. */
   locked?: true
 }
@@ -414,6 +416,8 @@ export async function listGitWorktrees(repo: string): Promise<GitWorktreeRow[]> 
     if (line.startsWith('worktree ')) {
       if (current) rows.push(current)
       current = { path: line.slice('worktree '.length), branch: null }
+    } else if (line.startsWith('HEAD ') && current) {
+      current.head = line.slice('HEAD '.length)
     } else if (line.startsWith('branch ') && current) {
       current.branch = line.slice('branch '.length).replace(/^refs\/heads\//, '')
     } else if ((line === 'locked' || line.startsWith('locked ')) && current) {

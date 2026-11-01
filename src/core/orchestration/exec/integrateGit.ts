@@ -847,7 +847,10 @@ export function worktreeDeps(ctx: {
       const unchecked: string[] = []
       let uncommitted = 0
       for (const p of paths) {
-        const at = await presenceOf(p)
+        const found = await presenceOf(p)
+        // A folder without its `.git` link is a worktree half removed: counted as removed, as mergeWorktrees does
+        // (the Host-start sweep, worktrees/sweep.ts, moves it aside once its work is known to be on a branch)
+        const at = found === 'present' && (await presenceOf(path.join(p, '.git'))) === 'missing' ? 'missing' : found
         // **이미 없는 폴더는 실패가 아니다.** Dispatch 의 cwd 는 워크트리를 지운 뒤에도 상태에 남으므로
         // 그런 경로가 여기까지 온다 — reapWorktree 는 그것을 "앱 워크트리가 아니다" 로 거절하고 false 를
         // 내는데, 그것을 failed 에 담으면 사용자에게 "이 폴더를 지우지 못했습니다" 로 보고된다.
@@ -1040,6 +1043,8 @@ export interface PushContext {
   gitAtLeast?: typeof gitVersionAtLeast
   /** T3: who is told Astera moves HEAD for the catch-up merge with origin (integrateWorktrees' own). Optional. */
   gitOp?: IntegrateContext['gitOp']
+  /** Test seam for the retry's `.git` link check; defaults to the action-lane check (worktrees/presence.ts). */
+  presence?: PresenceCheck
 }
 
 /** T3: why a push delivery stopped part-way, for the caller to tell a retry from an integration Task: `fetch-failed`
@@ -1240,7 +1245,14 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
         if (!reset.ok || !back.ok || back.stdout !== base) stop = `could not go back to ${base} to try again: ${why(reset)}`
       }
     }
-    const tips = stop === null ? await tipsOf(a.worktrees, run) : []
+    // A worktree without its `.git` link (half removed, or gone) is skipped as mergeWorktrees does: refreshing it would
+    // run git where git cannot run and stop the delivery on a folder that holds nothing to merge
+    const linked = stop === null
+      ? await Promise.all(a.worktrees.map(async (wt) => (await askUntilAnswered(ctx.presence ?? defaultActionPresenceCheck, path.join(wt, '.git'))) !== 'missing'))
+      : []
+    const skipped = a.worktrees.filter((_, i) => linked[i] === false)
+    if (skipped.length > 0) ctx.log(`delivery: skipping ${skipped.length} removed worktree(s) on the retry: ${skipped.join(', ')}`)
+    const tips = stop === null ? await tipsOf(a.worktrees.filter((_, i) => linked[i]), run) : []
     for (const wt of tips) {
       if (stop !== null) break
       const r = await refreshOnto(wt, base, `Refresh onto ${branch} before delivery`, { log: ctx.log, git: run, ...(ctx.gitAtLeast ? { gitAtLeast: ctx.gitAtLeast } : {}) })

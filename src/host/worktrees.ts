@@ -36,6 +36,7 @@ import { WorktreeRegistry, defaultWorktreeRoot, isRegistryFile } from '../core/w
 import { git as realGit } from '../core/worktrees/git'
 import { removeWorktree } from '../core/worktrees/remove'
 import { cleanFinished, cleanRun, worktreeRows, type CleanResult } from '../core/worktrees/cleanupRun'
+import { sweepHalfRemoved } from '../core/worktrees/sweep'
 import type { WorktreesOps } from '../core/orchestration/worktreesCommand'
 import { listWithStatus } from '../core/worktrees/list'
 import { isPathWithin, isSamePath } from '../core/files/tree'
@@ -405,6 +406,8 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
   return {
     load: async () => {
       await registry.load()
+      // T21: the folders an earlier removal left without their .git, tidied off the start's critical path
+      void sweepHalfRemoved({ registry, log: d.log })
     },
     fork,
     gitOp,
