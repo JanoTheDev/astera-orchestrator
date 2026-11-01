@@ -944,4 +944,11 @@ describe('T19: a delivery re-reads both tips before it says "does not merge clea
     expect(r).toMatchObject({ ok: true })
     await expect(fs.readFile(path.join(repo, 'plan.txt'), 'utf8')).resolves.toBe('plan')
   })
+
+  it('a merge failure that stands reports the target tip it was judged on, for the retry to watch', async () => {
+    const wt = await worked('plan', 'same.txt', 'plan\n')
+    await commitOnMain('same.txt', 'main\n')
+    const r = await deliver([wt])
+    expect(r).toMatchObject({ ok: false, code: 'merge-failed', target: gitSync(repo, ['rev-parse', 'main']).trim() })
+  })
 })

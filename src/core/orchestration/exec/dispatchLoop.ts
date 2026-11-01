@@ -56,7 +56,7 @@ import { REPLAN_LIFT_HOLD } from './replanStart'
 import { failedRetriesDue, failedRetryOf } from './failedRetry'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
-import { refreshOnto, type Integration, type Refresh } from './integrateGit'
+import { refreshOnto, tipOf, type Integration, type Refresh } from './integrateGit'
 import { createOriginSync, originSyncHold } from './originSync'
 import { usageChoice, usagePauseWhy, type UsageGuard } from '../usageGuard'
 import {
@@ -274,6 +274,8 @@ export interface DispatchLoopContext {
   activity?(d: ActivityDraft): void
   /** T32: what a plan's folder is set up for (exec/deliverySetup.ts). Optional: without it every plan delivers as saved. */
   deliverySetup?(cwd: string): Promise<DeliverySetup>
+  /** T19: the commit `ref` names in `cwd` (a merge-failed delivery's target tip). Optional: defaults to the real git. */
+  readTip?(cwd: string, ref: string): Promise<string | null>
   /** Asked on entry and again before each slot (§4.3). */
   mayStart(): boolean
   /** W6-G: the usage guard (usageGuard.ts), refreshed before each slot. Optional: without it no usage pause. */
@@ -749,7 +751,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   /** T3: a Run seen running has its delivery pending on the Run itself (`deliveryState`), so a restarted Host still
    *  delivers it; a Run that was already done before this existed has none and gets no delivery it never asked for. */
   const seenRunning = (runId: string): boolean => c.getState().runs.find((r) => r.id === runId)?.deliveryState !== undefined
-  type DeliveryStep = { run: JobRun; push: boolean; action: 'auto' | 'retry' | 'self'; outcome: string }
+  type DeliveryStep = { run: JobRun; push: boolean; action: 'auto' | 'retry' | 'self'; outcome: string; targetTip?: string }
   const openCompletedRunPrs = async (): Promise<void> => {
     const s = c.getState()
     const nowMs = c.nowMs()
@@ -801,8 +803,14 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (p === undefined) continue
       const push = mode === 'push' || mode === 'merge' // T6: a local merge lands the same way
       const answer = deliveryAnswerOf(s, p)
+      // T19: a merge failure is tried again once the target moved: its tip now (local refs, as the last fetch left them)
+      const onto = run.delivery?.branch
+      const tip =
+        p.lastCode === 'merge-failed' && p.judgedOn?.target !== undefined && onto !== undefined
+          ? ((await (c.readTip ?? tipOf)(job.cwd, mode === 'merge' ? onto : `origin/${onto}`)) ?? undefined)
+          : undefined
       const action: DeliveryStep['action'] | null =
-        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs, run.git?.head) ? 'auto' : null
+        answer === 'self' || ownerCheckDue(p, nowMs) ? 'self' : answer === 'retry' ? 'retry' : deliveryDue(p, nowMs, run.git?.head, tip) ? 'auto' : null
       if (action === null) continue
       // W6-D: the PR waits for the final check (replan.ts completionSettled). W8-E (#99): a failed plan has none
       if (outcome === 'completed' && !completionSettled(s, job, run.id)) continue
@@ -814,7 +822,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!push && run.worktree === undefined) continue
       const key = projectKeyOf(s, job)
       const list = due.get(key)
-      const step = { run, push, action, outcome }
+      const step = { run, push, action, outcome, ...(tip !== undefined ? { targetTip: tip } : {}) }
       if (list) list.push(step)
       else due.set(key, [step])
     }
@@ -836,7 +844,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
    *  time come), the owner's "Retry now" (`retry`, a forced attempt that counts afresh) or "I'll push it myself" (`self`,
    *  git asked whether the commits reached the branch). Each attempt is recorded on the Run by `run-deliver` (T3:
    *  retried with backoff, the owner asked once after the last automatic one). Never throws. */
-  const deliverOne = async ({ run, push, action, outcome }: DeliveryStep): Promise<void> => {
+  const deliverOne = async ({ run, push, action, outcome, targetTip }: DeliveryStep): Promise<void> => {
     if (!c.mayStart()) return
     const job = jobOf(c.getState(), run)
     const plan = job ? jobNameOf(job) : run.id
@@ -876,7 +884,10 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     }
     try {
       // W6-H: `run-deliver` is `run-open-pr` for a `pr` project, and the guarded push for a `push` one
-      const r = await c.handle('run-deliver', action === 'retry' ? { run: run.id, force: true } : { run: run.id, auto: true })
+      const r = await c.handle(
+        'run-deliver',
+        action === 'retry' ? { run: run.id, force: true } : { run: run.id, auto: true, ...(targetTip !== undefined ? { targetTip } : {}) }
+      )
       const body = r.body as {
         url?: unknown
         sha?: unknown

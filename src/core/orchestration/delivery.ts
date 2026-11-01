@@ -210,12 +210,12 @@ export const DELIVERY_OWNER_PUSHES = "I'll push it myself"
 
 /** The record after one attempt: delivered, or one more failure with its retry time. `ask: false` (a plan-branch push)
  *  never reads `needs-owner`: only the end delivery asks the owner. T19: a `merge-failed` stop keeps the plan branch
- *  `head` it was judged on (`judgedOn`). */
+ *  `head` and the `target` tip it was judged on (`judgedOn`). */
 export function afterAttempt(
   prev: DeliveryProgress | undefined,
   at: string,
   error?: string,
-  opts?: { ask?: boolean; /** T1: the stop's code (PushStop), kept as `lastCode` */ code?: string; head?: string }
+  opts?: { ask?: boolean; /** T1: the stop's code (PushStop), kept as `lastCode` */ code?: string; head?: string; target?: string }
 ): DeliveryProgress {
   const attempts = (prev?.attempts ?? 0) + 1
   const keep = prev?.questionId !== undefined ? { questionId: prev.questionId } : {}
@@ -228,21 +228,25 @@ export function afterAttempt(
     lastAttemptAt: at,
     nextRetryAt: new Date(Date.parse(at) + wait * 60_000).toISOString(),
     ...(opts?.code !== undefined ? { lastCode: opts.code } : {}),
-    ...(opts?.code === 'merge-failed' && opts.head !== undefined ? { judgedOn: { branch: opts.head } } : {}),
+    ...(opts?.code === 'merge-failed' && (opts.head !== undefined || opts.target !== undefined)
+      ? { judgedOn: { ...(opts.head !== undefined ? { branch: opts.head } : {}), ...(opts.target !== undefined ? { target: opts.target } : {}) } }
+      : {}),
     ...keep
   }
 }
 
 /** Whether the driving loop attempts the end delivery now: once pending, after a failure when its retry time came
  *  (the owner's "I'll push it myself" is checked instead, `ownerCheckDue`), and a `delivering` left by a dead process.
- *  T19: a merge failure whose plan branch moved since (`head`, the Run's `git.head`, is not `judgedOn`) is due at once. */
-export function deliveryDue(p: DeliveryProgress | undefined, nowMs: number, head?: string): boolean {
+ *  T19: a merge failure is due at once when either tip moved since `judgedOn`: the plan branch (`head`, the Run's
+ *  `git.head`) or the target (`target`, `origin/<branch>`, the local branch for a `merge` delivery). */
+export function deliveryDue(p: DeliveryProgress | undefined, nowMs: number, head?: string, target?: string): boolean {
   if (!p) return false
   if (p.state === 'pending') return true
   if (p.state === 'delivering') return p.lastAttemptAt === undefined || nowMs - Date.parse(p.lastAttemptAt) >= DELIVERING_STALE_MS
   if (p.state !== 'retrying' && p.state !== 'needs-owner') return false
   if (p.ownerPushes === true) return false
-  if (p.lastCode === 'merge-failed' && p.judgedOn !== undefined && head !== undefined && head !== p.judgedOn.branch) return true
+  const moved = (was: string | undefined, now: string | undefined): boolean => was !== undefined && now !== undefined && was !== now
+  if (p.lastCode === 'merge-failed' && (moved(p.judgedOn?.branch, head) || moved(p.judgedOn?.target, target))) return true
   return p.nextRetryAt === undefined || Date.parse(p.nextRetryAt) <= nowMs
 }
 

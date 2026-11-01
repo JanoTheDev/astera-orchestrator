@@ -971,6 +971,12 @@ async function fetchMissing(
   return said.join('; ')
 }
 
+/** T19: the commit `ref` names in `cwd`, or null when git cannot say. */
+export async function tipOf(cwd: string, ref: string, run: typeof realGit = realGit): Promise<string | null> {
+  const r = await run(['rev-parse', ref], { cwd })
+  return r.ok ? r.stdout : null
+}
+
 /** Each worktree's HEAD, null where it cannot be read. */
 const headsOf = (worktrees: string[], run: typeof realGit): Promise<(string | null)[]> =>
   Promise.all(worktrees.map(async (w) => {
@@ -1073,7 +1079,16 @@ export function gitWhy(r: { stderr: string; stdout: string }, max = 2000): strin
 
 export type PushResult =
   | { ok: true; branch: string; sha: string; merged: string[]; validated: number }
-  | { ok: false; reason: string; branch?: string; code?: PushStop; /** origin-conflict: origin's commit the plan clashes with */ conflictWith?: string }
+  | {
+      ok: false
+      reason: string
+      branch?: string
+      code?: PushStop
+      /** origin-conflict: origin's commit the plan clashes with */
+      conflictWith?: string
+      /** T19 merge-failed: the target's tip it was judged on (`origin/<branch>`, the local branch when `local`) */
+      target?: string
+    }
 
 /**
  * **Lands a finished plan on a branch and pushes it, with no person reviewing** (W6-H). Every guard stops the push and
@@ -1233,7 +1248,11 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     ctx.log(`delivery: undid Astera's merges in ${cwd}, back at ${base}`)
     return fail(`${reason} Astera's merges were undone; ${branch} is back at ${base}.`, code, conflictWith)
   }
-  if (!merged.ok) return undo(`merging the plan's worktrees failed: ${merged.reason}`, 'merge-failed')
+  if (!merged.ok) {
+    const out = await undo(`merging the plan's worktrees failed: ${merged.reason}`, 'merge-failed')
+    const target = await tipOf(cwd, landed, run) // T19: read after recheckTips' fetch: a later move makes it due again
+    return target !== null && !out.ok ? { ...out, target } : out
+  }
   const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
   if (left.length > 0) return undo(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`)
 

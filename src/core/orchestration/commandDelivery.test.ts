@@ -229,6 +229,23 @@ describe('run-deliver (W6-H)', () => {
     expect(h.state().runs[0].deliveryState?.state).toBe('delivered')
   })
 
+  it('T19: a merge-failed delivery is attempted again once the target tip the loop read moved, with the plan branch unchanged', async () => {
+    const o: Parameters<typeof setup>[0] = {
+      project: { delivery: 'push' },
+      run: { git: { head: 'h1' } },
+      push: { ok: false, branch: 'main', reason: 'git merge-tree says b does not merge cleanly', code: 'merge-failed', target: 'm1' }
+    }
+    const h = setup(o)
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    const first = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(first.body).toMatchObject({ deliveryState: { judgedOn: { branch: 'h1', target: 'm1' } } })
+    expect((await h.call('run-deliver', { run: 'r1', auto: true, targetTip: 'm1' })).status).toBe(409)
+    delete o.push
+    const again = await h.call('run-deliver', { run: 'r1', auto: true, targetTip: 'm2' })
+    expect(again.status).toBe(200)
+    expect(h.pushes).toHaveLength(2)
+  })
+
   it("T3: a push plan that ended failed is recorded failed once, with why, and never pushed", async () => {
     const h = setup({ project: { delivery: 'push' }, tasks: [task({ status: 'failed', consecutiveFailures: 3 }), task({ id: 't2' })] })
     await h.call('run-deliver', { run: 'r1', pending: true })

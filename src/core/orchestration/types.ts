@@ -1094,9 +1094,10 @@ export interface DeliveryProgress {
   lastCode?: string
   /** A delivered state's remark: `closed on GitHub` for a pull request closed without merging. */
   note?: string
-  /** T19: a `merge-failed` stop: the plan branch head (the Run's `git.head`) it was judged on. Once the head moves, the
-   *  delivery is due again at once (deliveryDue), with no owner. */
-  judgedOn?: { branch: string }
+  /** T19: a `merge-failed` stop: the tips it was judged on, the plan branch head (the Run's `git.head`) and the target's
+   *  (`origin/<branch>`, or the local branch). Once either moves, the delivery is due again at once (deliveryDue), with no
+   *  owner. */
+  judgedOn?: { branch?: string; target?: string }
 }
 
 /** The plan's pull request: its URL and number once opened, or the error that stopped it. */
