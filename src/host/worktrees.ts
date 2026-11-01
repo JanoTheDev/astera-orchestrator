@@ -47,6 +47,8 @@ import type { PtyRegistry } from './registry'
 import type { ProcRegistry } from './procRegistry'
 import type { HostServer } from './server'
 
+/** How long a removal waits for a running, unattached app to attach (the app retries its Host with a 10 s backoff cap). */
+const APP_REATTACH_WAIT_MS = 30_000
 export const WORKTREE_CALLS: ReadonlySet<string> = new Set(['worktree-list', 'worktree-add', 'worktree-remove', 'worktree-root'])
 
 export interface HostWorktreesDeps {
@@ -66,6 +68,10 @@ export interface HostWorktreesDeps {
   /** Test seams; the wiring leaves them out. */
   closeTimeoutMs?: number
   pollMs?: number
+  /** How long a removal waits for a running app that is not attached to attach again (default
+   *  APP_REATTACH_WAIT_MS) before it refuses. The app reconnects to a new Host by itself (main/host/client.ts),
+   *  so a plan's delivery that lands in that window must not fail on it. */
+  appReattachMs?: number
   git?: typeof realGit
   /** The clock of the merge records (R24); an ISO string. */
   now?: () => string
@@ -241,6 +247,21 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     'Astera is running but not connected to this Host; remove the worktree from the app, or quit Astera and retry'
   const liveApp = (): number | null => liveAppPid(d.profileDir, d.app.lastAppPid?.() ?? null)
   const detachedApp = (): boolean => !d.app.hasApp() && liveApp() !== null
+  /** Whether the app is still detached after waiting up to `appReattachMs` for it to attach: a running app
+   *  that is not attached is mostly one reconnecting to this Host, and a removal that refused at once failed
+   *  the plan's delivery for a gap of seconds. A throw reads as not detached, as the callers always did. */
+  const stillDetached = async (): Promise<boolean> => {
+    const until = Date.now() + (d.appReattachMs ?? APP_REATTACH_WAIT_MS)
+    for (;;) {
+      try {
+        if (!detachedApp()) return false
+      } catch {
+        return false
+      }
+      if (Date.now() >= until) return true
+      await new Promise((r) => setTimeout(r, d.pollMs ?? 250))
+    }
+  }
 
   /** Whether an app runs something in the folder the Host cannot see, as a reason, or null.
    *  - Attached (the ruling on plan risk 3): the app is asked, and one that does not answer, or
@@ -422,13 +443,8 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
       // AppUnreachable because that is what it is: the app that must be asked cannot be. Tagged
       // `refusedBeforeActing` (fix round 1, I2) for the same reason `fresh()`'s is: nothing has been
       // closed or removed yet, so a caller may keep no receipt over this one.
-      let detached = false
-      try {
-        detached = detachedApp()
-      } catch {
-        /* the per-folder check in `reap` refuses on its own */
-      }
-      if (detached) throw refusedBeforeActing(new AppUnreachable(DETACHED_APP))
+      // A throw reading it is left to the per-folder check in `reap`, which refuses on its own.
+      if (await stillDetached()) throw refusedBeforeActing(new AppUnreachable(DETACHED_APP))
       return deps.removeWorktrees(paths)
     },
     // No re-read, as `mergeWorktrees`: a merge never reads the registry. The loop's options are the
@@ -460,7 +476,7 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
       remove: async (id, force, originCopy) => {
         await fresh()
         // As removeWorktrees: with the app detached, what it runs is invisible to this Host, so nothing is removed
-        if (detachedApp()) throw new Error(DETACHED_APP)
+        if (await stillDetached()) throw new Error(DETACHED_APP)
         return removeWorktree({ id, force, registry, isPathInUse, ...(originCopy ? { deleteRemoteBranch: true } : {}) })
       }
     },
