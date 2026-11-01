@@ -178,15 +178,23 @@ describe('integrateWorktrees — the rules of the one automatic writer into a re
   // symlink), and the folder merged into has its own untracked one. git refuses that merge; it must go through.
   it('an untracked node_modules symlink in the folder does not block the merge', async () => {
     const target = await tempDir('astera-integrate-nm-')
+    await fs.writeFile(path.join(target, 'pkg.txt'), 'p') // git only refuses over a junction that holds something
     const a = await forkWorktree({ repoPath: repo, name: 'a' }, { registry, log: logTo() })
-    await fs.symlink(target, path.join(a, 'node_modules'), 'junction') // a junction needs no symlink privilege on Windows; 'junction' is ignored elsewhere
+    // The link is committed as a plumbing entry (mode 120000): a real symlink needs Developer Mode on Windows, and git
+    // does not track a junction at all.
+    const blob = path.join(target, 'link-blob'); await fs.writeFile(blob, target)
+    gitSync(a, ['update-index', '--add', '--cacheinfo', `120000,${gitSync(a, ['hash-object', '-w', blob])},node_modules`])
     await fs.writeFile(path.join(a, 'a.txt'), 'a')
-    gitSync(a, ['add', 'a.txt', 'node_modules']); gitSync(a, ['commit', '-m', 'a with its link'])
-    await fs.symlink(target, path.join(repo, 'node_modules'), 'junction')
+    gitSync(a, ['add', 'a.txt']); gitSync(a, ['commit', '-m', 'a with its link'])
+    await fs.symlink(target, path.join(repo, 'node_modules'), 'junction') // 'junction' is ignored elsewhere
+    // Guard: git must refuse this merge itself, or the test would pass without reaching setAsideUntracked.
+    expect((await git(['merge', '--no-commit', '--no-ff', 'a'], { cwd: repo })).ok).toBe(false)
     const r = await integrateWorktrees(repo, [a], {}, ctx())
     expect(r.kind).toBe('merged')
     await expect(fs.stat(path.join(repo, 'a.txt'))).resolves.toBeTruthy()
-    expect((await fs.lstat(path.join(repo, 'node_modules'))).isSymbolicLink()).toBe(true)
+    // Git for Windows (core.symlinks=false) checks the link out as a plain file; the junction's folder is left alone.
+    if (process.platform !== 'win32') expect((await fs.lstat(path.join(repo, 'node_modules'))).isSymbolicLink()).toBe(true)
+    await expect(fs.stat(path.join(target, 'pkg.txt'))).resolves.toBeTruthy()
     expect((await fs.readdir(repo)).filter((n) => n.includes('astera-aside'))).toEqual([])
   })
   it('an untracked file git does not ignore still stops the merge, and stays where it was', async () => {

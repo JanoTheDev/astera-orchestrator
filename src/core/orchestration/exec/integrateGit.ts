@@ -260,7 +260,8 @@ interface Aside {
  *  ignores or a symlink named node_modules; null when there are none, or one is anything else (that one is the
  *  owner's, and the merge's refusal stands). */
 export async function setAsideUntracked(cwd: string, stderr: string, run: typeof realGit = realGit): Promise<Aside[] | null> {
-  const m = /untracked working tree files would be overwritten by merge:\n([\s\S]*?)\n(?:Please|Aborting)/.exec(stderr)
+  // Git for Windows (core.symlinks=false) sees a node_modules junction as a directory and words its refusal for directories.
+  const m = /(?:untracked working tree files would be overwritten by merge|Updating the following directories would lose untracked files in them):\n([\s\S]*?)\n(?:Please|Aborting)/.exec(stderr)
   if (!m) return null
   const files = m[1].split('\n').map((l) => l.trim()).filter((l) => l !== '')
   if (files.length === 0) return null
