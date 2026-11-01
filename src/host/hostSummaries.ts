@@ -121,13 +121,21 @@ export function createHostSummaries(d: HostSummariesDeps): HostSummaries {
   const claimed = new Set<string>()
   const idle = new Map<string, ReturnType<typeof setTimeout>>()
 
+  /** The last good read, by the file's mtime and size: `summaries` is asked per call, and the file changes only when a
+   *  card is written. Never mutated: every caller builds a new file from it. */
+  let cached: { mtimeMs: number; size: number; file: StoreFile } | null = null
   const load = async (): Promise<StoreFile> => {
+    const st = await fs.stat(d.file).catch(() => null)
+    if (st && cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.file
     const r = await readStoreFile(d.file)
     if (r.kind === 'missing') return { version: 1, summaries: [] }
     if (r.kind === 'unreadable') throw r.error
     try {
       const v = JSON.parse(r.text) as Partial<StoreFile>
-      if (v.version === 1 && Array.isArray(v.summaries)) return v as StoreFile
+      if (v.version === 1 && Array.isArray(v.summaries)) {
+        if (st) cached = { mtimeMs: st.mtimeMs, size: st.size, file: v as StoreFile }
+        return v as StoreFile
+      }
     } catch {
       // damaged: kept beside, started empty
     }
