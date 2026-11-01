@@ -68,7 +68,7 @@ const setup = (runs: JobRun[], states: Record<string, string | undefined>, fake:
     }
   } as unknown as OrchServerDeps
   const call = (args: Record<string, unknown> = {}) => handleCommand(deps, { sessionId: APP_CALLER }, 'runs-pr-sync', args)
-  return { call, asked, cwds, gitCalls, runOf: (id: string) => box.state.runs.find((r) => r.id === id)! }
+  return { deps, call, asked, cwds, gitCalls, runOf: (id: string) => box.state.runs.find((r) => r.id === id)! }
 }
 
 describe('runs-pr-sync', () => {
@@ -256,6 +256,27 @@ describe('a plan that landed outside Astera', () => {
     expect(before).toBe(2)
     await t.call()
     expect(fetches).toHaveLength(before)
+  })
+
+  it('runs the origin fetch through the outsideChain hook and skips a run another command settled meanwhile', async () => {
+    const clone = repo()
+    const t = setup([run('a', { at: NOW, branch: 'plan-a', error: 'e' }, failed)], {}, {}, { cwd: clone, deliveryBranch: 'main' })
+    await realGit(t)
+    let hooked = 0
+    const settled = (): void => {
+      // stands in for another command landing the Run while the chain is handed on
+      t.runOf('a').pr!.landed = 'closed'
+    }
+    t.deps.outsideChain = async (effect) => {
+      hooked++
+      const out = await effect()
+      settled()
+      return out
+    }
+    expect((await t.call()).body).toEqual({ checked: 0, landed: [] })
+    expect(hooked).toBe(1)
+    expect(t.runOf('a').pr).toMatchObject({ landed: 'closed' })
+    expect(t.runOf('a').pr?.landedOutside).toBeUndefined()
   })
 
   it('asks again after 10 minutes', async () => {

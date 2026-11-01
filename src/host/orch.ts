@@ -1123,7 +1123,9 @@ export function createHostOrch(a: {
               outsideChain(() => (x.queueInstall ? startBesideInstall(x, startWorker) : startWorker(x)))
           }
         : {}),
-      ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {})
+      ...(readWorker ? { readWorker: (x: Parameters<typeof readWorker>[0]) => outsideChain(() => readWorker(x)) } : {}),
+      // `runs-pr-sync`'s origin fetch: slow network git that commits nothing until the command reads the state again
+      outsideChain
     }
   }
 

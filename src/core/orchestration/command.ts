@@ -615,6 +615,9 @@ export interface OrchServerDeps {
    *  wiring and every test double that returns one stay exactly as they are. */
   listAccounts(provider?: Provider, opts?: { withDefault?: boolean }): OrchAccount[] | Promise<OrchAccount[]>
   readWorker(a: { dispatchId: string; limit?: number }): Promise<string>
+  /** The Host hands the command chain on while a slow effect (a git fetch) runs, and takes it back before the command
+   *  commits (`runs-pr-sync`'s origin check). Optional: the app and tests run the effect in place. */
+  outsideChain?<T>(effect: () => Promise<T>): Promise<T>
   /** Whether work-unit tracking is on — the toggle the three session-task-* commands answer to.
    *  **Orchestration itself has no such toggle**: it is a thing Astera has, like sessions, so the
    *  commands below it are never refused for being switched off. Optional so the existing test
@@ -7593,8 +7596,9 @@ export async function handleCommand(
         })
       )
       // A finished Run that is Failed, retrying, waiting on the owner or Unmerged, whose plan branch the owner merged into
-      // origin's delivery branch outside Astera. The git work (one fetch) is done here, before the state is read again; each
-      // Run is asked at most once per OUTSIDE_FRESH_MS, whatever git answers.
+      // origin's delivery branch outside Astera. The git work (one fetch per Run) runs with the Host's command chain handed
+      // on (`outsideChain`), and the state is read again after it before anything is recorded; each Run is asked at most
+      // once per OUTSIDE_FRESH_MS, whatever git answers.
       const landedByGh = new Set(states.filter((x) => x.state === 'MERGED' || x.state === 'CLOSED').map((x) => x.run.id))
       const outsideDue = s.runs
         .filter((r) => {
@@ -7604,10 +7608,15 @@ export async function handleCommand(
           return job !== undefined && (!project || jobInProject(s, job, project))
         })
         .slice(0, PR_SYNC_BATCH)
-      const outside = await Promise.all(outsideDue.map(async (r) => ({ run: r, inOrigin: await branchInOrigin(s, r, attributionGit).catch(() => null) })))
+      const askOrigin = (): Promise<{ run: JobRun; inOrigin: boolean | null }[]> =>
+        Promise.all(outsideDue.map(async (r) => ({ run: r, inOrigin: await branchInOrigin(s, r, attributionGit).catch(() => null) })))
+      const outside = outsideDue.length === 0 ? [] : await (deps.outsideChain ? deps.outsideChain(askOrigin) : askOrigin())
       let next = deps.getState()
       const landed: { runId: string; landed: 'merged' | 'closed' }[] = []
       for (const { run, inOrigin } of outside) {
+        // another command may have settled or restarted the Run while the chain was handed on
+        const cur = next.runs.find((r) => r.id === run.id)
+        if (!cur || cur.pr?.landed !== undefined || landedByGh.has(run.id) || outcomeOf(next, run.id) === 'running') continue
         if (inOrigin === true) {
           next = landedOutside(next, run.id, at)
           landed.push({ runId: run.id, landed: 'merged' })
@@ -7623,7 +7632,7 @@ export async function handleCommand(
         }
       }
       if (due.length > 0 || outside.length > 0) await deps.setState(next)
-      for (const { run, inOrigin } of outside) if (inOrigin === true) await cleanAfterDelivery(deps, run.id)
+      for (const { run, inOrigin } of outside) if (inOrigin === true && landed.some((l) => l.runId === run.id)) await cleanAfterDelivery(deps, run.id)
       return okBody({ checked: due.length, landed })
     }
     /**
