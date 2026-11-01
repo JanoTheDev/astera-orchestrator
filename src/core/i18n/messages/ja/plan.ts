@@ -420,5 +420,22 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'discord.ws.cmd.status': 'このチャンネルの計画、またはすべての進行中の計画',
   'discord.ws.cmd.approve': 'このチャンネルの計画を承認して実行します',
   'discord.ws.notAwaiting': 'この計画は承認待ちではありません。',
-  'discord.ws.noAnswer': 'Host から応答がありませんでした。'
+  'discord.ws.noAnswer': 'Host から応答がありませんでした。',
+  // T14: the plan header's open-consoles chip and popover
+  'plan.consoles.one': 'コンソール {count} 件',
+  'plan.consoles.many': 'コンソール {count} 件',
+  'plan.consoles.label': 'このプランの開いているコンソール',
+  'plan.consoles.role.worker': 'ワーカー',
+  'plan.consoles.role.reviewer': 'レビュアー',
+  'plan.consoles.role.merge': 'マージ',
+  'plan.consoles.role.coordinator': 'コーディネーター',
+  'plan.consoles.role.planner': 'プランナー',
+  'plan.consoles.reason.working': 'Task を作業中',
+  'plan.consoles.reason.reviewing': 'Task をレビュー中',
+  'plan.consoles.reason.waiting-for-answer': '回答待ち',
+  'plan.consoles.reason.retained': '追加の質問のために保持',
+  'plan.consoles.reason.person-typed': '入力されました',
+  'plan.consoles.reason.awaiting-retry': '再試行待ち',
+  'plan.consoles.reason.closing': '終了中',
+  'plan.consoles.reason.none': 'まもなく閉じます',
 }
