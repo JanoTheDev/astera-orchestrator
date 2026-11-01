@@ -1733,7 +1733,7 @@ export function applyReviewResult(
  *  남긴 후속이고 여기서 새로 풀지 않는다. */
 export function blockForReview(
   s: OrchState,
-  a: { taskId: string; reason: string; lang?: Lang },
+  a: { taskId: string; reason: string; lang?: Lang; cause?: Gate['cause'] },
   now: string
 ): Res<Gate> {
   return createGate(
@@ -1742,10 +1742,38 @@ export function blockForReview(
       taskId: a.taskId,
       question: t(a.lang ?? 'en', 'jobs.checks.gate.reviewEnded', { reason: a.reason }),
       options: [...REVIEW_ENDED_OPTIONS],
-      kind: 'review-ended'
+      kind: 'review-ended',
+      ...(a.cause ? { cause: a.cause } : {})
     },
     now
   )
+}
+
+/** The reason `refuseIfRunGated` gives; older Gates carry it only inside their question text. */
+export const REVIEW_PAUSED_REASON =
+  "this task's run is not one the app starts work on right now: the run or its job is paused, " +
+  'or the job has not been started yet. Resume or start it to have this task reviewed.'
+
+/**
+ * Closes the open review-paused Gates whose run the app may work on again, and puts their Tasks back to `reviewing`
+ * (the state the review was refused in). `taskIds` are the Tasks whose reviewer the caller must now start.
+ * Matches the `cause` marker, or (legacy Gates) the exact reason text. Other Gates are left alone, and so is a Task
+ * with another open question.
+ */
+export function clearPausedReviewGates(s: OrchState, now: string): { state: OrchState; taskIds: string[] } {
+  const taskIds: string[] = []
+  const gates = s.gates.map((g) => {
+    if (g.status !== 'open' || g.kind !== 'review-ended') return g
+    if (g.cause !== 'run-paused' && !g.question.includes(REVIEW_PAUSED_REASON)) return g
+    const task = s.tasks.find((x) => x.id === g.taskId)
+    if (!task || task.status !== 'blocked' || runGatedForTask(s, task)) return g
+    if (s.gates.some((o) => o.taskId === task.id && o.status === 'open' && o.id !== g.id)) return g
+    taskIds.push(task.id)
+    return { ...g, status: 'resolved' as const, resolution: 'resolved: the run was resumed', resolvedAt: now }
+  })
+  if (taskIds.length === 0) return { state: s, taskIds }
+  const tasks = s.tasks.map((x) => (taskIds.includes(x.id) ? { ...x, status: 'reviewing' as const, updatedAt: now } : x))
+  return { state: { ...s, gates, tasks }, taskIds }
 }
 
 /** The answers to a `review-ended` question: put a reviewer on the Task again, or take the Task as done on its own
@@ -2426,7 +2454,7 @@ export function answerEscalation(
 
 export function createGate(
   s: OrchState,
-  a: { taskId: string; question: string; options?: string[]; kind?: GateKind; reason?: GateReason },
+  a: { taskId: string; question: string; options?: string[]; kind?: GateKind; reason?: GateReason; cause?: Gate['cause'] },
   now: string
 ): Res<Gate> {
   const task = s.tasks.find((t) => t.id === a.taskId)
@@ -2444,6 +2472,7 @@ export function createGate(
     question: a.question,
     options: a.options,
     ...(a.kind ? { kind: a.kind } : {}),
+    ...(a.cause ? { cause: a.cause } : {}),
     ...(a.reason ? { reason: a.reason } : {}),
     status: 'open',
     createdAt: now

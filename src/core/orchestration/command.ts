@@ -36,6 +36,7 @@ import {
   openDispatch,
   resolveGate,
   closeGatesOf,
+  clearPausedReviewGates,
   closeGatesOfCompleted,
   answerCheckUnavailable,
   isCheckUnavailableAnswer,
@@ -2146,7 +2147,28 @@ async function openMergeTask(
   return made.status < 400 && typeof id === 'string' ? { taskId: id } : made
 }
 
+/** Commands that can make a paused run workable again: the review-paused Gates they leave behind are cleared. */
+const RESUMING_COMMANDS = new Set(['runs-resume', 'run-resume', 'run-start'])
+
 export async function handleCommand(
+  deps: OrchServerDeps,
+  caller: { sessionId: string; role?: 'app' | 'cli' | 'mcp' | 'controller' | 'plugin' },
+  cmd: string,
+  args: Record<string, unknown>
+): Promise<Reply> {
+  const reply = await handleCommandInner(deps, caller, cmd, args)
+  if (RESUMING_COMMANDS.has(cmd) && reply.status >= 200 && reply.status < 300 && deps.startReview) {
+    // A review refused while the run was paused left a Gate; the run may be workable now, so close it and review.
+    const cleared = clearPausedReviewGates(deps.getState(), deps.now?.() ?? new Date().toISOString())
+    if (cleared.taskIds.length > 0) {
+      await deps.setState(cleared.state)
+      for (const taskId of cleared.taskIds) deps.startReview({ taskId })
+    }
+  }
+  return reply
+}
+
+async function handleCommandInner(
   deps: OrchServerDeps,
   /** `role` is the Host connection's (OrchCaller.role); absent where no Host connection exists. Only
    *  `'mcp'` changes an answer: an MCP client calls with an empty session id, as a shell does. */
