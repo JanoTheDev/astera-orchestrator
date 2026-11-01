@@ -35,6 +35,7 @@ import { pickInitialLang } from '../core/i18n/locale'
 import { shouldForceWaylandOzone } from './ozone'
 import { registerReviewIpc } from './reviewIpc'
 import { registerIpc, parseAllowedExternalUrl, type AppWindows, type OrchHandle } from './ipc'
+import { installUpdate } from './installUpdate'
 import { registerExtensionsIpc } from './extensionsIpc'
 import { registerPromptsIpc } from './promptsIpc'
 import { registerAutoLimitsIpc } from './autoLimitsIpc'
@@ -1824,7 +1825,7 @@ app.whenReady().then(async () => {
               /* already gone, or never there */
             }
           }
-          autoUpdater.quitAndInstall()
+          installUpdate(autoUpdater)
           return { mode: 'auto' }
         })
 

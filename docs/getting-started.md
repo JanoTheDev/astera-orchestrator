@@ -25,6 +25,17 @@ npm run dist:linux                         # builds dist-installer/astera-*-x86_
 ./dist-installer/astera-*-x86_64.AppImage  # profile: ~/.config/astera
 ```
 
+On Windows, install the `astera-<version>-setup.exe` from a release with the script, which installs silently, starts the app
+and checks that it is running:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 -Installer $HOME\Downloads\astera-<version>-setup.exe
+```
+
+`-Installer` is optional (the newest `astera-*-setup.exe` in Downloads is used). By hand, `setup.exe /S --force-run` does the same.
+In Git Bash write `MSYS_NO_PATHCONV=1 ./setup.exe /S --force-run` (or `//S`): Git Bash rewrites a bare `/S` into a path and
+the installer opens its wizard. The in-app updater uses the same silent install and relaunches Astera afterwards.
+
 To try it without packaging, `npm run dev` runs the development app on its own profile (`~/.config/astera-dev`), so it
 never touches your real one.
 
