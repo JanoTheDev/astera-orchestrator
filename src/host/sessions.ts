@@ -140,7 +140,21 @@ const TAIL_WINDOW = 16 * 1024
  *
  * Never rejects: a file that cannot be read is a session with no signal, not a failed `list`.
  */
-async function latestEvent(file: string): Promise<{ line: string; at: number; lastAction: LastAction } | null> {
+type LatestEvent = { line: string; at: number; lastAction: LastAction } | null
+/** `latestEvent`'s answers by file, kept while the file's size and mtime stay (an append moves both): `sessions list`
+ *  with 20 sessions re-reads only the files that changed. One entry per hook-event file this Host has asked about. */
+const tails = new Map<string, { size: number; mtimeMs: number; value: LatestEvent }>()
+async function latestEvent(file: string): Promise<LatestEvent> {
+  const st = await fs.stat(file).catch(() => null)
+  if (!st) return null
+  const hit = tails.get(file)
+  if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.value
+  const value = await readLatestEvent(file)
+  // Keyed by the stat before the read: a write in between makes the next ask read again, never keeps an old answer.
+  tails.set(file, { size: st.size, mtimeMs: st.mtimeMs, value })
+  return value
+}
+async function readLatestEvent(file: string): Promise<LatestEvent> {
   let handle: Awaited<ReturnType<typeof fs.open>> | undefined
   try {
     handle = await fs.open(file, 'r')
