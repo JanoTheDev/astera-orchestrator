@@ -471,6 +471,24 @@ export function landedOnGitHub(s: OrchState, runId: string, landed: 'merged' | '
   return answerQuestion(out, p?.questionId, landed === 'merged' ? 'merged on GitHub' : 'closed on GitHub')
 }
 
+/** The plan's work reached the delivery branch outside Astera (the owner merged it by hand): delivered and merged as
+ *  `landedOnGitHub` leaves it, with the marker and the history note `landed outside Astera`. */
+export function landedOutside(s: OrchState, runId: string, at: string): OrchState {
+  const landed = landedOnGitHub(s, runId, 'merged', at)
+  return {
+    ...landed,
+    runs: landed.runs.map((r) =>
+      r.id === runId && r.pr
+        ? { ...r, pr: { ...r.pr, landedOutside: true }, ...(r.deliveryState ? { deliveryState: { ...r.deliveryState, note: 'landed outside Astera' } } : {}) }
+        : r
+    )
+  }
+}
+
+/** A finished Run whose delivery did not go through: failed, retrying, waiting on the owner, or stopped on a merge conflict. */
+export const deliveryFailedOf = (s: OrchState, run: JobRun): boolean =>
+  ownerMaySettle(run) || run.pr?.error !== undefined || run.delivery?.error !== undefined || s.gates.some((g) => g.runId === run.id && g.kind === 'merge-failed' && g.status === 'open')
+
 /** T1: the owner dismissed a failed delivery (`run-delivery-dismiss`): its errors go, it reads `dismissed` (not failed,
  *  never attempted again) and its open owner question is answered. */
 export function dismissDelivery(s: OrchState, runId: string, at: string): Res<DeliveryProgress> {

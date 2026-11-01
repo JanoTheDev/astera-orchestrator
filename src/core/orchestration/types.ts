@@ -601,6 +601,8 @@ export interface JobRun {
   /** T6: when `runs-pr-sync` last checked this Run that has no `pr` record (a manual plan awaiting review): the same
    *  2-minute skip as `pr.landedCheckedAt`. A Run with a `pr` keeps its stamp there. */
   landedCheckedAt?: string
+  /** When `runs-pr-sync` last asked origin whether this Run's plan branch landed outside Astera (at most once per 10 minutes). */
+  outsideCheckedAt?: string
   // ── W6-H: a `push` delivery (`run-deliver`) ──
   /** The pushed commit, or why the push stopped (escalated). Present: the driving loop does not try again
    *  (`run-deliver --force` does). */
@@ -1155,4 +1157,6 @@ export interface RunPr {
   landed?: 'merged' | 'closed'
   /** T6: when `runs-pr-sync` last asked GitHub about this PR and found it still open; repeated calls skip it for 2 minutes. */
   landedCheckedAt?: string
+  /** The owner merged the plan's branch into the delivery branch outside Astera (`landedOutside`): `landed` is `merged`. */
+  landedOutside?: true
 }
