@@ -75,6 +75,8 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'jobs.node.gateQuestion': 'なぜ止めるのか',
   'jobs.node.failed': 'この操作を行えませんでした',
   'jobs.node.stopFailed': 'エージェントを停止できませんでした: {detail}',
+  'jobs.node.noAnswer': 'アプリが Host から応答を得られませんでした。何も変更されていません。',
+  'jobs.node.failedWhy': 'この操作を行えませんでした: {detail}',
   'jobs.changes.show': '変更されたファイルを表示',
   'jobs.changes.hide': '変更されたファイルを閉じる',
   'jobs.changes.failed': '変更されたファイルを読めませんでした: {message}',
