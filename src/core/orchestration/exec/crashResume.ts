@@ -69,8 +69,9 @@ function settled(s: OrchState, id: string): boolean {
   return !task || task.status !== 'dispatched'
 }
 
-export const crashFeedLine = (workers: number, coordinators: number, waiting = 0): string =>
+export const crashFeedLine = (workers: number, coordinators: number, waiting = 0, kept = 0): string =>
   `Recovered after a crash: resumed ${workers} worker${workers === 1 ? '' : 's'}, ${coordinators} coordinator${coordinators === 1 ? '' : 's'}` +
+  (kept > 0 ? `; ${kept} worker${kept === 1 ? '' : 's'} kept running` : '') +
   (waiting > 0 ? `; ${waiting} worker${waiting === 1 ? ' waits' : 's wait'} for a free slot` : '')
 
 export interface CrashResumeDeps {
@@ -91,6 +92,9 @@ export interface CrashResumeDeps {
   /** T5: the agent CLI's own conversation id a dead session had (`agentSessionOf`, or what the Host saved); null for
    *  none. Absent: every coordinator starts fresh. */
   nativeIdOf?(sessionId: string): Promise<string | null>
+  /** T36: the sessions the Host took back from the pty supervisor (host/ptyAdopt.ts): their workers kept working through
+   *  the crash, so their Dispatches are not lost and nothing waits for their recovery. Absent: none. */
+  adopted?: ReadonlySet<string>
   sleep?(ms: number): Promise<void>
   nowMs?(): number
 }
@@ -103,6 +107,9 @@ export async function resumeAfterCrash(d: CrashResumeDeps): Promise<{ workers: n
     if (!before) return null
     const was = inFlightOf(before)
     if (was.dispatchIds.length === 0 && was.coordinatorRuns.length === 0) return null
+    const adopted = new Set(before.dispatches.filter((x) => d.adopted?.has(x.sessionId)).map((x) => x.id))
+    const kept = was.dispatchIds.filter((id) => adopted.has(id)).length
+    was.dispatchIds = was.dispatchIds.filter((id) => !adopted.has(id))
     d.log(`crash resume: ${was.dispatchIds.length} worker(s) and ${was.coordinatorRuns.length} coordinator(s) were in flight — loading`)
     await d.ready()
 
@@ -148,7 +155,7 @@ export async function resumeAfterCrash(d: CrashResumeDeps): Promise<{ workers: n
       else d.log(`crash resume: run ${runId}'s coordinator could not be restarted (${r.status} ${JSON.stringify(r.body)})`)
     }
 
-    const line = crashFeedLine(workers, coordinators, was.dispatchIds.filter(waitingNow).length)
+    const line = crashFeedLine(workers, coordinators, was.dispatchIds.filter(waitingNow).length, kept)
     d.log(`crash resume: ${line}`)
     d.activity({ type: 'host.recovered', payload: { title: 'Astera', reason: line } })
     return { workers, coordinators }

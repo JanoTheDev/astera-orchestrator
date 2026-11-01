@@ -296,13 +296,15 @@ export class PtyRegistry {
     args: string[] | string
     opts: PtyOpenOptions
     meta?: PtyMeta
+    /** T36: a pty already running (one the pty supervisor kept through a Host crash, ptyAdopt.ts): adopted, not spawned. */
+    pty?: RegistryPty
   }): { ok: true; pid: number } | { ok: false; error: string } {
     // Reusing an id would drop the first pty on the floor with nobody holding it. The app generates
     // these, so a collision is a bug on its side and worth reporting rather than papering over.
     if (this.entries.has(a.id)) return { ok: false, error: `a session with id ${a.id} is already open` }
     let pty: RegistryPty
     try {
-      pty = this.deps.spawn(a.file, a.args, a.opts, a.meta)
+      pty = a.pty ?? this.deps.spawn(a.file, a.args, a.opts, a.meta)
     } catch (err) {
       this.deps.log(`pty ${a.id} could not be started: ${String(err)}`)
       return { ok: false, error: String(err) }
