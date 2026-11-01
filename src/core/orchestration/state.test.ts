@@ -3941,6 +3941,11 @@ describe('merging: a Task completes only once its work is on the plan branch', (
     expect(after.messages.at(-1)!.type).toBe('worker_done')
   })
 
+  it('T10: a worker outside the Run root with no open dependent completes it: the delivery merges its worktree', () => {
+    const { s, taskId, dispatchId } = inRun('D:/wt-run')
+    expect(done(s, taskId, dispatchId).tasks.find((t) => t.id === taskId)!.status).toBe('completed')
+  })
+
   it('a worker in the Run root, or a Run without its own worktree, completes it as before', () => {
     const inRoot = inRun('D:/p')
     expect(done(inRoot.s, inRoot.taskId, inRoot.dispatchId).tasks.find((t) => t.id === inRoot.taskId)!.status).toBe('completed')
@@ -3959,7 +3964,10 @@ describe('merging: a Task completes only once its work is on the plan branch', (
   })
 
   it('a passed review moves to merging too', () => {
-    const { s, taskId, dispatchId } = inRun('D:/wt-run')
+    const run = inRun('D:/wt-run')
+    const { taskId, dispatchId } = run
+    // T10: merging needs an open dependent
+    const s = unwrap<{ id: string }>(createTask(run.s, { runId: run.s.runs[0].id, title: 'b', spec: 's', deps: [taskId] }, NOW) as never).state
     const armed = done({ ...s, tasks: s.tasks.map((t) => (t.id === taskId ? { ...t, reviewRequested: true } : t)) }, taskId, dispatchId)
     expect(armed.tasks.find((t) => t.id === taskId)!.status).toBe('reviewing')
     const opened = unwrap<{ id: string }>(

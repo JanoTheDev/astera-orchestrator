@@ -600,7 +600,7 @@ describe('createDispatchLoop', () => {
   it('an integration conflict starts a merge worker, and its failure opens a Gate', async () => {
     const h = rig()
     driven(h, {
-      tasks: [task({ id: 'tsk_1', status: 'completed' })],
+      tasks: [task({ id: 'tsk_1', status: 'merging' })], // T10: a completed one no open Task depends on waits for the delivery
       dispatches: [
         { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
       ]
@@ -632,7 +632,7 @@ describe('createDispatchLoop', () => {
   it('writes the merge Task title and its Gate reason in the app language (en), with no Hangul', async () => {
     const h = rig()
     driven(h, {
-      tasks: [task({ id: 'tsk_1', status: 'completed' })],
+      tasks: [task({ id: 'tsk_1', status: 'merging' })],
       dispatches: [
         { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
       ]

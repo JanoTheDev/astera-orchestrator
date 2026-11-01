@@ -278,7 +278,8 @@ describe('stallRemedies', () => {
   })
 
   it('a completed Task left out of the plan branch is merged again after 2 min, once', () => {
-    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' })], dispatches: [ended('tsk_1', '/wt-child')] })
+    // T10: one an open Task depends on; the rest wait for the delivery
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', status: 'pending', deps: ['tsk_1'] })], dispatches: [ended('tsk_1', '/wt-child')] })
     expect(watch(s, every30s(10 * MIN)).filter((x) => !x.startsWith('draft-pr'))).toEqual(['merge:tsk_1'])
     expect(watch(s, [T0 + MERGE_STALL_MS - 1])).toEqual([])
     // marked merged (the wave merge's message): nothing
@@ -288,7 +289,7 @@ describe('stallRemedies', () => {
 
   it('a wave done with its draft PR not opened is asked again after 2 min, once', () => {
     // Two waves by deps; a `pr` delivery is the default
-    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', deps: ['tsk_1'] })], dispatches: [ended('tsk_1', '/wt1')] })
+    const s = plan({ tasks: [task({ id: 'tsk_1', status: 'completed' }), task({ id: 'tsk_2', deps: ['tsk_1'] })], dispatches: [ended('tsk_1', '/wt1')] }, { pushCadence: 'wave' })
     const got = watch(s, every30s(10 * MIN)).filter((x) => x.startsWith('draft-pr'))
     expect(got).toEqual(['draft-pr:1'])
     expect(watch(s, [T0, T0 + DRAFT_STALL_MS - STALL_WATCH_MS]).filter((x) => x.startsWith('draft-pr'))).toEqual([])

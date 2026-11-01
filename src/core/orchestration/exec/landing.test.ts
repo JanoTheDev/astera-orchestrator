@@ -116,6 +116,8 @@ function rig(runWt: string, tasks: Task[]) {
 }
 
 describe('a Task completes only once merged into the plan branch', () => {
+  /** T10: an open Task that depends on tsk_A, so tsk_A's work is merged into the plan branch before the delivery */
+  const dependent = task({ id: 'tsk_Z', status: 'pending', deps: ['tsk_A'] })
   it('A -> B with no coordinator: A lands on the plan branch before B is ready, and B completes only after its own merge', async () => {
     const runWt = await fork('run')
     const h = rig(runWt, [task({ id: 'tsk_A' }), task({ id: 'tsk_B', status: 'pending', deps: ['tsk_A'] })])
@@ -137,15 +139,15 @@ describe('a Task completes only once merged into the plan branch', () => {
     h.start('tsk_B', b)
     const shaB = await write(b, 'b.txt', 'b')
     await h.done('tsk_B')
-    expect(h.get('tsk_B').status).toBe('merging')
-    await h.loop.nudge()
+    // T10: no open Task depends on B, so it completes at once and the delivery merges its worktree
     expect(h.get('tsk_B').status).toBe('completed')
-    expect(await isAncestor(shaB, runWt)).toBe(true)
+    await h.loop.nudge()
+    expect(await isAncestor(shaB, runWt)).toBe(false)
   })
 
   it('a conflicting branch stays merging, gets one merge Task, and completes when that merge Task does', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent]) // T10: merged now only while an open Task depends on it
     const a = await fork('a')
     h.start('tsk_A', a)
     await write(a, 'f.txt', 'from A')
@@ -172,7 +174,7 @@ describe('a Task completes only once merged into the plan branch', () => {
 
   it('a failed merge Task opens a Gate, and the Task is never completed', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent]) // T10: merged now only while an open Task depends on it
     const a = await fork('a')
     h.start('tsk_A', a)
     await write(a, 'f.txt', 'from A')
@@ -188,7 +190,7 @@ describe('a Task completes only once merged into the plan branch', () => {
 
   it('a merge git cannot do opens a Gate on the Task, which is not completed', async () => {
     const runWt = await fork('run')
-    const h = rig(runWt, [task({ id: 'tsk_A' })])
+    const h = rig(runWt, [task({ id: 'tsk_A' }), dependent]) // T10: merged now only while an open Task depends on it
     const a = await fork('a')
     h.start('tsk_A', a)
     await write(a, 'a.txt', 'a')
