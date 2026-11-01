@@ -872,6 +872,11 @@ server blocks `check` and `inbox` as coordinator-only (403).
   ```
   Body goes through stdin: three sentences on what you did, what you found, and what is left — do not
   copy the code across, you share a working directory with the orchestrator.
+- **Prove typecheck and lint before you report done.** Run the repository's own checks for every package you
+  touched: its typecheck and its lint. Find them in package.json scripts, the workspace's turbo or nx config,
+  and the pre-push and pre-commit hooks (lefthook.yml, .husky/, .git/hooks). Quote each command with its result
+  in your report under `Checks run`. If a check cannot run here, say why. A reviewer rejects a report that has
+  no `Checks run` section naming a typecheck and a lint.
 - **A few gaps are not a failure.** Did the main job but could not reach a few parts (environment
   limits, refused commands)? Report `--outcome succeeded --gaps "<what you could not reach and why>"`.
   Report `failed` only when the main job is not done, or a gap blocks what depends on the Task. A Task
