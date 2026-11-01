@@ -909,6 +909,12 @@ export interface Dispatch {
    *  stays taken (`slotsToFill` counts every open Dispatch); nothing is typed into it from an agent session
    *  (`sessions-send` refuses). `worker-unhold` takes it away. */
   held?: true
+  // T12 silent workers (exec/stallWatch.ts): the watchdog's one nudge, kept here so a Host restart neither nudges
+  // again at once nor starts the ladder over
+  /** ISO: since when the worker had shown no activity when it was nudged. */
+  silentSince?: string
+  /** ISO: when the watchdog nudged it. Set once per Dispatch. */
+  nudgedAt?: string
 }
 
 export interface Message {
