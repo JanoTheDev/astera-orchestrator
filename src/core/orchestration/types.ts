@@ -773,6 +773,17 @@ export interface Task {
    *  worktree and branch of its one dep, kept for it, with the plan branch merged in. Absent: as `new`, placed by the
    *  Run's concurrency. */
   worktree?: 'new' | 'reuse'
+  // T32 who added a Task a replan created
+  /** Set on a Task a replan session created (`task-create --why`): who added it, why in one line, and when. The plan view
+   *  shows it ("Added by the final check: <why>"). Absent: planned with the plan, or added by a coordinator or a person. */
+  addedBy?: TaskAddedBy
+}
+
+/** T32: which replan added a Task: the final check, a wave replan, or the owner's feedback or chat. */
+export interface TaskAddedBy {
+  kind: 'final-check' | 'wave-replan' | 'feedback'
+  why: string
+  at: string
 }
 
 /** T9: the kinds of work a Task can be. */

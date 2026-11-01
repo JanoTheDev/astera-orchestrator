@@ -283,7 +283,8 @@ function jobTaskOf(
     // T3
     kind: kindOf(task),
     ...(task.worktree ? { worktree: task.worktree } : {}),
-    ...(isIntegrationTask(task) ? { isMerge: true as const } : {})
+    ...(isIntegrationTask(task) ? { isMerge: true as const } : {}),
+    ...(task.addedBy ? { addedBy: { kind: task.addedBy.kind, why: task.addedBy.why } } : {})
   }
 }
 

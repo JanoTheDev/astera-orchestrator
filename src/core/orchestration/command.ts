@@ -5000,6 +5000,10 @@ async function handleCommandInner(
       if (!plan.ok) return bad(plan.error)
       if (plannerJobOf(s, caller.sessionId) && (!plan.fields.prompt || !plan.fields.acceptanceCriteria))
         return bad('a planner Task needs --prompt and --criteria (one or more acceptance criteria)')
+      // T32: a replan planner says in one line why it adds each Task; the plan view shows it ("Added by the final check: <why>")
+      const replan = replanJobOf(s, caller.sessionId)?.replanning
+      const why = str(args.why)?.replace(/\s+/g, ' ').trim()
+      if (replan && !why) return bad('a Task added by a replan needs --why "<one line: why this Task is added>"')
       const latest = deps.getState()
       const made = createTask(
           latest,
@@ -5019,7 +5023,10 @@ async function handleCommandInner(
             // its replans or its coordinator, so none can forget `--review`; `--no-review` opts one Task out
             reviewRequested:
               args.review === true || (args.noReview !== true && reviewDefaultOf(latest, runId)) ? true : undefined,
-            ...plan.fields
+            ...plan.fields,
+            ...(replan && why
+              ? { addedBy: { kind: replan.feedbackAt !== undefined || replan.chat ? 'feedback' : replan.mode === 'completion' ? 'final-check' : 'wave-replan', why: why.slice(0, 300), at: now } as const }
+              : {})
           },
           now
         )

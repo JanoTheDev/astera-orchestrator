@@ -132,6 +132,8 @@ const TASK_HIDDEN = [
   'kind',
   // T3: where the Task's worker starts, held back with the planner's other fields
   'worktree',
+  // T32: which replan added the Task and why, not in the SDK's contract yet
+  'addedBy',
   // T36: what a succeeded worker could not reach, not in the SDK's contract yet
   'gaps',
   // T12: what this machine could not run, held back with `gaps`

@@ -532,12 +532,15 @@ describe('plan.done of a plan that replans', () => {
     expect(doneOf(lines)).toEqual([])
   })
 
-  it('is not sent from the Tasks either when an earlier check covered as many done Tasks: only a check that ends says so', () => {
-    const lines = deriveActivity(
-      state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'dispatched' })] }),
-      state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'completed' })] })
-    )
-    expect(doneOf(lines)).toEqual([])
+  it('is sent once when the follow-ups the one final check added complete', () => {
+    const added = { kind: 'final-check' as const, why: 'tests missing', at: T0 }
+    const before = state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'completed' }), task('f', { status: 'dispatched', addedBy: added })] })
+    const after = state({ jobs: [planned({ lastReplan: check(1) })], tasks: [task('a', { status: 'completed' }), task('f', { status: 'completed', addedBy: added })] })
+    expect(doneOf(deriveActivity(before, after))).toHaveLength(1)
+    // a wave replan of the follow-ups replaced lastReplan: the final check still ran
+    const waved = (s: typeof before) => ({ ...s, jobs: [planned({ lastReplan: { ...check(2), mode: 'wave' as const } })] })
+    expect(doneOf(deriveActivity(waved(before), waved(after)))).toHaveLength(1)
+    expect(doneOf(deriveActivity(after, structuredClone(after)))).toEqual([])
   })
 
   it('is sent once when the final check settles having added nothing, and not when it adds Tasks', () => {

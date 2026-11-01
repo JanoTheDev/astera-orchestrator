@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import { emptyState, type OrchState } from './state'
 import type { Dispatch, Job, JobRun, Task } from './types'
 import {
+  affectedLeft,
   cancelRemainingTask,
   cancelTaskByOwner,
   completionSettled,
@@ -13,6 +14,7 @@ import {
   failedWaitChoice,
   failedWaitQuestion,
   notStarted,
+  pathsSharedWith,
   replanOn,
   replansDue,
   resolveFailedWait,
@@ -135,18 +137,28 @@ describe('a Task that deviated', () => {
   ]
   const byId = (s: OrchState, id: string) => s.tasks.find((t) => t.id === id)!
 
-  it('holds the not-started Tasks downstream of it or sharing its paths, and asks for a replan', () => {
+  it('holds only the not-started Tasks that depend on it, directly or through others, and asks for a replan', () => {
     const s = state(tasks)
     expect(waveOpen(byId(s, 'x'), s)).toBe(false)
-    expect(waveOpen(byId(s, 'p'), s)).toBe(false)
+    expect(waveOpen(byId(s, 'y'), s)).toBe(false)
     expect(waveOpen(byId(s, 'u'), s)).toBe(true)
-    expect(slotsToFill(s).map((x) => x.taskId)).toEqual(['u'])
-    expect(replansDue(s, seen)).toEqual([{ runId: 'run_1', mode: 'wave', wave: 0, done: 1 }])
+    expect(replansDue(s, seen)).toEqual([{ runId: 'run_1', mode: 'wave', wave: 1, done: 1 }])
+  })
+
+  it('T32: a Task that only shares a path with it is not held and starts a replan for nobody', () => {
+    const s = state(tasks)
+    expect(waveOpen(byId(s, 'p'), s)).toBe(true)
+    expect(slotsToFill(s).map((x) => x.taskId).sort()).toEqual(['p', 'u'])
+    const onlyPath = state([tasks[0], tasks[2], tasks[3]])
+    expect(waveOpen(byId(onlyPath, 'p'), onlyPath)).toBe(true)
+    expect(replansDue(onlyPath, seen)).toEqual([])
+    expect(affectedLeft([tasks[0]], [tasks[1], tasks[2], tasks[3], tasks[4]]).map((t) => t.id)).toEqual(['x', 'y'])
+    expect(pathsSharedWith([tasks[0]], [tasks[2], tasks[3]], []).map((t) => t.id)).toEqual(['p'])
   })
 
   it('a scoped replan holds only those Tasks: the rest of the Job is still placed', () => {
     const s = state(tasks, { replanning: { runId: 'run_1', mode: 'wave', wave: 1, done: 1, startedAt: LATER, scoped: true } as Job['replanning'] })
-    expect(slotsToFill(s).map((x) => x.taskId)).toEqual(['u'])
+    expect(slotsToFill(s).map((x) => x.taskId).sort()).toEqual(['p', 'u'])
     expect(replansDue(s, seen)).toEqual([])
   })
 
@@ -204,15 +216,27 @@ describe('replansDue', () => {
     expect(replansDue(state([{ ...tasks[0], gaps: 'e2e not run' }, tasks[1]], { handsOff: true }), seen)).toHaveLength(1)
   })
 
-  it('asks for the final check once every Task completed, only for a Run it saw running, once per done count', () => {
+  it('asks for the final check once every Task completed, only for a Run it saw running, once per Run', () => {
     const s = state([task('a', { status: 'completed' }), task('b', { deps: ['a'], status: 'completed' })])
     expect(replansDue(s, () => false)).toEqual([])
     expect(replansDue(s, seen)).toEqual([{ runId: 'run_1', mode: 'completion', wave: 2, done: 2 }])
     const checked = state(s.tasks, { lastReplan: { runId: 'run_1', mode: 'completion', wave: 2, done: 2, at: NOW, summary: 'done' } })
     expect(replansDue(checked, seen)).toEqual([])
-    // a follow-up Task it added has completed: checked again
-    const followed = state([...s.tasks, task('f', { status: 'completed' })], checked.jobs[0])
-    expect(replansDue(followed, seen)).toEqual([{ runId: 'run_1', mode: 'completion', wave: 2, done: 3 }])
+  })
+
+  it('T32: the follow-up Tasks the final check added complete and no second final check is asked', () => {
+    const mark = { runId: 'run_1', mode: 'completion' as const, wave: 2, done: 2, at: NOW, summary: 'one test missing' }
+    const added = { kind: 'final-check' as const, why: 'no test', at: NOW }
+    const done = [task('a', { status: 'completed' }), task('b', { deps: ['a'], status: 'completed' })]
+    const followed = state([...done, task('f', { status: 'completed', addedBy: added })], { lastReplan: mark })
+    expect(replansDue(followed, seen)).toEqual([])
+    // a wave replan of the follow-ups replaced lastReplan: the Task it added still says the final check ran
+    const waved = state(followed.tasks, { lastReplan: { ...mark, mode: 'wave', wave: 3, done: 3 } })
+    expect(replansDue(waved, seen)).toEqual([])
+    expect(completionSettled(waved, waved.jobs[0], 'run_1')).toBe(true)
+    // a Run whose final check has not run is still asked, with follow-ups of the owner's feedback beside it
+    const feedback = state([...done, task('g', { status: 'completed', addedBy: { ...added, kind: 'feedback' } })])
+    expect(replansDue(feedback, seen)).toHaveLength(1)
   })
 
   it('does nothing while a replan runs, or with replanning off', () => {
@@ -424,6 +448,15 @@ describe('completionSettled', () => {
     expect(completionSettled(held, held.jobs[0], 'run_1')).toBe(false)
     const off = state(tasks, { replan: 'off' })
     expect(completionSettled(off, off.jobs[0], 'run_1')).toBe(true)
+  })
+
+  it('T32: stays settled once the follow-ups of the one final check have completed', () => {
+    const mark = { runId: 'run_1', mode: 'completion' as const, wave: 1, done: 1, at: NOW, summary: 'one fix' }
+    const open = state([tasks[0], task('f', { deps: ['a'], status: 'ready', addedBy: { kind: 'final-check', why: 'x', at: NOW } })], { lastReplan: mark })
+    expect(completionSettled(open, open.jobs[0], 'run_1')).toBe(true)
+    const done = state([tasks[0], task('f', { status: 'completed', addedBy: { kind: 'final-check', why: 'x', at: NOW } })], { lastReplan: mark })
+    expect(completionSettled(done, done.jobs[0], 'run_1')).toBe(true)
+    expect(replansDue(done, () => true)).toEqual([])
   })
 })
 
