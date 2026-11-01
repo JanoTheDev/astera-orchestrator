@@ -504,6 +504,8 @@ async function main(): Promise<void> {
     ptys: registry,
     procs,
     getState: () => orch.state(),
+    // T22: a folder's removal also stops what the leftover tracker recorded under the workers that ran in it.
+    remembered: (dispatchId) => leftovers?.rememberedOf(dispatchId) ?? [],
     // E2 §4: a merge this Host runs is its own git operation for its work units too, registered before
     // the merge starts (the `begin` is told right before `git merge`).
     broadcast: (m) => {

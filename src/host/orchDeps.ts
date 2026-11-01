@@ -453,7 +453,6 @@ const NOT_FORWARDED = [
   'stopCoordinator',
   'enterCheckWait',
   'coordinatorIdle',
-  'outsideChain',
   'dispatchTask',
   'createSession',
   'journalTimeline',
@@ -615,8 +614,6 @@ const EFFECTFUL: Record<Classified, boolean> = {
   // NOT_FORWARDED as well (Task 1 fix round 1, I2): built by hand below. It stops a session its own
   // command's `startCoordinator` just opened, which that call has already marked.
   stopCoordinator: false,
-  // NOT_FORWARDED as well (`runs-pr-sync`'s origin fetch): the Host's own hand-on of its command chain, filled in orch.ts.
-  outsideChain: false,
   // NOT_FORWARDED (final round 2, I-A): the Host's own in-memory record of the `check --wait` calls it
   // serves. A record in memory and a read of it; neither leaves anything outside the call.
   enterCheckWait: false,
