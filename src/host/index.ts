@@ -25,7 +25,7 @@ import { SPAWN_DEADLINE_MS } from '../core/host/unresponsive'
 import { hideAllChildConsoleWindows, hideForkedConsoleWindows, type ChildProcessProto } from '../core/childWindows'
 import { trustSystemCa } from './systemCa'
 import { openHostLog, logUncaughtExceptions, logUnhandledRejections } from './log'
-import { previousHostLines, watchExit, type ExitWatch } from './exitWatch'
+import { previousHostLines, readLogTail, watchExit, type ExitWatch } from './exitWatch'
 import { flushAll, flushAllLogsSync } from '../core/log/logWriter'
 import { startHostServer } from './server'
 import { HOST_EXIT, listenExitCode } from './exitCodes'
@@ -197,7 +197,10 @@ async function main(): Promise<void> {
     process.stderr.write('astera-host: ASTERA_HOST_PROFILE_DIR is required\n')
     process.exit(HOST_EXIT.noProfile)
   }
-  const log = openHostLog({ path: process.env.ASTERA_HOST_LOG ?? path.join(profileDir, 'host', 'host.log') })
+  const hostLogPath = process.env.ASTERA_HOST_LOG ?? path.join(profileDir, 'host', 'host.log')
+  // The dead Host's last lines, taken before this Host writes its own first one.
+  const previousTail = readLogTail(hostLogPath)
+  const log = openHostLog({ path: hostLogPath })
   // Path probes that time out (an offline drive on PATH, or a session folder on one) are told here.
   setProbeLog((m) => log.write(m))
   // Final review C1, the belt: a rejection nobody handled is logged and never ends the Host (and every
@@ -1504,7 +1507,7 @@ async function main(): Promise<void> {
   }
   // 25a: what the last Host left (its exit line, or that it left none, and the command it died in) before the crash
   // resume below; then this Host's own exit line, heap watch and command breadcrumb take over the record.
-  for (const line of previousHostLines(path.join(profileDir, 'host'))) log.write(line)
+  for (const line of previousHostLines(path.join(profileDir, 'host'), { tail: previousTail })) log.write(line)
   exitWatch = watchExit({ proc: process, log, dir: path.join(profileDir, 'host') })
 
   // T2 (crashLimits.ts): after a hard death the limits are lowered before any worker or session is resumed, so the

@@ -19,6 +19,10 @@ export const EXIT_RECORD = 'exit-record.json'
 /** Shares of V8's heap limit that are logged, once each. */
 export const HEAP_THRESHOLDS: readonly number[] = [0.8, 0.95]
 export const WATCH_EVERY_MS = 10_000
+/** How often `seen` is stamped. A record older than 3 of these, with no exit and a dead pid, is a Host that died silently. */
+export const HEARTBEAT_MS = 3_000
+export const TAIL_LINES = 20
+const TAIL_BYTES = 64 * 1024
 
 interface Running {
   cmd: string
@@ -49,8 +53,42 @@ export interface ExitWatch {
 const seconds = (ms: number): number => Math.max(0, Math.round(ms / 1000))
 const mb = (n: number): number => Math.round(n / (1024 * 1024))
 
-/** What the last Host left in `dir`, as host.log lines (none for a profile that never had one). Never throws. */
-export function previousHostLines(dir: string, o: { fs?: ExitFs } = {}): string[] {
+/** The last `n` lines of a log, read from a bounded tail of the file, never the whole of it. Never throws. */
+export function readLogTail(file: string, n = TAIL_LINES): string[] {
+  try {
+    const fd = fsSync.openSync(file, 'r')
+    try {
+      const size = fsSync.fstatSync(fd).size
+      const len = Math.min(size, TAIL_BYTES)
+      const buf = Buffer.alloc(len)
+      fsSync.readSync(fd, buf, 0, len, size - len)
+      const lines = buf.toString('utf8').split(String.fromCharCode(10)).map((l) => l.trimEnd()).filter((l) => l !== '')
+      if (size > len) lines.shift() // the first line of a mid-file window is cut
+      return lines.slice(-n)
+    } finally {
+      fsSync.closeSync(fd)
+    }
+  } catch {
+    return []
+  }
+}
+
+/** Is `pid` a running process? EPERM means it exists but is not ours: alive. */
+export function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/** What the last Host left in `dir`, as host.log lines (none for a profile that never had one). Never throws.
+ *  `tail` is the previous host.log's last lines, read before this Host wrote its own first line. */
+export function previousHostLines(
+  dir: string,
+  o: { fs?: ExitFs; now?: () => number; alive?: (pid: number) => boolean; tail?: string[] } = {}
+): string[] {
   const fs = o.fs ?? fsSync
   let raw: string
   try {
@@ -64,6 +102,15 @@ export function previousHostLines(dir: string, o: { fs?: ExitFs } = {}): string[
     const pid = typeof r.pid === 'number' ? ` (pid ${r.pid})` : ''
     const doing = (r.running ?? []).slice(0, 3).map((c) => `${c.cmd} for ${seconds((r.seen ?? c.at) - c.at)} s`)
     const lines: string[] = []
+    const silent = !r.exit && typeof r.seen === 'number' && (o.now ?? Date.now)() - r.seen > 3 * HEARTBEAT_MS
+    const alive = typeof r.pid === 'number' ? (o.alive ?? pidAlive)(r.pid) : false
+    if (!r.exit && alive) return [] // a live pid is a Host still running, not a dead one
+    if (silent) {
+      lines.push(`the last Host${pid} died without a word (native crash?)${up}; last heartbeat ${new Date(r.seen as number).toISOString()}`)
+      if (doing.length > 0) lines.push(`the last Host died while running ${doing.join(', ')}`)
+      for (const l of (o.tail ?? []).slice(-TAIL_LINES)) lines.push(`  | ${l}`)
+      return lines
+    }
     if (r.exit && typeof r.exit.code === 'number') lines.push(`the last Host${pid} exited with code ${r.exit.code}${up}${r.last ? `; its last command was ${r.last}` : ''}`)
     else lines.push(`the last Host${pid} left no exit record: killed from outside or a native crash${up}`)
     if (doing.length > 0) lines.push(`the last Host ${r.exit ? 'left' : 'died'} while running ${doing.join(', ')}`)
@@ -82,6 +129,7 @@ export function watchExit(a: {
   now?: () => number
   heap?: () => { used: number; limit: number }
   every?: number
+  heartbeat?: number
   pid?: number
 }): ExitWatch {
   const fs = a.fs ?? fsSync
@@ -138,6 +186,8 @@ export function watchExit(a: {
   }
   const timer = setInterval(tick, a.every ?? WATCH_EVERY_MS)
   timer.unref()
+  const beat = setInterval(persist, a.heartbeat ?? HEARTBEAT_MS) // persist never throws
+  beat.unref()
   persist()
 
   return {
@@ -153,6 +203,9 @@ export function watchExit(a: {
         persist()
       }
     },
-    dispose: () => clearInterval(timer)
+    dispose: () => {
+      clearInterval(timer)
+      clearInterval(beat)
+    }
   }
 }

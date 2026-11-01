@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import path from 'node:path'
-import { EXIT_RECORD, previousHostLines, watchExit, type ExitFs } from './exitWatch'
+import os from 'node:os'
+import fsSync from 'node:fs'
+import { EXIT_RECORD, HEARTBEAT_MS, previousHostLines, readLogTail, watchExit, type ExitFs } from './exitWatch'
 
 const DIR = path.join('profile', 'host')
 const FILE = path.join(DIR, EXIT_RECORD)
@@ -108,6 +110,81 @@ describe('heap watch', () => {
   })
 })
 
+describe('heartbeat and the silent death', () => {
+  const quiet = { heap: () => ({ used: 1, limit: 100 }) }
+  const seen = (f: ReturnType<typeof fakes>): number => (JSON.parse(f.files.get(FILE)!) as { seen: number }).seen
+
+  it('stamps seen every 3 s, on its own timer', () => {
+    vi.useFakeTimers()
+    const f = fakes()
+    const w = watchExit({ ...f, dir: DIR, ...quiet, now: () => 1_000_000 + Date.now() })
+    const first = seen(f)
+    vi.advanceTimersByTime(HEARTBEAT_MS)
+    expect(seen(f)).toBe(first + HEARTBEAT_MS)
+    vi.advanceTimersByTime(HEARTBEAT_MS)
+    expect(seen(f)).toBe(first + 2 * HEARTBEAT_MS)
+    w.dispose()
+    vi.advanceTimersByTime(HEARTBEAT_MS)
+    expect(seen(f)).toBe(first + 2 * HEARTBEAT_MS)
+  })
+
+  const dead = (f: ReturnType<typeof fakes>) => {
+    const w = watchExit({ ...f, dir: DIR, pid: 55, ...quiet })
+    void w.command('tasks-dispatch', () => new Promise(() => {}))
+    w.dispose()
+    return Array.from({ length: 50 }, (_, i) => `2026-11-01T00:00:${String(i).padStart(2, '0')}Z line ${i}`)
+  }
+
+  it('names a stale heartbeat with a dead pid, then quotes the last 20 log lines of 50', () => {
+    const f = fakes()
+    const log = dead(f)
+    f.advance(30_000)
+    const out = previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => false, tail: log.slice(-20) })
+    expect(out[0]).toBe('the last Host (pid 55) died without a word (native crash?) after 0 s; last heartbeat 1970-01-01T00:16:40.000Z')
+    expect(out[1]).toBe('the last Host died while running tasks-dispatch for 0 s')
+    expect(out.slice(2)).toEqual(log.slice(30).map((l) => `  | ${l}`))
+    expect(out).toHaveLength(22)
+  })
+
+  it('quotes a short log whole', () => {
+    const f = fakes()
+    const log = dead(f).slice(0, 5)
+    f.advance(30_000)
+    const out = previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => false, tail: log })
+    expect(out.filter((l) => l.startsWith('  | '))).toHaveLength(5)
+  })
+
+  it('logs no death for a fresh heartbeat or a live pid', () => {
+    const f = fakes()
+    dead(f)
+    f.advance(2 * HEARTBEAT_MS)
+    expect(previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => false, tail: ['x'] }).join(' ')).not.toContain('without a word')
+    f.advance(60_000)
+    expect(previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => true, tail: ['x'] })).toEqual([])
+  })
+
+  it('keeps the exit wording for a record with an exit code, however old', () => {
+    const f = fakes()
+    const w = watchExit({ ...f, dir: DIR, pid: 7, ...quiet })
+    f.exits[0](3)
+    w.dispose()
+    f.advance(60_000)
+    expect(previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => false, tail: ['x'] })).toEqual(['the last Host (pid 7) exited with code 3 after 0 s'])
+  })
+
+  it('reads only the last 20 lines from the tail of a real file, and nothing from a missing one', () => {
+    const dir = fsSync.mkdtempSync(path.join(os.tmpdir(), 'tail-'))
+    const file = path.join(dir, 'host.log')
+    fsSync.writeFileSync(file, Array.from({ length: 5000 }, (_, i) => `line ${i} ${'x'.repeat(40)}`).join(String.fromCharCode(10)) + String.fromCharCode(10))
+    const t = readLogTail(file)
+    expect(t).toHaveLength(20)
+    expect(t[19]).toContain('line 4999')
+    expect(t[0]).toContain('line 4980')
+    expect(readLogTail(path.join(dir, 'nope.log'))).toEqual([])
+    fsSync.rmSync(dir, { recursive: true })
+  })
+})
+
 describe('the breadcrumb and the next Host', () => {
   it('holds the running command (name and start only) while it runs and clears it when it ends', async () => {
     const f = fakes()
@@ -137,7 +214,7 @@ describe('the breadcrumb and the next Host', () => {
     void w.command('tasks-dispatch', () => new Promise(() => {}))
     f.advance(42_000)
     vi.advanceTimersByTime(10_000) // the timer stamps the record; then the process is killed: no exit event
-    const lines = previousHostLines(DIR, { fs: f.fs })
+    const lines = previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => false })
     expect(lines).toEqual([
       'the last Host (pid 1908) left no exit record: killed from outside or a native crash after 42 s',
       'the last Host died while running tasks-dispatch for 42 s'
