@@ -17,7 +17,9 @@ export interface SpawnContext {
 }
 
 export interface HostClientDeps {
-  address: string
+  /** Where the Host listens. A function is asked again on every try, so a new Host that came up at another
+   *  address (or a rotated one) is found without a restart. */
+  address: string | (() => string)
   appVersion: string
   /** Start a Host. Called at most once per connect cycle; the client then waits for the address to
    *  answer rather than for the process.
@@ -89,8 +91,12 @@ export const HANDSHAKE_MS = 10_000
  *  here rather than left for a caller to add CONNECT_PHASE_MS and HANDSHAKE_MS together itself, so a
  *  future override of either one cannot silently strand a caller's own copy of that arithmetic. */
 export const READY_TIMEOUT_MS = CONNECT_PHASE_MS + HANDSHAKE_MS
-/** After a connection that worked drops, wait before trying again: 1s, 2s, 4s, capped at 30s. */
-const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000]
+/** After a connection that worked drops, wait before trying again: 1s, 2s, 4s, 8s, capped at 10s. */
+const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 10_000]
+/** Once a cycle's fast attempts all failed, it keeps trying (the client never ends while the app runs):
+ *  0.5s, 1s, 2s, 4s, 8s, then every 10s until a Host answers. */
+export const RECONNECT_FIRST_MS = 500
+export const RECONNECT_CAP_MS = 10_000
 
 /** A Host that is leaving (host/index.ts `leave`) keeps its address bound until its workspaces, spawns
  *  and plugins have closed — measured at about a minute — and hangs up on every new connection before
@@ -666,9 +672,14 @@ export class HostClient {
     const attempts = this.deps.attempts ?? DEFAULT_ATTEMPTS
     const retryMs = this.deps.retryMs ?? DEFAULT_RETRY_MS
     let asked = false
-    for (let i = 0; i < attempts && !this.stopped; i++) {
+    let misses = 0
+    let reported = false
+    // Never ends by itself: after the fast attempts it goes on with a backoff (RECONNECT_CAP_MS) until a
+    // Host answers, `stop()` is called, or a newer cycle takes over. The address is asked again each try.
+    while (wanted()) {
       try {
-        const socket = await connectOnce(this.deps.address, this.deps.log)
+        const address = typeof this.deps.address === 'function' ? this.deps.address() : this.deps.address
+        const socket = await connectOnce(address, this.deps.log)
         // Read after the connect and before the hello: nothing arrives before this client speaks, and
         // the proof has to be checked the moment the Host's hello lands (see `handleHostMessage`).
         let key: string | null = null
@@ -680,7 +691,7 @@ export class HostClient {
         // `stop()` may have landed while this connect was in flight. Attaching now would report a
         // connection the caller has already given up on, and the socket's own 'close' handler returns
         // early once stopped — so the status would never be corrected again.
-        if (this.stopped) {
+        if (!wanted()) {
           socket.destroy()
           return
         }
@@ -689,15 +700,17 @@ export class HostClient {
       } catch {
         // Nothing is listening. Ask for a Host once, then keep trying the address — the Host binds
         // some milliseconds after the process starts, and the address is the thing worth waiting on.
-        if (!asked && !this.stopped) {
+        if (!asked && wanted()) {
           asked = true
           this.deps.log('no Host at the address — starting one')
           this.spawning += 1
           try {
             await this.deps.spawnHost({ wanted })
           } catch (err) {
-            if (wanted()) this.fail(`the Host could not be started: ${String(err)}`)
-            return
+            if (!wanted()) return
+            // Not the end: a Host started by somebody else (`astera runtime serve`) can still appear.
+            reported = true
+            this.fail(`the Host could not be started: ${String(err)} — reconnecting`)
           } finally {
             this.spawning -= 1
             if (this.spawning === 0) for (const a of [...this.afterSpawn]) a()
@@ -706,10 +719,22 @@ export class HostClient {
           // over, and whatever was wanted of it is now the newer cycle's business.
           if (!wanted()) return
         }
-        await sleep(retryMs)
+        misses += 1
+        await sleep(misses <= attempts ? retryMs : Math.min(RECONNECT_CAP_MS, RECONNECT_FIRST_MS * 2 ** (misses - attempts - 1)))
+        if (!reported && misses >= attempts && wanted()) {
+          reported = true
+          this.fail('no Host answered at the address — reconnecting')
+        }
       }
     }
-    if (!this.stopped) this.fail('no Host answered at the address')
+  }
+
+  /** The socket's Host was turned away (it could not prove itself): try the address again after the same
+   *  backoff a drop uses, rather than leaving the client with no way back. */
+  private retryAfterBackoff(): void {
+    const wait = BACKOFF_MS[Math.min(this.drops, BACKOFF_MS.length - 1)]
+    this.drops += 1
+    void sleep(wait).then(() => this.cycle())
   }
 
   private attach(socket: net.Socket, key: string | null): void {
@@ -871,8 +896,9 @@ export class HostClient {
         this.socket = null
         socket?.destroy()
         this.fail(
-          `something at the Host's address answered but could not prove it is this profile's Host${expecting?.key === null ? ' (this profile has no Host key)' : ''} — another account on this machine may be holding the address; nothing was sent to it`
+          `something at the Host's address answered but could not prove it is this profile's Host${expecting?.key === null ? ' (this profile has no Host key)' : ''} — another account on this machine may be holding the address; nothing was sent to it — reconnecting`
         )
+        this.retryAfterBackoff()
         return
       }
       this.proven = this.socket
