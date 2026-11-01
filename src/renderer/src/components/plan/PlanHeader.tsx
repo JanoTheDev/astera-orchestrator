@@ -52,17 +52,18 @@ export function OpenConsolesChip({ summary, onFocus, defaultOpen = false }: { su
       label={t('plan.consoles.label')}
       panelClassName="plan-consoles-pop"
       trigger={(tp) => (
-        <button type="button" className="plan-consoles-chip" {...tp}>
+        <Button type="button" variant="ghost" size="sm" className="plan-consoles-chip" {...tp}>
           <Icon name="terminal" size={14} />
           {t(summary.labelKey, { count: summary.count })}
-        </button>
+        </Button>
       )}
     >
       <ul className="plan-consoles-list">
         {summary.rows.map((r) => (
           <li key={r.sessionId}>
-            <button
+            <Button
               type="button"
+              variant="ghost"
               data-roving
               className={r.closesSoon ? 'plan-consoles-row plan-consoles-row--idle' : 'plan-consoles-row'}
               onClick={() => {
@@ -72,7 +73,7 @@ export function OpenConsolesChip({ summary, onFocus, defaultOpen = false }: { su
             >
               <span className="plan-consoles-row__what">{[r.taskTitle, t(r.roleKey)].filter(Boolean).join(' · ')}</span>
               <span className="plan-consoles-row__why">{t(r.reasonKey)}</span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

@@ -282,6 +282,7 @@ const PTY_REASON =
 // node-pty has no windowsHide option, so its starts are listed here instead.
 ALLOWED.push(
   { file: 'src/host/index.ts', match: 'pty.spawn(file, args', reason: PTY_REASON },
+  { file: 'src/host/ptySupervisor/entry.ts', match: 'pty.spawn(file, args', reason: PTY_REASON },
   { file: 'src/core/sessions/nodePtyFactory.ts', match: 'pty.spawn(file, args', reason: PTY_REASON }
 )
 
@@ -292,6 +293,11 @@ ALLOWED.push(
  * entry must still match a start (no stale entries).
  */
 const DETACHED_ALLOWED: Array<{ file: string; line: string; reason: string }> = [
+  {
+    file: 'src/host/ptySupervisor/client.ts',
+    line: 'detached: true,',
+    reason: 'the pty supervisor: it must outlive the Host. It sets windowsHide: true, and holds no console of its own'
+  },
   {
     file: 'src/core/host/spawn.ts',
     line: 'detached: true,',
