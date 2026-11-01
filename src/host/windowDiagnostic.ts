@@ -39,7 +39,7 @@ type Exec = (file: string, args: string[], opts: { env: Record<string, string | 
 
 const defaultExec: Exec = (file, args, opts) =>
   new Promise((resolve, reject) => {
-    execFile(file, args, { ...opts, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))))
+    execFile(file, args, { env: opts.env, windowsHide: true, timeout: 30_000, maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => (err ? reject(err) : resolve(String(stdout))))
   })
 
 /** The process table as JSON text, through Windows PowerShell. The Host pid goes in the environment. */
