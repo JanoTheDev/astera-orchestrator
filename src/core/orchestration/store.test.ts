@@ -3,7 +3,7 @@ import { promises as fs, readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { OrchestrationStore, RUN_TTL_MS, backupNameOf, backupsToDelete } from './store'
-import { emptyState, type OrchState } from './state'
+import { createJob, createTask, emptyState, startJobRun, type OrchState } from './state'
 import { stateFromLegacy } from './legacyState'
 
 let dir: string
@@ -1123,5 +1123,205 @@ describe('timestamped backups and the mass-delete guard', () => {
     // 22 old ones only: the newest 20 stay, the 2 oldest go
     const only = Array.from({ length: 22 }, (_, i) => at(10 * day + i * hour))
     expect(backupsToDelete(only, now).sort()).toEqual(only.slice(20).sort())
+  })
+})
+
+// T3: commits no longer wait for the disk (the Host does not await `save`), so the way out flushes.
+describe('flush', () => {
+  const runState = (id: string): OrchState => ({ ...emptyState(), runs: [{ id, jobId: 'job_1', ordinal: 1, createdAt: NOW }] as OrchState['runs'] })
+
+  it('save moves memory at once, and flush resolves only once the last state is on disk', async () => {
+    const file = path.join(dir, 'orchestration.json')
+    const store = new OrchestrationStore(file)
+    await store.load()
+    const realRename = fs.rename
+    let open!: () => void
+    const gate = new Promise<void>((r) => (open = r))
+    const spy = vi.spyOn(fs, 'rename').mockImplementation(async (from, to) => {
+      await gate
+      await realRename(from, to)
+    })
+    try {
+      void store.save(runState('run_a'))
+      void store.save(runState('run_b'))
+      expect(store.get().runs[0].id).toBe('run_b')
+      let flushed = false
+      const f = store.flush().then(() => (flushed = true))
+      await new Promise((r) => setTimeout(r, 20))
+      expect(flushed).toBe(false)
+      open()
+      await f
+    } finally {
+      spy.mockRestore()
+    }
+    expect((JSON.parse(await fs.readFile(file, 'utf8')) as OrchState).runs[0].id).toBe('run_b')
+  })
+
+  it('writes the last state again when its write failed, and logs the failure', async () => {
+    const file = path.join(dir, 'orchestration.json')
+    const log = vi.fn()
+    const store = new OrchestrationStore(file, log)
+    await store.load()
+    const spy = vi.spyOn(fs, 'rename').mockRejectedValueOnce(new Error('rename failed'))
+    try {
+      await expect(store.save(runState('run_a'))).rejects.toThrow('rename failed')
+      expect(log).toHaveBeenCalledWith(expect.stringContaining('store.write.failed'))
+      await store.flush()
+    } finally {
+      spy.mockRestore()
+    }
+    expect((JSON.parse(await fs.readFile(file, 'utf8')) as OrchState).runs[0].id).toBe('run_a')
+  })
+})
+
+// T3: finished Runs older than a day leave orchestration.json for orch/archive/<runId>.json; memory keeps them all.
+describe('the archive of finished Runs', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const OLD = new Date(Date.now() - 3 * DAY).toISOString()
+  const ok = <T>(r: { ok: true; state: OrchState; value: T } | { ok: false; error: string }): { state: OrchState; value: T } => {
+    if (!r.ok) throw new Error(r.error)
+    return r
+  }
+  /** A Run finished three days ago (two Tasks, a Dispatch, a Message), then a live Run of another Job. */
+  const twoRuns = (): { state: OrchState; oldRun: string; liveRun: string } => {
+    const j1 = ok(createJob(emptyState(), { objective: 'old', cwd: 'D:/p', concurrency: 1 }, OLD))
+    const r1 = ok(startJobRun(j1.state, j1.value.id, OLD))
+    const a = ok(createTask(r1.state, { runId: r1.value.id, title: 'a', spec: 's', deps: [] }, OLD))
+    const b = ok(createTask(a.state, { runId: r1.value.id, title: 'b', spec: 's', deps: [] }, OLD))
+    const j2 = ok(createJob(b.state, { objective: 'live', cwd: 'D:/p', concurrency: 1 }, NOW))
+    const r2 = ok(startJobRun(j2.state, j2.value.id, NOW))
+    const c = ok(createTask(r2.state, { runId: r2.value.id, title: 'c', spec: 's', deps: [] }, NOW))
+    const s = c.state
+    return {
+      oldRun: r1.value.id,
+      liveRun: r2.value.id,
+      state: {
+        ...s,
+        tasks: s.tasks.map((t) =>
+          t.runId === r1.value.id ? { ...t, status: t.id === a.value.id ? ('completed' as const) : ('failed' as const), updatedAt: OLD } : t
+        ),
+        dispatches: [
+          {
+            id: 'dsp_old',
+            taskId: a.value.id,
+            provider: 'claude',
+            accountId: 'acc1',
+            sessionId: 'ses_old',
+            cwd: 'D:/p',
+            specPath: 'D:/p/s.md',
+            startedAt: OLD,
+            endedAt: OLD,
+            outcome: 'succeeded',
+            workerState: 'ready',
+            retained: false
+          }
+        ],
+        messages: [{ id: 'msg_old', runId: r1.value.id, type: 'worker_done', taskId: a.value.id, subject: 'done', body: 'b', answered: false, createdAt: OLD }]
+      }
+    }
+  }
+  const file = (): string => path.join(dir, 'orchestration.json')
+  const archiveOf = (runId: string): string => path.join(dir, 'orch', 'archive', `${runId}.json`)
+  const readJson = async (f: string): Promise<Record<string, unknown> & OrchState> => JSON.parse(await fs.readFile(f, 'utf8'))
+
+  it('splits an old single-file state on load, keeps every Run in memory, and loads the split back the same', async () => {
+    const { state, oldRun, liveRun } = twoRuns()
+    await fs.writeFile(file(), JSON.stringify(state), 'utf8')
+    const store = new OrchestrationStore(file())
+    await store.load()
+    expect(store.get().runs.map((r) => r.id)).toEqual([oldRun, liveRun])
+    const hot = await readJson(file())
+    expect(hot.runs.map((r) => r.id)).toEqual([liveRun])
+    expect(hot.tasks.every((t) => t.runId !== oldRun)).toBe(true)
+    expect(hot.dispatches).toEqual([])
+    expect(hot.messages).toEqual([])
+    expect(hot.archived).toEqual([{ id: oldRun, jobId: state.runs[0].jobId, status: 'failed', endedAt: OLD }])
+    const archive = await readJson(archiveOf(oldRun))
+    expect(archive.run).toMatchObject({ id: oldRun })
+    expect([(archive.tasks as unknown[]).length, (archive.dispatches as unknown[]).length, (archive.messages as unknown[]).length]).toEqual([2, 1, 1])
+
+    const again = new OrchestrationStore(file())
+    await again.load()
+    expect(again.get()).toEqual(store.get())
+  })
+
+  it('a crash after the archive file and before the hot file loads the old file whole, with nothing twice', async () => {
+    const { state, oldRun } = twoRuns()
+    await fs.mkdir(path.dirname(archiveOf(oldRun)), { recursive: true })
+    await fs.writeFile(archiveOf(oldRun), JSON.stringify({ run: state.runs[0], tasks: [], dispatches: [], messages: [], deliveries: [], gates: [] }), 'utf8')
+    await fs.writeFile(file(), JSON.stringify(state), 'utf8')
+    const store = new OrchestrationStore(file())
+    await store.load()
+    expect(store.get().runs).toHaveLength(2)
+    expect(store.get().tasks).toHaveLength(3)
+    expect(((await readJson(archiveOf(oldRun))).tasks as unknown[]).length).toBe(2)
+  })
+
+  it('leaves out, and logs, an archived Run whose file is gone', async () => {
+    const { state, oldRun, liveRun } = twoRuns()
+    await fs.writeFile(file(), JSON.stringify(state), 'utf8')
+    await new OrchestrationStore(file()).load()
+    await fs.rm(archiveOf(oldRun))
+    const log = vi.fn()
+    const store = new OrchestrationStore(file(), log)
+    await store.load()
+    expect(store.get().runs.map((r) => r.id)).toEqual([liveRun])
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('store.archive.unreadable'))
+  })
+
+  it('a Run reopened goes back to the hot file, and its archive file goes', async () => {
+    const { state, oldRun } = twoRuns()
+    await fs.writeFile(file(), JSON.stringify(state), 'utf8')
+    const store = new OrchestrationStore(file())
+    await store.load()
+    const s = store.get()
+    await store.save({ ...s, tasks: s.tasks.map((t) => (t.runId === oldRun && t.status === 'failed' ? { ...t, status: 'ready' as const, updatedAt: NOW } : t)) })
+    const hot = await readJson(file())
+    expect(hot.runs.map((r) => r.id)).toContain(oldRun)
+    expect(hot.archived).toBeUndefined()
+    await expect(fs.stat(archiveOf(oldRun))).rejects.toThrow()
+  })
+
+  it('the 30-day prune removes an archived Run and its file, after a whole backup', async () => {
+    const { state, oldRun, liveRun } = twoRuns()
+    await fs.writeFile(file(), JSON.stringify(state), 'utf8')
+    await new OrchestrationStore(file()).load()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + RUN_TTL_MS)
+      const store = new OrchestrationStore(file())
+      const r = await store.load()
+      expect(r.pruned).toBe(1)
+      expect(store.get().runs.map((x) => x.id)).toEqual([liveRun])
+    } finally {
+      vi.useRealTimers()
+    }
+    await expect(fs.stat(archiveOf(oldRun))).rejects.toThrow()
+    // whole: the backup holds the archived Run's Tasks as well as the live one
+    const [bak] = (await fs.readdir(dir)).filter((n) => /^orchestration\..+Z\.json\.bak$/.test(n))
+    expect((await readJson(path.join(dir, bak))).tasks).toHaveLength(3)
+  })
+
+  it('renders a plan folder again only for a Job the commit changed', async () => {
+    const job = ok(createJob(emptyState(), { objective: 'planned', cwd: 'D:/p', concurrency: 1 }, NOW))
+    const run = ok(startJobRun(job.state, job.value.id, NOW))
+    const t = ok(createTask(run.state, { runId: run.value.id, title: 'first', spec: 's', deps: [] }, NOW))
+    const other = ok(createJob(t.state, { objective: 'other', cwd: 'D:/p', concurrency: 1 }, NOW))
+    const s0: OrchState = { ...other.state, jobs: other.state.jobs.map((j) => (j.id === job.value.id ? { ...j, plannerSessionIds: [] } : j)) }
+    const plans = path.join(dir, 'plans', job.value.id)
+    await fs.mkdir(path.join(plans, 'inputs'), { recursive: true })
+    await fs.writeFile(path.join(plans, 'inputs', 'existing.md'), '## Decisions\nkeep JSON\n', 'utf8')
+    const store = new OrchestrationStore(file())
+    await store.load()
+    await store.save(s0)
+    expect(await fs.readFile(path.join(plans, 'plan.md'), 'utf8')).toContain('keep JSON')
+
+    await fs.writeFile(path.join(plans, 'inputs', 'existing.md'), '## Decisions\nno journal\n', 'utf8')
+    await store.save({ ...s0, jobs: s0.jobs.map((j) => (j.id === other.value.id ? { ...j, objective: 'other, edited' } : j)) })
+    expect(await fs.readFile(path.join(plans, 'plan.md'), 'utf8')).toContain('keep JSON')
+
+    const s1 = store.get()
+    await store.save({ ...s1, tasks: s1.tasks.map((x) => (x.id === t.value.id ? { ...x, title: 'renamed' } : x)) })
+    expect(await fs.readFile(path.join(plans, 'plan.md'), 'utf8')).toContain('no journal')
   })
 })

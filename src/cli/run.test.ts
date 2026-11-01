@@ -1177,6 +1177,8 @@ describe('회복 줄은 진짜로 재생을 부른다', () => {
     })
     expect(again.replayed, '다시 친 줄이 재생이 아니라 새 명령이었다').toBe(true)
     expect((again.body as { id: string }).id).toBe((sent.body as { id: string }).id)
+    // T3: a commit no longer waits for the disk
+    await orch.flush()
     const saved = JSON.parse(await fs.readFile(path.join(dir, 'orchestration.json'), 'utf8')) as {
       jobs: unknown[]
       runs: unknown[]
