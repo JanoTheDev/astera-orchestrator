@@ -503,6 +503,8 @@ export function createHostDriving(d: {
     freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
     // #117: a hands-off plan's decision, appended to its Job (the feed derives its line from the commit)
     recordDecision: (jobId, decision) => d.orch.internalDeps().setState(addDecision(d.orch.state(), jobId, decision)),
+    // A merged Task recorded in the same step as its merge, as a decision is: not queued behind a long command
+    commit: (change) => d.orch.internalDeps().setState(change(d.orch.state())),
     // T8: a transiently failed merge waits while the machine is strained: the load monitor's snapshot, written every 10 s
     strained: async () => {
       const health = await readHealthSnapshot(d.profileDir)
