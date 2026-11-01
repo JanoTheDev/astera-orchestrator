@@ -3533,6 +3533,14 @@ export function registerIpc(
       // 앱에서 "운전해도 되는가" 는 서버가 서 있고, dispatch 를 알리는 Host 가 몰지 않는가다(§4.2, N8).
       // 슬롯마다 다시 묻으므로, 한 바퀴 도중에 그런 Host 가 붙으면 그 자리에서 멈춘다.
       mayStart: () => orch !== null && !hostDrives(),
+      // A merged Task recorded right after git merged, as driving.ts does: not queued behind the command chain.
+      // commitFresh re-reads and re-applies on a state conflict; an unchanged state writes nothing.
+      commit: async (change) => {
+        await commitFresh(deps, (cur) => {
+          const next = change(cur)
+          return next === cur ? null : next
+        })
+      },
       log: orchLog,
       nowMs: () => Date.now(),
       // W6-G
