@@ -2809,7 +2809,8 @@ describe('a delivery that finishes by itself (T3)', () => {
       affectedPaths: ['src/dark.ts'],
       kind: 'feature',
       basis: 'missing',
-      evidence: 'no dark mode in src/'
+      evidence: 'no dark mode in src/',
+      why: 'the owner asked for dark mode'
     })
     expect(made.status).toBe(200)
     expect((await h.as(sid, 'jobs-replan-done', { id: 'job_1', summary: 'dark mode Task' })).status).toBe(200)
@@ -2840,7 +2841,7 @@ describe('a delivery that finishes by itself (T3)', () => {
     const sid = ((await h.real('jobs-chat', { id: 'job_1' })).body as { sessionId: string }).sessionId
     const made = await h.as(sid, 'task-create', {
       run: 'run_1', account: 'accA', title: 'dark mode', spec: 'the dark mode part', prompt: 'Build dark mode.',
-      criteria: ['dark mode works'], affectedPaths: ['src/dark.ts'], kind: 'feature', basis: 'missing', evidence: 'no dark mode in src/'
+      criteria: ['dark mode works'], affectedPaths: ['src/dark.ts'], kind: 'feature', basis: 'missing', evidence: 'no dark mode in src/', why: 'the owner asked for dark mode'
     })
     expect((await h.as(sid, 'jobs-replan-done', { id: 'job_1', summary: 'dark mode Task' })).status).toBe(200)
     await pass(h)
@@ -4117,7 +4118,9 @@ describe('a slow delivery, branch push, origin sync or refresh never holds the p
       projects: [...s.projects, { id: 'prj_a', path: '/a', name: 'a', addedAt: NOW, defaultBranch: 'main' }],
       jobs: [
         ...s.jobs,
-        { id: 'job_A', objective: 'a', cwd: '/a', createdAt: NOW, autoDispatch: true, ...(done ? { delivery: 'push' as const } : {}) },
+        { id: 'job_A', objective: 'a', cwd: '/a', createdAt: NOW, autoDispatch: true, ...(done ? { delivery: 'push' as const } : {}),
+          // T10: the plan branch is pushed mid-plan only on a cadence other than the default `end`
+          ...(hang === 'run-draft-pr' ? { pushCadence: 'task' as const } : {}) },
         // T11: plan D of the same project delivered after plan A began, so plan A is refreshed onto it
         ...(hang === 'refresh' ? [{ id: 'job_D', objective: 'd', cwd: '/a', createdAt: NOW }] : [])
       ],
