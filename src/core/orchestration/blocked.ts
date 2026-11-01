@@ -31,10 +31,16 @@ import { failedRetryAt } from './replan'
 
 const isOpen = (d: Dispatch): boolean => !d.outcome && !d.endedAt
 
-/** T8: why the dispatch loop of this process last held each ready Task (exec/dispatchLoop.ts writes it, by Task id). In
- *  memory, never saved: the loop and the folds that read it (`jobs-view`, the app's snapshot) run in the same process.
- *  shortcut: the app's own fold does not see the Host loop's holds; carry them over IPC if the Plans page needs them. */
+/** T8: why the dispatch loop last held each ready Task (exec/dispatchLoop.ts writes it, by Task id). In memory, never
+ *  saved. In the Host, its own loop's; in the app, its own loop's, or, while the Host drives, the Host's as last pushed
+ *  (`slot-holds`, `acceptSlotHolds`). */
 export const slotHolds = new Map<string, SlotHold>()
+
+/** T8: the holds another process's loop pushed (`slot-holds`) replace these, whole. */
+export function acceptSlotHolds(pushed: Record<string, SlotHold>, into: Map<string, SlotHold> = slotHolds): void {
+  into.clear()
+  for (const [id, h] of Object.entries(pushed ?? {})) if (typeof h?.hold === 'string' && typeof h.detail === 'string') into.set(id, h)
+}
 
 /** The bucket a Task counts in. `dispatched` with no open Dispatch is `cancelled` only when a person closed it
  *  (`worker-stop`, `worker-abandon`, `runs stop`): one closed by a schedule's pause, or lost with the app, is waiting

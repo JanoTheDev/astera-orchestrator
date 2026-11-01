@@ -281,6 +281,8 @@ export interface DispatchLoopContext {
   usageGuard?: Pick<UsageGuard, 'refresh' | 'pauseOf'> & Partial<Pick<UsageGuard, 'view' | 'pauseAt' | 'autoAccounts'>>
   /** T8: where each held ready Task's hold is kept for the board (blocked.ts `taskBoardsOf`). Defaults to `slotHolds`. */
   holds?: Map<string, SlotHold>
+  /** T8: told each change of `holds`, so a board in another process (the app, while the Host drives) shows them too. */
+  holdsChanged?(holds: ReadonlyMap<string, SlotHold>): void
   log(m: string): void
   nowMs(): number
 }
@@ -1897,19 +1899,30 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   const holds = (): Map<string, SlotHold> => c.holds ?? slotHolds
   /** T8: a wait is kept as the Task's hold for the board (its `since` kept while the kind stays); any other ending, and a
    *  Task no longer ready, clears it. */
-  const noteHold = (taskId: string, end: SlotEnd): void => {
-    const m = holds()
-    if (end.kind !== 'wait') {
-      m.delete(taskId)
-      return
+  const holdsChanged = (): void => {
+    try {
+      c.holdsChanged?.(holds())
+    } catch (e) {
+      log(`scheduler: the held tasks could not be passed on: ${String(e)}`)
     }
+  }
+  const forgetHold = (taskId: string): void => {
+    if (holds().delete(taskId)) holdsChanged()
+  }
+  const noteHold = (taskId: string, end: SlotEnd): void => {
+    if (end.kind !== 'wait') return forgetHold(taskId)
+    const m = holds()
     const was = m.get(taskId)
+    if (was?.hold === end.hold && was.detail === end.why) return
     m.set(taskId, { hold: end.hold, detail: end.why, since: was?.hold === end.hold ? was.since : new Date(c.nowMs()).toISOString() })
+    holdsChanged()
   }
   const dropEndedHolds = (s: OrchState): void => {
     const m = holds()
     if (m.size === 0) return
-    for (const id of m.keys()) if (s.tasks.find((x) => x.id === id)?.status !== 'ready') m.delete(id)
+    let dropped = false
+    for (const id of m.keys()) if (s.tasks.find((x) => x.id === id)?.status !== 'ready') dropped = m.delete(id) || dropped
+    if (dropped) holdsChanged()
   }
   /** Who waits for `scheduling` to drop: a `dispatchOne` that arrived during a pass. */
   let idleWaiters: Array<() => void> = []
@@ -2023,7 +2036,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
             else if (end.kind === 'refused')
               await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: JSON.stringify(end.reply.body) }))
           } catch (e) {
-            holds().delete(slot.taskId)
+            forgetHold(slot.taskId)
             await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: String(e) }))
           }
         }

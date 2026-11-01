@@ -28,7 +28,7 @@ import { needsInput } from '../sessionIndex'
 import { outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
 import type { Decision, Dispatch, Job, Message, Task } from '../types'
-import { taskBoardsOf } from '../blocked'
+import { acceptSlotHolds, taskBoardsOf } from '../blocked'
 import { FAILURE_LIMIT } from '../types'
 import type { Account, SlotHold } from '../../types'
 import { installPending, installSettled, installTurn } from '../../worktrees/setup'
@@ -3983,6 +3983,24 @@ describe('ready Tasks start or show the true blocker (T8)', () => {
       await h.loop.run()
       await h.settle()
       expect(boardOf(h, holds)).toMatchObject({ kind: 'hold', hold: 'usage' })
+    })
+
+    it("reaches the board of another process: the Host loop's holds, pushed as slot-holds, are the app fold's", async () => {
+      const h = rig()
+      withHolds(h)
+      // The socket between them: what the Host broadcasts, as the app parses it (drivingWiring.ts, main/ipc.ts)
+      const appHolds = new Map<string, SlotHold>()
+      h.ctx.holdsChanged = (held) => acceptSlotHolds(JSON.parse(JSON.stringify({ t: 'slot-holds', holds: Object.fromEntries(held) })).holds, appHolds)
+      h.ctx.handle = async (cmd, args) => (cmd === 'worker-start' ? { status: 409, body: { atCapacity: true } } : h.real(cmd, args))
+      await h.loop.run()
+      await h.settle()
+      expect(boardOf(h, appHolds)).toMatchObject({ kind: 'hold', hold: 'cap', detail: 'the app-wide worker cap is reached' })
+      // The hold ends in the Host: the app's board loses it too
+      h.ctx.handle = h.real
+      await h.loop.run()
+      await h.settle()
+      expect(started(h)).toEqual(['tsk_1'])
+      expect(appHolds.size).toBe(0)
     })
   })
 })

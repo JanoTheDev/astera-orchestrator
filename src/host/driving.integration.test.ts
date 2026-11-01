@@ -35,6 +35,7 @@ import { refusedBeforeActing, type OrchCaller } from '../core/host/orchProtocol'
 import { openDispatch, type OrchState } from '../core/orchestration/state'
 import { outcomeOf } from '../core/orchestration/view'
 import type { Provider } from '../core/types'
+import { slotHolds } from '../core/orchestration/blocked'
 
 const NOW = '2026-09-25T00:00:00.000Z'
 /** Every wait is bounded: long enough for real git on a loaded Windows runner, short enough to fail. */
@@ -794,7 +795,11 @@ describe('the Host drives with no app (§9.3)', { timeout: 40_000 }, () => {
     expect(told.at(-1)?.to?.(new Set(), new Set())).toBe(false)
     const sent: HostMessage[] = []
     h.wiring.appGreeted((m) => sent.push(m))
-    expect(sent).toEqual([{ t: 'driver', driver: 'parked', gate: 'unreadable' }])
+    // T8: and why its loop holds each ready Task, for the app's board
+    expect(sent).toEqual([
+      { t: 'driver', driver: 'parked', gate: 'unreadable' },
+      { t: 'slot-holds', holds: Object.fromEntries(slotHolds) }
+    ])
     // Repaired: the next tick drives, and says so once.
     await fs.writeFile(path.join(h.profileDir, 'app-settings.json'), JSON.stringify({ orchAlwaysOnMigrated: true }))
     await h.wiring.driving.tick()
