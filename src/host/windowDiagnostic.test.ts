@@ -1,41 +1,62 @@
-// The Windows window diagnostic: a fake process table in, log lines out. Nothing here starts a process.
+// The Windows window diagnostic: watcher lines in, log lines out. Nothing here starts a process.
 import { describe, expect, it } from 'vitest'
 import {
-  WINDOW_DIAGNOSTIC_ENV,
   WINDOW_DIAGNOSTIC_SUMMARY_MS,
+  classifyWindow,
   createWindowDiagnostic,
-  descendantsOf,
-  parseProcessTable,
-  queryWindowTable
+  encodedScript,
+  parseWindowEvent,
+  type WindowShown
 } from './windowDiagnostic'
 
-const row = (pid: number, parent: number, o: Partial<{ name: string; cmd: string; created: number; window: boolean }> = {}) => ({
-  ProcessId: pid,
-  ParentProcessId: parent,
-  Name: o.name ?? `p${pid}.exe`,
-  CommandLine: o.cmd ?? `p${pid}.exe --arg`,
-  Created: o.created ?? 1000,
-  HasWindow: o.window ?? false
-})
+const shown = (o: Partial<WindowShown> & { chain?: Array<{ pid: number; name: string }> }): string =>
+  JSON.stringify({ kind: 'shown', hwnd: 100, pid: 11, cls: 'ConsoleWindowClass', title: '', cmd: 'x.exe', chain: [{ pid: 11, name: 'x.exe' }], ...o })
 
-describe('parseProcessTable', () => {
-  it('reads an array, a single object and empty output', () => {
-    expect(parseProcessTable(JSON.stringify([row(2, 1), row(3, 2)]))).toHaveLength(2)
-    expect(parseProcessTable(JSON.stringify(row(2, 1)))).toEqual([{ pid: 2, parent: 1, name: 'p2.exe', cmd: 'p2.exe --arg', created: 1000, window: false }])
-    expect(parseProcessTable('')).toEqual([])
-    expect(parseProcessTable('not json')).toEqual([])
+describe('parseWindowEvent', () => {
+  it('reads a shown window and a late title', () => {
+    expect(parseWindowEvent(shown({ hwnd: 7, pid: 3, cls: 'CASCADIA_HOSTING_WINDOW_CLASS', title: 't', cmd: 'c', chain: [{ pid: 3, name: 'a.exe' }, { pid: 1, name: 'h.exe' }] }))).toEqual({
+      kind: 'shown',
+      hwnd: 7,
+      pid: 3,
+      cls: 'CASCADIA_HOSTING_WINDOW_CLASS',
+      title: 't',
+      cmd: 'c',
+      chain: [
+        { pid: 3, name: 'a.exe' },
+        { pid: 1, name: 'h.exe' }
+      ]
+    })
+    expect(parseWindowEvent(JSON.stringify({ kind: 'title', hwnd: 7, title: 'C:\\x\\node.exe' }))).toEqual({ kind: 'title', hwnd: 7, title: 'C:\\x\\node.exe' })
   })
 
-  it('drops rows without a usable pid and keeps a missing command line empty', () => {
-    const t = parseProcessTable(JSON.stringify([{ ProcessId: 'x' }, { ProcessId: 5, ParentProcessId: 1, Name: 'a.exe', Created: 7, HasWindow: true }]))
-    expect(t).toEqual([{ pid: 5, parent: 1, name: 'a.exe', cmd: '', created: 7, window: true }])
+  it('takes a one-link chain written as an object (ConvertTo-Json unwraps a one-element array)', () => {
+    const e = parseWindowEvent(JSON.stringify({ kind: 'shown', hwnd: 1, pid: 2, cls: 'c', chain: { pid: 2, name: 'n.exe' } }))
+    expect(e && e.kind === 'shown' && e.chain).toEqual([{ pid: 2, name: 'n.exe' }])
+  })
+
+  it('drops what it cannot read', () => {
+    for (const l of ['', 'not json', '[]', '{"kind":"shown","hwnd":1}', '{"kind":"other","hwnd":1}', '{"kind":"title"}']) expect(parseWindowEvent(l)).toBeNull()
   })
 })
 
-describe('descendantsOf', () => {
-  it('finds children transitively, not the root nor strangers, and survives a parent cycle', () => {
-    const t = parseProcessTable(JSON.stringify([row(10, 1), row(11, 10), row(12, 11), row(20, 2), row(1, 12)]))
-    expect(descendantsOf(t, 1).map((p) => p.pid).sort()).toEqual([10, 11, 12])
+describe('classifyWindow', () => {
+  const e = (cls: string, chain: number[]): WindowShown => ({ kind: 'shown', hwnd: 1, pid: chain[0], cls, title: '', cmd: '', chain: chain.map((pid) => ({ pid, name: 'p' })) })
+  it('a window under the Host is the Host’s, whatever its class', () => {
+    expect(classifyWindow(e('Chrome_WidgetWin_1', [5, 4, 1]), 1)).toBe('host')
+  })
+  it('any console or terminal window counts: a handed-off console belongs to Windows Terminal, not the Host', () => {
+    for (const cls of ['ConsoleWindowClass', 'CASCADIA_HOSTING_WINDOW_CLASS', 'PseudoConsoleWindow']) expect(classifyWindow(e(cls, [5, 9]), 1)).toBe('console')
+  })
+  it('ignores other windows', () => {
+    expect(classifyWindow(e('Notepad', [5, 9]), 1)).toBeNull()
+  })
+})
+
+describe('encodedScript', () => {
+  it('is the UTF-16LE base64 -EncodedCommand takes, and names the pid variable rather than holding a pid', () => {
+    const text = Buffer.from(encodedScript(), 'base64').toString('utf16le')
+    expect(text).toContain('ASTERA_WINDOW_DIAGNOSTIC_HOST_PID')
+    expect(text).toContain('EnumWindows')
   })
 })
 
@@ -43,115 +64,104 @@ describe('createWindowDiagnostic', () => {
   function setup(o: { platform?: NodeJS.Platform; enabled?: boolean } = {}) {
     let clock = 0
     let enabled = o.enabled ?? true
-    let table: unknown[] = []
-    const queries: number[] = []
     const lines: string[] = []
+    const watches: Array<{ pid: number; emit: (l: string) => void; exit: (why: string) => void; stopped: boolean }> = []
     const d = createWindowDiagnostic({
       platform: o.platform ?? 'win32',
       hostPid: 1,
       enabled: async () => enabled,
-      query: async (pid) => {
-        queries.push(pid)
-        return JSON.stringify(table)
+      watch: (pid, onLine, onExit) => {
+        const w = { pid, emit: onLine, exit: onExit, stopped: false }
+        watches.push(w)
+        return { stop: () => (w.stopped = true) }
       },
       log: (m) => lines.push(m),
       now: () => clock
     })
-    return {
-      d,
-      lines,
-      queries,
-      setTable: (t: unknown[]) => (table = t),
-      setEnabled: (v: boolean) => (enabled = v),
-      advance: (ms: number) => (clock += ms)
-    }
+    return { d, lines, watches, setEnabled: (v: boolean) => (enabled = v), advance: (ms: number) => (clock += ms) }
   }
 
-  it('logs only descendants that own a window, with image, parent and command line', async () => {
+  it('starts one watcher with the Host pid and logs Host windows and console windows as they appear', async () => {
     const s = setup()
-    s.setTable([row(10, 1), row(11, 10, { window: true, name: 'cmd.exe', cmd: 'cmd.exe /c dir' }), row(30, 2, { window: true })])
     await s.d.tick()
-    expect(s.lines).toEqual(['visible window: pid=11 image=cmd.exe parent=10 cmd=cmd.exe /c dir'])
+    await s.d.tick()
+    expect(s.watches).toHaveLength(1)
+    expect(s.watches[0].pid).toBe(1)
+    s.watches[0].emit(shown({ hwnd: 5, pid: 11, cls: 'ConsoleWindowClass', cmd: 'git.exe status', chain: [{ pid: 11, name: 'git.exe' }, { pid: 1, name: 'astera-host.exe' }] }))
+    s.watches[0].emit(shown({ hwnd: 6, pid: 30, cls: 'CASCADIA_HOSTING_WINDOW_CLASS', title: '', cmd: 'wt.exe', chain: [{ pid: 30, name: 'WindowsTerminal.exe' }] }))
+    s.watches[0].emit(shown({ hwnd: 7, pid: 31, cls: 'Notepad', chain: [{ pid: 31, name: 'notepad.exe' }] }))
+    expect(s.lines.slice(1)).toEqual([
+      'visible window (Host child): hwnd=5 pid=11 class=ConsoleWindowClass title="" chain=git.exe(11) <- astera-host.exe(1) cmd=git.exe status',
+      'visible console window: hwnd=6 pid=30 class=CASCADIA_HOSTING_WINDOW_CLASS title="" chain=WindowsTerminal.exe(30) cmd=wt.exe'
+    ])
   })
 
-  it('cuts the command line at 500 characters', async () => {
+  it('logs the late title of a logged window when it says something new', async () => {
     const s = setup()
-    s.setTable([row(10, 1, { window: true, cmd: 'x'.repeat(900) })])
     await s.d.tick()
-    expect(s.lines[0]).toBe(`visible window: pid=10 image=p10.exe parent=1 cmd=${'x'.repeat(500)}`)
-  })
-
-  it('logs each pid and creation time once; a reused pid with a new creation time is logged again', async () => {
-    const s = setup()
-    s.setTable([row(10, 1, { window: true, created: 5 })])
-    await s.d.tick()
-    await s.d.tick()
-    expect(s.lines).toHaveLength(1)
-    s.setTable([row(10, 1, { window: true, created: 9 })])
-    await s.d.tick()
-    expect(s.lines).toHaveLength(2)
+    s.watches[0].emit(shown({ hwnd: 6, cls: 'CASCADIA_HOSTING_WINDOW_CLASS', title: '' }))
+    s.watches[0].emit(JSON.stringify({ kind: 'title', hwnd: 6, title: 'C:\\h\\astera-host.exe' }))
+    s.watches[0].emit(JSON.stringify({ kind: 'title', hwnd: 99, title: 'not logged' }))
+    expect(s.lines.at(-1)).toBe('visible window title: hwnd=6 title="C:\\\\h\\\\astera-host.exe"')
+    expect(s.lines.some((l) => l.includes('not logged'))).toBe(false)
   })
 
   it('writes the summary every 10 minutes with the windows seen in it, then counts afresh', async () => {
     const s = setup()
-    s.setTable([row(10, 1, { window: true }), row(11, 1, { window: true })])
     await s.d.tick()
+    s.watches[0].emit(shown({ hwnd: 1 }))
+    s.watches[0].emit(shown({ hwnd: 2 }))
     s.advance(WINDOW_DIAGNOSTIC_SUMMARY_MS - 1)
     await s.d.tick()
-    expect(s.lines.some((l) => l.startsWith('window diagnostic:'))).toBe(false)
+    expect(s.lines.some((l) => l.includes('seen in the last'))).toBe(false)
     s.advance(1)
     await s.d.tick()
     expect(s.lines.at(-1)).toBe('window diagnostic: 2 visible windows seen in the last 10 min')
-    s.setTable([])
     s.advance(WINDOW_DIAGNOSTIC_SUMMARY_MS)
     await s.d.tick()
     expect(s.lines.at(-1)).toBe('window diagnostic: 0 visible windows seen in the last 10 min')
   })
 
-  it('does nothing off win32 and queries nothing with the setting off', async () => {
+  it('stops the watcher when the setting goes off, and restarts one that exited at the next check', async () => {
+    const s = setup()
+    await s.d.tick()
+    s.setEnabled(false)
+    await s.d.tick()
+    expect(s.watches[0].stopped).toBe(true)
+    s.setEnabled(true)
+    await s.d.tick()
+    expect(s.watches).toHaveLength(2)
+    s.watches[1].exit('it exited with 1')
+    expect(s.lines.at(-1)).toMatch(/watcher stopped \(it exited with 1\)/)
+    await s.d.tick()
+    expect(s.watches).toHaveLength(3)
+    s.d.stop()
+    expect(s.watches[2].stopped).toBe(true)
+  })
+
+  it('does nothing off win32 and starts nothing with the setting off', async () => {
     const off = setup({ enabled: false })
-    off.setTable([row(10, 1, { window: true })])
     await off.d.tick()
-    expect(off.queries).toEqual([])
+    expect(off.watches).toEqual([])
     const linux = setup({ platform: 'linux' })
-    linux.setTable([row(10, 1, { window: true })])
     await linux.d.tick()
     linux.d.start()
-    expect(linux.queries).toEqual([])
+    expect(linux.watches).toEqual([])
     expect(linux.lines).toEqual([])
   })
 
-  it('a failing query is logged once per tick and does not throw', async () => {
+  it('a watcher that cannot start is logged and does not throw', async () => {
     const lines: string[] = []
     const d = createWindowDiagnostic({
       platform: 'win32',
       hostPid: 1,
       enabled: async () => true,
-      query: async () => {
+      watch: () => {
         throw new Error('boom')
       },
       log: (m) => lines.push(m)
     })
     await d.tick()
-    expect(lines).toEqual(['window diagnostic: the query failed: Error: boom'])
-  })
-})
-
-describe('queryWindowTable', () => {
-  it('runs a hidden powershell, with the Host pid in the environment and not on the command line', async () => {
-    let seen: { file: string; args: string[]; env: Record<string, string | undefined>; hide: boolean | undefined } | null = null
-    const out = await queryWindowTable(4242, async (file, args, opts) => {
-      seen = { file, args, env: opts.env, hide: opts.windowsHide }
-      return '[]'
-    })
-    expect(out).toBe('[]')
-    expect(seen!.file).toBe('powershell.exe')
-    expect(seen!.hide).toBe(true)
-    expect(seen!.env[WINDOW_DIAGNOSTIC_ENV]).toBe('4242')
-    expect(seen!.args.join(' ')).not.toContain('4242')
-  })
-
-  it('refuses a pid that is not a pid', async () => {
-    await expect(queryWindowTable(0, async () => '')).rejects.toThrow(/not a pid/)
+    expect(lines).toEqual(['window diagnostic: the watcher failed: Error: boom'])
   })
 })

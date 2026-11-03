@@ -75,7 +75,7 @@ import { usageActivity } from '../core/orchestration/activity'
 import { resumeAfterCrash } from '../core/orchestration/exec/crashResume'
 // T3: the load monitor
 import { createLoadMonitor, type LoadMonitor } from './loadMonitor'
-import { createWindowDiagnostic, queryWindowTable, type WindowDiagnostic } from './windowDiagnostic'
+import { createWindowDiagnostic, watchWindows, type WindowDiagnostic } from './windowDiagnostic'
 import { readWindowDiagnosticOn } from '../core/settings/windowDiagnostic'
 import { workersAgainstCap } from '../core/orchestration/schedule'
 import { heavyQueue } from '../core/orchestration/heavyLock'
@@ -1685,12 +1685,13 @@ async function main(): Promise<void> {
     log: (m) => log.write(m)
   })
   loadMonitor.start()
-  // Windows only, and only with the `windowDiagnostic` setting on (read at every tick): logs the Host's children that show a window.
+  // Windows only, and only with the `windowDiagnostic` setting on (read at every tick): logs every window that appears under the
+  // Host, and every console or terminal window, as it appears (a watcher, not a sample: those windows live under a second).
   windowDiagnostic = createWindowDiagnostic({
     platform: process.platform,
     hostPid: process.pid,
     enabled: () => readWindowDiagnosticOn(path.join(profileDir, 'app-settings.json')),
-    query: (pid) => queryWindowTable(pid),
+    watch: watchWindows,
     log: (m) => log.write(m)
   })
   windowDiagnostic.start()
