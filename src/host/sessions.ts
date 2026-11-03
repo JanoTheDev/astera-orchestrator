@@ -271,6 +271,38 @@ export function registrySessions(a: {
     return waits.size === 0 ? rows : rows.map((r) => (waits.has(r.id) ? { ...r, heavyWait: waits.get(r.id) } : r))
   }
 
+  const buildList = async (): Promise<HostSession[]> => {
+    const terminals = a.ptys.list().filter((e) => e.meta?.kind === 'session')
+    const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
+    // An account with no provider field is a Claude account (core/types.ts Account.provider).
+    const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
+    const rows = await withHeavyWait([
+      ...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)),
+      ...a.procs.list().filter((e) => e.meta?.kind === 'chat').map((e) => rowOf(e, 'chat', 'unknown', providers))
+    ])
+    // **One id, one row, and the live one.** `ChatManager.respawnWithBypass` spawns again under the
+    // same note, so an ended process and its replacement can share an id.
+    const byId = new Map<string, HostSession>()
+    for (const r of rows) {
+      const had = byId.get(r.id)
+      if (!had || (!had.alive && r.alive)) byId.set(r.id, r)
+    }
+    return [...byId.values()]
+  }
+  /** Which sessions a listing is of: every session pty and chat process, and whether each is alive. */
+  const listKey = (): string =>
+    [...a.ptys.list(), ...a.procs.list()]
+      .filter((e) => e.meta?.kind === 'session' || e.meta?.kind === 'chat')
+      .map((e) => `${e.id}:${e.meta!.id}:${e.alive ? 1 : 0}`)
+      .join('|')
+  /** **The listing in flight, joined by every caller that asks while it runs over the same sessions** (2026-11-03: 45
+   *  `sessions list` calls in flight at once, 3 pollers each asking every few seconds, each one statting and reading
+   *  every session's hook-event file on the 4 threads of libuv's pool that every fs call in the Host shares; on a
+   *  memory-starved machine they took 30-70 s and slowed every other file read with them). A caller joins only while
+   *  the registries hold the very sessions the listing started with, so a session started or ended since is never
+   *  missing from its answer; what it can miss is a hook event that landed in the same few milliseconds. */
+  let listing: { key: string; rows: Promise<HostSession[]> } | null = null
+
   return {
     // One session's row, building nothing for the others (performance audit H4: a remote keystroke names one).
     sessionById: async (id) => {
@@ -284,22 +316,17 @@ export function registrySessions(a: {
       return rows.find((r) => r.alive) ?? rows[0]
     },
     listSessions: async () => {
-      const terminals = a.ptys.list().filter((e) => e.meta?.kind === 'session')
-      const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
-      // An account with no provider field is a Claude account (core/types.ts Account.provider).
-      const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
-      const rows = await withHeavyWait([
-        ...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)),
-        ...a.procs.list().filter((e) => e.meta?.kind === 'chat').map((e) => rowOf(e, 'chat', 'unknown', providers))
-      ])
-      // **One id, one row, and the live one.** `ChatManager.respawnWithBypass` spawns again under the
-      // same note, so an ended process and its replacement can share an id.
-      const byId = new Map<string, HostSession>()
-      for (const r of rows) {
-        const had = byId.get(r.id)
-        if (!had || (!had.alive && r.alive)) byId.set(r.id, r)
+      const key = listKey()
+      if (listing === null || listing.key !== key) {
+        const mine = { key, rows: buildList() }
+        listing = mine
+        const done = (): void => {
+          if (listing === mine) listing = null
+        }
+        mine.rows.then(done, done)
       }
-      return [...byId.values()]
+      // Each caller its own array: the rows are shared, the list it may filter is not.
+      return [...(await listing.rows)]
     },
     readSession: (id, lines) => {
       const pty = ptyOf(id)

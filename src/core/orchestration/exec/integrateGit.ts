@@ -17,7 +17,7 @@ import { comparablePath, isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
 import { inCheckoutSlot } from '../../worktrees/checkoutLimit'
 import { workerBaseFailure } from '../../worktrees/base'
-import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
+import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
 import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup, type InstallTurn } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
@@ -1034,7 +1034,7 @@ async function recheckTips(
 ): Promise<string | null> {
   if ((await a.backToBase()) !== null) return null
   // A failed fetch leaves origin's ref as it was: read as not moved
-  if (!a.local) await run(['fetch', 'origin', a.branch], { cwd: a.cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+  if (!a.local) await run(['fetch', 'origin', a.branch], { cwd: a.cwd, timeoutMs: GIT_FETCH_TIMEOUT_MS })
   const target = await run(['rev-parse', a.landed], { cwd: a.cwd })
   if (target.ok && target.stdout !== a.base) return `${a.landed} moved to ${target.stdout.slice(0, 7)}`
   const heads = await headsOf(a.list, run)
@@ -1230,6 +1230,8 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const run = ctx.git ?? realGit
   const cwd = a.cwd
   const w = { cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS }
+  // A fetch is network only: its own, shorter deadline (GIT_FETCH_TIMEOUT_MS)
+  const net = { cwd, timeoutMs: GIT_FETCH_TIMEOUT_MS }
   const why = gitWhy
 
   // 1.
@@ -1256,7 +1258,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   // delivery asks the local branch only
   const landed = a.local ? branch : `origin/${branch}`
   if (a.ownerPushed) {
-    if (!a.local) await run(['fetch', 'origin', branch], w)
+    if (!a.local) await run(['fetch', 'origin', branch], net)
     for (const wt of a.worktrees) {
       const head = await run(['rev-parse', 'HEAD'], { cwd: wt })
       if (!head.ok) continue // a folder already gone holds nothing that is not somewhere else
@@ -1287,7 +1289,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
 
   // 3. T6: a local delivery has no origin to catch up with
   if (!a.local) {
-    const fetched = await run(['fetch', 'origin', branch], w)
+    const fetched = await run(['fetch', 'origin', branch], net)
     if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`, 'fetch-failed')
     const ff = await run(['merge', '--ff-only', `origin/${branch}`], w)
     // T1: coded, so a retry tells it apart: it delivers by itself once the owner fixed their branch
@@ -1406,7 +1408,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const ident = pushed.ok ? [] : await mergeIdentityArgs(cwd, run)
   for (let round = 1; !pushed.ok && round <= PUSH_ROUNDS; round++) {
     ctx.log(`delivery: push of ${branch} was rejected (${why(pushed)}), fetching (round ${round} of ${PUSH_ROUNDS})`)
-    const refetched = await run(['fetch', 'origin', branch], w)
+    const refetched = await run(['fetch', 'origin', branch], net)
     if (!refetched.ok)
       return undo(`git push origin ${branch} was rejected (${why(pushed)}), and fetching origin to catch up failed: ${why(refetched)}.`, 'fetch-failed')
     const behind = !(await run(['merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD'], { cwd })).ok

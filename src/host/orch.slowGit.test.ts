@@ -115,6 +115,27 @@ describe('slow git and gh work leaves the command chain (T4)', () => {
     expect(orch.state().runs.find((x) => x.id === runId)?.delivery).toMatchObject({ sha: 'abc1234def' })
   })
 
+  // 2026-11-03: a 725 s run-deliver (merge into the target folder, its pre-push hook under load, fetch and push on a flaky
+  // network). All of that is deliverPush, run with the chain handed on: a worker's report and a new plan answer meanwhile.
+  it("answers a worker's send and jobs-create while run-deliver's push (hook, fetch, push) runs, and keeps both", async () => {
+    const { runId, taskId } = await seed()
+    const push = gate(PUSHED)
+    const orch = orchOver({ deliverPush: push.effect })
+    const delivering = call(orch, 'run-deliver', { run: runId })
+    try {
+      await push.entered
+      expect(await answersWithin(orch, 'send', { type: 'status', taskId, subject: 'still here', body: 'b' })).toBeLessThan(500)
+      expect(await answersWithin(orch, 'jobs-create', { objective: 'planned meanwhile', cwd: 'D:/q' })).toBeLessThan(500)
+    } finally {
+      push.release()
+    }
+    expect((await delivering).status).toBe(200)
+    const st = orch.state()
+    expect(st.messages.some((m) => m.subject === 'still here')).toBe(true)
+    expect(st.jobs.some((j) => j.objective === 'planned meanwhile')).toBe(true)
+    expect(st.runs.find((x) => x.id === runId)?.delivery).toMatchObject({ sha: 'abc1234def' })
+  })
+
   it('answers a second run-deliver of the same Run 409 while the first runs, and pushes once', async () => {
     const { runId } = await seed()
     const push = gate(PUSHED)

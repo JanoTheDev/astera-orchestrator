@@ -41,6 +41,12 @@ export const GIT_MAX_BUFFER_BYTES = 64 * 1024 * 1024
  *  cut one short. */
 export const GIT_WRITE_TIMEOUT_MS = 10 * 60 * 1000
 
+/** Deadline for a `git fetch` a delivery makes: network only, and a fetch cut short changes nothing but the remote-
+ *  tracking refs it had not written yet. A flaky network (2026-11-03: "Could not resolve host github.com", stalled
+ *  connections) answers a failed attempt, retried by the delivery loop, in minutes rather than ten per call. Not for
+ *  `git push`, which runs the repository's pre-push hook inside it and may take as long as that hook. */
+export const GIT_FETCH_TIMEOUT_MS = 3 * 60 * 1000
+
 /** A failure of the spawn itself, before git ever ran. On Windows, under heavy parallel spawning,
  *  CreateProcess is refused now and then with EPERM (or EBUSY) and works a moment later — the whole
  *  test suite hit it about one run in ten, in whichever test happened to spawn git at that moment.

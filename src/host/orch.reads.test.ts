@@ -214,9 +214,29 @@ describe('the slow-command log', () => {
     const slow = lines.filter((l) => l.startsWith('host: slow command'))
     expect(slow.filter((l) => l.startsWith('host: slow command jobs-archive '))).toHaveLength(1)
     expect(slow.find((l) => l.startsWith('host: slow command jobs-archive '))).toMatch(
-      /^host: slow command jobs-archive took \d+ ms \(waited \d+ ms behind jobs-rename, ran \d+ ms\)$/
+      /^host: slow command jobs-archive took \d+ ms \(waited \d+ ms behind jobs-rename, ran \d+ ms, held the chain \d+ ms\)$/
     )
-    expect(slow.find((l) => l.startsWith('host: slow command jobs-rename '))).toMatch(/\(waited \d+ ms behind nothing, ran \d+ ms\)$/)
+    expect(slow.find((l) => l.startsWith('host: slow command jobs-rename '))).toMatch(/\(waited \d+ ms behind nothing, ran \d+ ms, held the chain \d+ ms\)$/)
+  })
+
+  it('says how long a command held the chain, its time outside it (outsideChain) left out', async () => {
+    const { jobIds } = await seed(1)
+    const lines: string[] = []
+    // The fake resolver takes 300 ms with the chain handed on (run-create's resolveProjectRoot runs off the chain)
+    const orch = orchOver({
+      slowCommandMs: 100,
+      log: (l) => lines.push(l),
+      hasApp: () => false,
+      resolveProjectRoot: async (cwd) => (await tick(300), cwd)
+    })
+    await orch.ready()
+    expect(jobIds).toHaveLength(1)
+    expect((await orch.call({ cmd: 'run-create', args: { objective: 'o', cwd: 'D:/p' }, sessionId: '' })).status).toBe(200)
+    const line = lines.find((l) => l.startsWith('host: slow command run-create '))
+    const m = /ran (\d+) ms, held the chain (\d+) ms\)$/.exec(line ?? '')
+    expect(m, line).not.toBeNull()
+    expect(Number(m![1])).toBeGreaterThanOrEqual(290)
+    expect(Number(m![2])).toBeLessThan(200)
   })
 
   it('logs a slow read answered outside the chain, and nothing for a fast one', async () => {
