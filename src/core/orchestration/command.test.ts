@@ -5040,7 +5040,18 @@ describe('run-worktree-set', () => {
     await call(deps, 'run-worktree-set', { run: runId, worktree: 'D:/wt/a' })
     const again = await call(deps, 'run-worktree-set', { run: runId, worktree: 'D:/wt/b' })
     expect(again.status).toBe(409)
+    // The one recorded is named, so the caller can start in it
+    expect(again.body).toMatchObject({ code: 'has-worktree', worktree: 'D:/wt/a' })
     // 첫 값이 그대로여야 한다 — 거절이 곧 덮어쓰지 않았다는 뜻이다
+    expect(deps.getState().runs.find((x) => x.id === runId)?.worktree).toBe('D:/wt/a')
+  })
+
+  // 2026-11-03: two starts of one Run both forked the same folder; the second record is that folder, not an error
+  it('the same folder recorded again is success and changes nothing', async () => {
+    const { deps, runId } = await withRun()
+    await call(deps, 'run-worktree-set', { run: runId, worktree: 'D:/wt/a' })
+    const again = await call(deps, 'run-worktree-set', { run: runId, worktree: 'D:\\wt\\a\\' })
+    expect(again.status).toBe(200)
     expect(deps.getState().runs.find((x) => x.id === runId)?.worktree).toBe('D:/wt/a')
   })
 

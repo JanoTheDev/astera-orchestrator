@@ -190,6 +190,7 @@ export const plan = {
   'plan.reason.hold.origin-sync': 'origin 을 계획 브랜치로 합치는 통합 Task 를 기다린다',
   'plan.reason.hold.refresh-conflict': '다른 계획의 전달과의 충돌을 푸는 통합 Task 를 기다린다',
   'plan.reason.hold.integration': '의존 Task 의 작업을 합치는 통합 Task 를 기다린다',
+  'plan.reason.hold.run-worktree': '다른 시작이 계획 워크트리를 만드는 중 · 생기면 시작한다',
   'plan.reason.hold.run-root-busy': '계획 폴더에서 아직 워커가 일한다 · 그 뒤에 합치고 시작한다',
   'plan.reason.hold.cap': '워커 자리가 가득 찼다 · 자리가 나면 시작한다',
   'plan.reason.hold.held': '새 워커 시작을 멈춰 뒀다',

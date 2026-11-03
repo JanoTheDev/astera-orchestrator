@@ -4564,3 +4564,69 @@ describe('a start that hangs does not hold the slots behind it', () => {
     expect(h.startWorker.mock.calls.filter(([a]) => a.taskId === 'tsk_1')).toHaveLength(1)
   })
 })
+
+// 2026-11-03: two Tasks of run_f66b1135c29f5f74 started at once, both forked the Run's worktree, and the second's record
+// ("run … already has a worktree: …") opened a Gate to the owner (gat_1f8787fdcc9b07a0, gat_d217729fea4ca5fc).
+describe('two starts of one Run and its worktree', () => {
+  const gates = (h: ReturnType<typeof rig>): number => h.handled().filter((c) => c === 'gate-create').length
+
+  it('forks the Run worktree once when another start places the same Run while the first fork still runs', async () => {
+    const h = rig({ runWithoutWorktree: true, concurrency: 2 })
+    h.ctx.slotLaunchWaitMs = 20
+    let release: () => void = () => {}
+    const held = new Promise<void>((r) => (release = r))
+    h.ctx.forkRunWorktree = async (a) => {
+      h.forked.push(a)
+      await held
+      return '/wt-forked'
+    }
+    // The pass ends while tsk_1's start is still in its fork (a start outlives its lap)
+    await h.loop.run()
+    expect(h.forked).toHaveLength(1)
+    // A start of tsk_2 asked for meanwhile (`tasks dispatch`: the coordinator's or a replan's start)
+    const second = h.loop.dispatchOne('tsk_2')
+    await new Promise((r) => setTimeout(r, 30))
+    expect(h.forked).toHaveLength(1)
+    release()
+    expect((await second).status).toBeLessThan(300)
+    await h.settle()
+    expect(h.forked).toHaveLength(1)
+    expect(gates(h)).toBe(0)
+    expect(h.state().runs[0].worktree).toBe('/wt-forked')
+    expect(new Set(h.startWorker.mock.calls.map(([a]) => a.taskId))).toEqual(new Set(['tsk_1', 'tsk_2']))
+  })
+
+  it('starts in the worktree another start recorded meanwhile: the same folder is success, another is used and its own fork removed', async () => {
+    for (const recordedBy of ['/wt-forked', '/wt-other']) {
+      const h = rig({ runWithoutWorktree: true })
+      // The coordinator's run-start (or a replan) records the Run's worktree while the loop forks
+      h.ctx.forkRunWorktree = async (a) => {
+        h.forked.push(a)
+        await h.real('run-worktree-set', { run: h.state().runs[0].id, worktree: recordedBy })
+        return '/wt-forked'
+      }
+      await h.loop.run()
+      await h.settle()
+      expect(gates(h), recordedBy).toBe(0)
+      expect(h.state().runs[0].worktree, recordedBy).toBe(recordedBy)
+      expect(h.startWorker.mock.calls.map(([a]) => a.taskId), recordedBy).toContain('tsk_1')
+      expect(h.reaped.includes('/wt-forked'), recordedBy).toBe(recordedBy !== '/wt-forked')
+    }
+  })
+
+  it('retries a refused record without a Gate, in a plan that is not hands-off', async () => {
+    const h = rig({ runWithoutWorktree: true })
+    let refuse = true
+    const real = h.ctx.handle
+    h.ctx.handle = (cmd, args) =>
+      cmd === 'run-worktree-set' && refuse ? Promise.resolve({ status: 409, body: { error: 'the store is busy' } }) : real(cmd, args)
+    await h.loop.run()
+    await h.settle()
+    expect(gates(h)).toBe(0)
+    expect(h.startWorker).not.toHaveBeenCalled()
+    expect(h.state().tasks.find((t) => t.id === 'tsk_1')?.status).toBe('ready')
+    refuse = false
+    await vi.waitFor(() => expect(h.startWorker.mock.calls.map(([a]) => a.taskId)).toContain('tsk_1'), { timeout: 10_000 })
+    expect(gates(h)).toBe(0)
+  }, 20_000)
+})

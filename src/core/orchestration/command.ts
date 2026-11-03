@@ -59,6 +59,7 @@ import {
   resumeSchedule,
   resumeRun,
   setRunWorktree,
+  samePlace,
   recordRunGit,
   resolveRunId,
   recordDispatchGit,
@@ -4841,9 +4842,14 @@ async function handleCommandInner(
       //
       // 순수 층의 거절을 여기서 지우지 않는 이유: 이 명령이 유일한 호출자라는 보장이 없고, 그 함수가
       // 조용히 덮어쓰게 되면 이 코드가 지키는 불변식이 이 파일에만 있게 된다.
+      //
+      // **The same folder is success** (2026-11-03: two starts of one Run both forked its worktree, the second's record
+      // was refused and opened a Gate): it answers the Run, changing nothing. Another folder is the 409, naming the one
+      // recorded (`worktree`), so the caller can start in it and remove its own.
       const existing = s.runs.find((r) => r.id === id)?.worktree
+      if (existing !== undefined && samePlace(existing, worktree)) return okBody(s.runs.find((r) => r.id === id))
       if (existing !== undefined)
-        return conflict(`run ${id} already has a worktree: ${existing}`)
+        return { status: 409, body: { error: `run ${id} already has a worktree: ${existing}`, code: 'has-worktree', worktree: existing } }
       return commit(setRunWorktree(s, id, worktree))
     }
     // T5 (decision 5): the worktrees Astera made, what each holds, and removing the ones that are safe to remove. The

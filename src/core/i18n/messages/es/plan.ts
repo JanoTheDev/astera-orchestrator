@@ -165,6 +165,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.reason.hold.origin-sync': 'Esperando la tarea de integración que fusiona origin en la rama del plan',
   'plan.reason.hold.refresh-conflict': 'Esperando la tarea de integración que resuelve un conflicto con la entrega de otro plan',
   'plan.reason.hold.integration': 'Esperando la tarea de integración que fusiona el trabajo del que depende',
+  'plan.reason.hold.run-worktree': 'Otro inicio está creando el worktree del plan · empieza cuando esté listo',
   'plan.reason.hold.run-root-busy': 'Un agente sigue trabajando en la carpeta del plan · se fusiona y empieza después',
   'plan.reason.hold.cap': 'No hay hueco libre para agentes · empieza cuando se libere uno',
   'plan.reason.hold.held': 'El inicio de agentes nuevos está en pausa',

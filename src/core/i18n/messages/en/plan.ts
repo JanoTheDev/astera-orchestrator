@@ -169,6 +169,7 @@ export const plan: Record<keyof typeof ko, string> = {
   'plan.reason.hold.origin-sync': 'Waiting for the integration task that merges origin into the plan branch',
   'plan.reason.hold.refresh-conflict': "Waiting for the integration task that resolves a conflict with another plan's delivery",
   'plan.reason.hold.integration': 'Waiting for the integration task that merges the work it depends on',
+  'plan.reason.hold.run-worktree': 'The plan worktree is being made by another start · starts once it is there',
   'plan.reason.hold.run-root-busy': 'A worker is still working in the plan folder · merges and starts after it',
   'plan.reason.hold.cap': 'No free worker slot · starts when one frees up',
   'plan.reason.hold.held': 'New worker starts are paused',
