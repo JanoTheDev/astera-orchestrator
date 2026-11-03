@@ -49,10 +49,12 @@
 // - **A stuck call is let go after PROBE_STUCK_CEILING_MS** (a POSIX hard mount may never settle): it
 //   stops counting, its root may be probed again, and that is logged once for the call.
 //
-// UV_THREADPOOL_SIZE is left at libuv's default (4). It only takes effect if set before the pool's
+// UV_THREADPOOL_SIZE is not set from code here. It only takes effect if set before the pool's
 // first use, and an entry module cannot guarantee that from its own code: its imports are evaluated
 // before its body, and Electron's main process may touch the pool before app code runs. A value set
-// too late is silently ignored, which would read as a fix without being one.
+// too late is silently ignored, which would read as a fix without being one. The Host's start puts it
+// in the Host's environment instead (core/host/spawn.ts HOST_THREADPOOL_SIZE, 16), where it does take
+// effect; the app's main process keeps libuv's 4, and these rules are written for 4.
 //
 // Pure apart from the default `access`, which is `fs.promises.access`; everything else is injected so
 // the timing can be tested with fake timers.

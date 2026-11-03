@@ -5,7 +5,7 @@ import path from 'node:path'
 import type { Account } from '../types'
 import { makeDescriptors } from '../providers/descriptor'
 import { cliEnvFor } from '../sessions/cliEnv'
-import { HOST_ONLY_ENV, HOST_STDERR_MAX, hostCliPaths, hostSpawnPlan, hostStderr, hostWorkerBaseEnv, resolveHostEntry } from './spawn'
+import { HOST_ONLY_ENV, HOST_STDERR_MAX, HOST_THREADPOOL_SIZE, hostCliPaths, hostSpawnPlan, hostStderr, hostWorkerBaseEnv, resolveHostEntry } from './spawn'
 
 describe('resolveHostEntry', () => {
   it('takes the first candidate that exists', () => {
@@ -102,6 +102,16 @@ describe('hostWorkerBaseEnv', () => {
   it('removes everything hostSpawnPlan itself adds', () => {
     const plan = hostSpawnPlan({ execPath: 'x', entryPath: 'y', profileDir: 'p', logPath: 'l', version: 'v', env: {} })
     expect(hostWorkerBaseEnv(plan.options.env)).toEqual({})
+  })
+
+  // 2026-11-03: the Host's async file calls queued minutes deep behind libuv's 4 threads.
+  it('starts the Host with a pool of 16 threads, keeps a size the person set, and gives the workers neither of its own', () => {
+    const plan = hostSpawnPlan({ execPath: 'x', entryPath: 'y', profileDir: 'p', logPath: 'l', version: 'v', env: { PATH: '/bin' } })
+    expect(plan.options.env.UV_THREADPOOL_SIZE).toBe(HOST_THREADPOOL_SIZE)
+    expect(hostWorkerBaseEnv(plan.options.env)).toEqual({ PATH: '/bin' })
+    const theirs = hostSpawnPlan({ execPath: 'x', entryPath: 'y', profileDir: 'p', logPath: 'l', version: 'v', env: { UV_THREADPOOL_SIZE: '8' } })
+    expect(theirs.options.env.UV_THREADPOOL_SIZE).toBe('8')
+    expect(hostWorkerBaseEnv(theirs.options.env)).toEqual({ UV_THREADPOOL_SIZE: '8' })
   })
 
   // The CLI paths are the Host's own start-up settings too, and a worker must not see them (F1).

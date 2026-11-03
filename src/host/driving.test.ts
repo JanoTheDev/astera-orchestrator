@@ -893,6 +893,25 @@ describe('createHostDriving', () => {
     await h.tickNow()
     expect(await h.specExists()).toBe(false)
   })
+  // 2026-11-03: "a tick is still running after 4 more came due" — one slow step held every schedule, nudge and check.
+  it('a pass that hangs holds no other step of the tick: they run, and the stuck one is named once', async () => {
+    const h = await rig({ staleSpec: true })
+    await h.load()
+    let release!: () => void
+    folderRead.wait = new Promise<void>((r) => (release = r))
+    const asked = folderRead.asked
+    void h.tickNow()
+    await vi.waitFor(() => expect(folderRead.asked).toBeGreaterThan(asked))
+    // the pass is held in its tidy, and the same tick's spec sweep ran all the same
+    await vi.waitFor(async () => expect(await h.specExists()).toBe(false))
+    // later ticks run (no "a tick is still running"), and say the pass step is still running, once
+    for (let i = 0; i < TICKS_SKIPPED_BEFORE_SAYING + 1; i++) await h.tickNow()
+    expect(h.logs.filter((l) => l.includes("the tick's pass step is still running"))).toHaveLength(1)
+    expect(h.logs.some((l) => l.includes('a tick is still running'))).toBe(false)
+    folderRead.wait = null
+    release()
+    await h.settle()
+  })
   // The two-writers risk (Task 8 m5): the loop asks once before its clean-up loop; each reap is asked
   // again, so an app that takes the drive after the first reap finds the Host removing nothing more.
   it('reaps no further worktree once the drive has moved to an app mid clean-up', async () => {

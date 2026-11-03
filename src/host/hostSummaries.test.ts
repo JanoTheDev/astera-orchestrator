@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -91,6 +91,25 @@ describe('createHostSummaries', () => {
     dispatches: [dispatch('d', { endedAt: '2026-10-18T10:25:00.000Z' }), dispatch('rv', { review: true, sessionId: 's-rev' })]
   })
   const before = state({ ...merged, tasks: [task({})] })
+
+  // 2026-11-03: `summaries` took 110 s on a Host whose file calls were queued; this Host is the file's only writer.
+  it('answers from memory once the file was read: newest first, a card it writes at once, a hand edit later', async () => {
+    const file = path.join(dir, 'summaries.json')
+    const card = (sessionId: string, at: string) => ({ sessionId, at, jobId: 'j1', outcome: 'done', facts: {}, text: '' })
+    await writeFile(file, JSON.stringify({ version: 1, summaries: [card('old', '2026-10-18T09:00:00.000Z'), card('new', '2026-10-18T10:00:00.000Z')] }))
+    const { s } = make({}, merged)
+    // callers that come together share one read of the file
+    const [a, b] = await Promise.all([s.read(), s.read()])
+    expect(a.map((c) => c.sessionId)).toEqual(['new', 'old'])
+    expect(b).toEqual(a)
+    // a change on disk is not waited on: the read answers what memory holds
+    await writeFile(file, JSON.stringify({ version: 1, summaries: [] }))
+    expect((await s.read()).map((c) => c.sessionId)).toEqual(['new', 'old'])
+    // a card this Host writes is in the next read
+    s.committed(before, merged)
+    await s.settled()
+    expect((await s.read()).map((c) => c.sessionId)).toContain('s-d')
+  })
 
   it('a merged worker gets a card with facts and prose, and the roll-up reads it', async () => {
     const { s, agent } = make({}, merged)

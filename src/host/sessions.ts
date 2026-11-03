@@ -149,6 +149,8 @@ const tails = new Map<string, { size: number; mtimeMs: number; value: LatestEven
  *  next ask after it: a session's state reads a second late at the most. Only for `listSessions`: one session's own
  *  asks (`sessionTurn`, `agentSessionOf`) always stat. */
 const TAIL_FRESH_MS = 1_000
+/** How long a listing waits on one file it has an earlier answer for (`orKnown` in registrySessions). */
+export const LIST_FS_WAIT_MS = 750
 async function latestEvent(file: string, freshMs = 0): Promise<LatestEvent> {
   const hit = tails.get(file)
   if (hit && freshMs > 0 && Date.now() - hit.statAt < freshMs) return hit.value
@@ -217,6 +219,8 @@ export function registrySessions(a: {
   /** How many heavy jobs run at once (heavyJobsAtOnce): the first that many tickets are running, not waiting. Test
    *  injection; the wiring leaves it out and it is read from the Host profile's app-settings.json per listing. */
   heavyJobsAtOnce?: () => Promise<number>
+  /** LIST_FS_WAIT_MS, how long a listing waits on a file it has an earlier answer for. Test injection. */
+  listFsWaitMs?: number
   /** TAIL_FRESH_MS, how long a listing gives a hook file's answer again without a stat. Test injection. */
   tailFreshMs?: number
 }): HostSessions & Required<Pick<HostSessions, 'sessionTurn' | 'agentSessionOf' | 'ownerInputAt'>> {
@@ -283,13 +287,47 @@ export function registrySessions(a: {
   const profileDir = process.env.ASTERA_HOST_PROFILE_DIR
   const heavyJobsAtOnce = a.heavyJobsAtOnce ?? (async () => (profileDir ? readHeavyJobsAtOnce(path.join(profileDir, 'app-settings.json')) : 1))
   const withHeavyWait = async (rows: HostSession[]): Promise<HostSession[]> => {
-    const waits = heavyWaits(a.heavyQueueDir, undefined, await heavyJobsAtOnce())
+    const waits = heavyWaits(a.heavyQueueDir, undefined, await orKnown('heavy', heavyJobsAtOnce))
     return waits.size === 0 ? rows : rows.map((r) => (waits.has(r.id) ? { ...r, heavyWait: waits.get(r.id) } : r))
   }
 
+  /**
+   * **A listing never waits on a slow disk for what it already knows** (2026-11-03: with the Host's async file calls
+   * queued minutes deep in libuv's pool, `sessions list` waited over 60 s while the Host answered pings). Each file a
+   * listing reads — a session's hook events, the accounts, the heavy-job settings — gets LIST_FS_WAIT_MS; past it the
+   * listing answers with the last answer that file gave, and the read goes on and keeps its answer for the next
+   * listing. A file never read yet is waited for: there is nothing to answer instead.
+   */
+  const fsWait = a.listFsWaitMs ?? LIST_FS_WAIT_MS
+  const known = new Map<string, unknown>()
+  const orKnown = <T>(key: string, read: () => Promise<T>): Promise<T> => {
+    const p = read().then(
+      (v) => {
+        known.set(key, v)
+        return v
+      },
+      // a read that fails answers what was known, as a slow one does
+      (err: unknown) => (known.has(key) ? (known.get(key) as T) : Promise.reject(err))
+    )
+    if (!known.has(key)) return p
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<T>((resolve) => {
+      timer = setTimeout(() => resolve(known.get(key) as T), fsWait)
+      timer.unref?.()
+    })
+    return Promise.race([p, late]).finally(() => clearTimeout(timer))
+  }
+  const listState = (e: PtyEntry): ReturnType<typeof stateOf> =>
+    // keyed by the pty: what the hook file said is folded with the pty's own clocks at the time it is read
+    e.alive ? orKnown(`state:${e.id}`, () => stateOf(e, a.tailFreshMs ?? TAIL_FRESH_MS)) : stateOf(e)
+  const listAccounts = (): Promise<Account[]> => orKnown('accounts', () => a.accounts()).catch(() => [] as Account[])
+
   const buildList = async (): Promise<HostSession[]> => {
     const terminals = a.ptys.list().filter((e) => e.meta?.kind === 'session')
-    const [states, accounts] = await Promise.all([Promise.all(terminals.map((e) => stateOf(e, a.tailFreshMs ?? TAIL_FRESH_MS))), a.accounts().catch(() => [] as Account[])])
+    // what was known of a pty this listing no longer has is let go
+    const ids = new Set(terminals.map((e) => `state:${e.id}`))
+    for (const k of known.keys()) if (k.startsWith('state:') && !ids.has(k)) known.delete(k)
+    const [states, accounts] = await Promise.all([Promise.all(terminals.map(listState)), listAccounts()])
     // An account with no provider field is a Claude account (core/types.ts Account.provider).
     const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
     const rows = await withHeavyWait([

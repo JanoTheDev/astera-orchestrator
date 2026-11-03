@@ -20,6 +20,8 @@ import { readAppSettingsObject } from '../core/settings/settingsObject'
 import type { ActivityDraft } from '../core/orchestration/activity'
 
 export const SAMPLE_MS = 10_000
+/** Two small settings reads that take this long mean the Host's async file calls are queued: said once per spell. */
+export const SLOW_READ_MS = 10_000
 /** 5 minutes of samples: more than the 3 calm minutes a raise looks back on. */
 export const SAMPLES_KEPT = 30
 /** No strained sample and no change for this long raises the monitor's own lowerings. */
@@ -605,6 +607,29 @@ export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
     errors.set(text, { loggedAt: at, skipped: 0 })
   }
 
+  /** The heavy cap the last reads gave; undefined before the first. */
+  let lastHeavyCap: number | undefined
+  let slowReadLogged = false
+  /** health.json: sync, from what this tick sampled and the heavy cap given (none: the live tickets as they are). */
+  const writeSnapshot = (sample: Sample, at: number, l: ReturnType<LoadMonitorDeps['live']>, heavyCap: number | undefined): void => {
+    const snapshot: HealthSnapshot = {
+      at: new Date(at).toISOString(),
+      // Unknown memory is written as 100 (not strained) and flagged, never as 0% free.
+      memAvailablePct: sample.memAvailablePct ?? 100,
+      load1PerCpu: sample.load1PerCpu,
+      loopDelayP99Ms: sample.loopDelayP99Ms,
+      strained: isStrained(sample),
+      liveWorkers: l.workers,
+      liveSessions: l.sessions,
+      heavyRunning: Math.min(l.heavyTickets, heavyCap ?? l.heavyTickets),
+      checksRunning: l.checks
+    }
+    if (sample.memAvailablePct === null) snapshot.memUnknown = true
+    if (typeof sample.commitHeadroomPct === 'number') snapshot.commitHeadroomPct = sample.commitHeadroomPct
+    if (typeof sample.commitReachablePct === 'number') snapshot.commitReachablePct = sample.commitReachablePct
+    writeHealthSnapshotSync(d.profileDir, snapshot)
+  }
+
   const tick = async (): Promise<void> => {
     if (busy) return
     busy = true
@@ -613,6 +638,13 @@ export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
       const sample = sampleOf(readings(), at)
       samples.push(sample)
       if (samples.length > SAMPLES_KEPT) samples.shift()
+      // **The snapshot is written before the reads below, with the caps last read** (2026-11-03: health.json stopped
+      // for minutes while these two small async reads waited in libuv's pool — the snapshot that would have shown the
+      // stall was the one held up by it). The reads then judge as before.
+      const l = d.live()
+      const cap0 = lastHeavyCap
+      writeSnapshot(sample, at, l, cap0)
+      const readStart = now()
       const cur = await readAutoLimits(d.profileDir)
       let person: Required<PersonCaps> | null = null
       try {
@@ -620,25 +652,16 @@ export function createLoadMonitor(d: LoadMonitorDeps): LoadMonitor {
       } catch {
         /* an unreadable settings file: the snapshot is still written, nothing is judged */
       }
+      const readMs = now() - readStart
+      if (readMs >= SLOW_READ_MS && !slowReadLogged) {
+        slowReadLogged = true
+        d.log(`load monitor: reading two small settings files took ${Math.round(readMs / 1000)} s — the Host's file calls are waiting in line (libuv's pool), so every async read is slow now`)
+      } else if (readMs < SLOW_READ_MS) slowReadLogged = false
       const effective = person && { workers: effectiveCap(person.workers, cur.workers), heavy: effectiveCap(person.heavy, cur.heavy) }
-      const l = d.live()
+      if (effective) lastHeavyCap = effective.heavy
       const live: LiveCounts = { workers: l.workers, heavyRunning: Math.min(l.heavyTickets, effective?.heavy ?? l.heavyTickets), checksRunning: l.checks }
-      const snapshot: HealthSnapshot = {
-        at: new Date(at).toISOString(),
-        // Unknown memory is written as 100 (not strained) and flagged, never as 0% free.
-        memAvailablePct: sample.memAvailablePct ?? 100,
-        load1PerCpu: sample.load1PerCpu,
-        loopDelayP99Ms: sample.loopDelayP99Ms,
-        strained: isStrained(sample),
-        liveWorkers: live.workers,
-        liveSessions: l.sessions,
-        heavyRunning: live.heavyRunning,
-        checksRunning: live.checksRunning
-      }
-      if (sample.memAvailablePct === null) snapshot.memUnknown = true
-      if (typeof sample.commitHeadroomPct === 'number') snapshot.commitHeadroomPct = sample.commitHeadroomPct
-      if (typeof sample.commitReachablePct === 'number') snapshot.commitReachablePct = sample.commitReachablePct
-      writeHealthSnapshotSync(d.profileDir, snapshot)
+      // and again with the caps just read, when they moved what the first one said
+      if (effective?.heavy !== undefined && effective.heavy !== cap0) writeSnapshot(sample, at, l, effective.heavy)
       if (!person || !effective) return
       if (person.autoLower === 'off') {
         if (!isStrained(sample)) offStrainLogged = false

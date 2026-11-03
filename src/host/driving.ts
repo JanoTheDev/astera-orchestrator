@@ -123,6 +123,23 @@ export { APP_LEFT_GRACE_MS }
 /** Ticks that may find the last one still running before the Host says so (final review M7). */
 export const TICKS_SKIPPED_BEFORE_SAYING = 4
 
+/** How long a tick waits on its read of who drives (settings files) before it goes on with the drive as last read. */
+export const TICK_COMPUTE_WAIT_MS = 5_000
+
+/** Settles when `p` does or `ms` has passed, whichever is first; never rejects. Its timer never holds the process. */
+async function untilOrAfter(p: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms)
+    timer.unref?.()
+  })
+  try {
+    await Promise.race([p.then(() => undefined, () => undefined), late])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 /** Whether a terminal or a chat session with this id is running in this Host (2026-10-13, spec E5). A worker is
  *  always a pty; a chat is a line process in `procs`, and only a Run's external coordinator can be one. */
 export function hostSessionAlive(
@@ -163,6 +180,8 @@ export function createHostDriving(d: {
   every?(ms: number, fn: () => void): () => void
   /** Test seam; defaults to setTimeout, unref'd. Answers a cancel. */
   after?(ms: number, fn: () => void): () => void
+  /** Test seam; TICK_COMPUTE_WAIT_MS, how long a tick waits on its read of who drives. */
+  tickComputeWaitMs?: number
   /** Test seam; defaults to liveAppPid over the profile's app.pid (S3), falling back to the server's last
    *  hello pid (leftovers Task 1): the live app's pid, or null. */
   appPid?(): number | null
@@ -729,10 +748,33 @@ export function createHostDriving(d: {
     }
   }
 
-  /** Whether a tick runs (audit OR-5): one that takes longer than the interval is not overlapped by the next. */
+  /** Whether a tick is reading who drives (audit OR-5): a tick that comes meanwhile is not overlapped with it. */
   let ticking = false
   /** Ticks in a row that found one still running: said once it is TICKS_SKIPPED_BEFORE_SAYING (final review M7). */
   let skipped = 0
+  /** The read of who drives that a tick started and that has not answered yet; a later tick waits on it, not a new one. */
+  let driveRead: Promise<unknown> | null = null
+  /**
+   * **The tick's steps run in lanes, each on its own** (2026-11-03: "a tick is still running after 4 more came due",
+   * with the Host's file reads queued minutes deep: one step's wait held every schedule, nudge and check behind it).
+   * A lane still running from an earlier tick is left to finish and this tick runs the others; the steps inside one
+   * lane keep their order. A lane that keeps being found running is said once per TICKS_SKIPPED_BEFORE_SAYING.
+   * What lanes may share is what a kick's pass already shared with a tick before: every change they make goes through
+   * the Host's command chain (`d.orch.handle`) or reads `mayStart` again.
+   */
+  const lanes = new Map<string, { skipped: number }>()
+  const lane = (name: string, run: () => Promise<void>): Promise<void> => {
+    const busy = lanes.get(name)
+    if (busy) {
+      if (++busy.skipped === TICKS_SKIPPED_BEFORE_SAYING)
+        log(`the tick's ${name} step is still running after ${busy.skipped} more ticks came due: the tick's other steps go on`)
+      return Promise.resolve()
+    }
+    lanes.set(name, { skipped: 0 })
+    return run()
+      .catch((err: unknown) => log(`tick failed: ${String(err)}`))
+      .finally(() => lanes.delete(name))
+  }
   const tick = async (): Promise<void> => {
     if (ticking) {
       if (++skipped === TICKS_SKIPPED_BEFORE_SAYING)
@@ -741,20 +783,32 @@ export function createHostDriving(d: {
     }
     skipped = 0
     ticking = true
+    const launched: Promise<void>[] = []
     try {
       // **Forget a gone app's pid promptly** (final review I1): the server's `lastAppPid` probes the pid
       // and forgets it once dead. Asked here while no app is attached, so the forgetting happens within a
       // tick of the app ending, not at the next worktree removal, which may come after Windows has
       // handed that number to another process. The answer itself is not needed.
       if (!d.server.hasApp()) d.server.lastAppPid?.()
-      await compute()
+      // Who drives, read again; a read that has not answered in TICK_COMPUTE_WAIT_MS leaves the drive as last read
+      // (`mayStart` reads that), and goes on to apply itself when it answers.
+      // Caught here: it may answer after this tick stopped waiting, and nobody would hear a throw then
+      driveRead ??= compute()
+        .catch((err: unknown) => log(`tick failed: ${String(err)}`))
+        .finally(() => {
+          driveRead = null
+        })
+      await untilOrAfter(driveRead, d.tickComputeWaitMs ?? TICK_COMPUTE_WAIT_MS)
       followHold()
-      if (mayStart()) {
-        await pass()
-        await loop.nudge()
-        await stalls?.watch()
-        await runEnd.run()
-      }
+      if (mayStart())
+        launched.push(
+          lane('pass', async () => {
+            await pass()
+            await loop.nudge()
+            await stalls?.watch()
+            await runEnd.run()
+          })
+        )
       // **R5 and R17.** Schedules fire from the process that drives (`driverOf`), whether or not an app
       // is attached: a fired Run starts the way `jobs run` starts one (U1), and the Host does both
       // halves of that headless, a coordinator through its spawner and a placement through this loop.
@@ -764,7 +818,7 @@ export function createHostDriving(d: {
       // `fireTick` does not ask `mayStart` itself (Task 8 m6), so it is asked here, after the awaits
       // above. Otherwise the arming is dropped, so the first tick that may fire again only arms: a time
       // that passed while this Host did not fire is not fired late.
-      if (mayStart()) await loop.fireTick()
+      if (mayStart()) launched.push(lane('schedules', () => loop.fireTick()))
       else loop.forgetArming()
       // Final review I1: the restart Gate for the Tasks armed earlier. **Then armed again on every
       // tick that may start work** (S4+S5 tidy; T8: with an app attached too, for a stopped reviewer only,
@@ -772,33 +826,43 @@ export function createHostDriving(d: {
       // driving cleared every armed Task, and a Task a foreign run held was never armed, and nothing
       // but the next change of drive armed either again. A Task armed here is confirmed on a later
       // tick, `STALL_CONFIRM_MS` on at the least, as before.
-      await gateStalled()
-      if (mayStart()) armStalled('a tick')
-      // A review start lost while this Host stays up (running.ts `reviewStartLost`, 2026-11-02): a Task `reviewing` past
-      // the grace with no reviewer. Nothing above re-drives it — the resume sweep runs at a change of drive, and the
-      // restart Gate leaves a reviewing Task with no review Dispatch to the start it takes for in flight — so it waited
-      // for the next Host's load. Its own catch: a throw costs the tick nothing else.
-      if (mayStart()) {
-        try {
-          d.checks.redriveLostReviews?.('a tick')
-        } catch (err) {
-          log(`the lost-review sweep failed: ${String(err)}`)
-        }
-      }
-      if (mayStart()) await doctorSweep()
+      launched.push(
+        lane('stalls', async () => {
+          await gateStalled()
+          if (mayStart()) armStalled('a tick')
+          // A review start lost while this Host stays up (running.ts `reviewStartLost`, 2026-11-02): a Task `reviewing`
+          // past the grace with no reviewer. Nothing above re-drives it — the resume sweep runs at a change of drive, and
+          // the restart Gate leaves a reviewing Task with no review Dispatch to the start it takes for in flight — so it
+          // waited for the next Host's load. Its own catch: a throw costs the tick nothing else.
+          if (mayStart()) {
+            try {
+              d.checks.redriveLostReviews?.('a tick')
+            } catch (err) {
+              log(`the lost-review sweep failed: ${String(err)}`)
+            }
+          }
+        })
+      )
+      if (mayStart()) launched.push(lane('doctor', doctorSweep))
       // Last round (a): steps a same-pid app kept, once app.pid shows it gone.
       if (mayStart()) grace.tick()
       // R22: the spec pile-up, narrowly — no app attached (an app writes specs too) and no spawn of
       // this Host's in flight (its spec is on disk before its Dispatch names it).
-      if (!d.server.hasApp() && d.spawner.inFlight() === 0 && d.orch.loaded()) {
-        const removed = await sweepStaleSpecFiles({ dir: d.specsDir, state: d.orch.state(), live: liveSessions() })
-        if (removed.length > 0) log(`spec files — swept ${removed.length} stale file(s) on the tick`)
-      }
+      if (!d.server.hasApp() && d.spawner.inFlight() === 0 && d.orch.loaded())
+        launched.push(
+          lane('spec sweep', async () => {
+            const removed = await sweepStaleSpecFiles({ dir: d.specsDir, state: d.orch.state(), live: liveSessions() })
+            if (removed.length > 0) log(`spec files — swept ${removed.length} stale file(s) on the tick`)
+          })
+        )
     } catch (err) {
       log(`tick failed: ${String(err)}`)
     } finally {
       ticking = false
     }
+    // Waited for by this call (a test, a caller that wants the tick done), never by the next tick: each lane guards
+    // itself
+    await Promise.all(launched)
   }
 
   const every =
