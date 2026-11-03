@@ -5297,8 +5297,12 @@ export async function handleCommand(
       // cwd and specPath are provisional and get patched to their real values once the coordinator
       // returns (below).
       const pendingSessionId = terminal ?? `pending:${randomBytes(4).toString('hex')}`
+      // **Opened on the state as it is now, not on `s`** (the review Dispatches lost on 2026-11-02). The cap and the
+      // account choice above are real awaits (a settings file, accounts.json, a login check per account), and a flow
+      // outside the command chain — a review start, a validation's tail — commits in that window. `openDispatch(s)`
+      // committed whole would erase those commits; openDispatch re-checks the Task and its open Dispatch on this read.
       const opened = openDispatch(
-        s,
+        deps.getState(),
         {
           taskId,
           provider: agent,
