@@ -31,6 +31,10 @@ describe('afterStandOf', () => {
     expect(stand({ pr: { at: NOW, url: 'u' } })).toBe('delivered')
     expect(stand({ pr: { at: NOW, note: 'no remote', branch: 'b' } })).toBe('delivered')
     expect(afterStandOf(state({ jobs: [job({ id: 'job_a', archivedAt: NOW, nothingToDo: { at: NOW, summary: 's' } })] }), 'job_a')).toBe('delivered')
+    // manual delivery: the owner merged it by hand and archived it
+    expect(stand({}, {}, { delivery: 'manual', archivedAt: NOW })).toBe('delivered')
+    expect(stand({}, { status: 'failed' }, { delivery: 'manual', archivedAt: NOW })).toBe('stopped')
+    expect(stand({}, {}, { delivery: 'manual' })).toBe('waiting')
   })
 
   it('waiting: running, completed and not delivered yet, or a draft pull request', () => {

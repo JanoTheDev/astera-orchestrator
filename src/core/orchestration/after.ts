@@ -30,6 +30,9 @@ export function afterStandOf(s: AfterState, jobId: string): AfterStand {
   // W8-E (#99) delivers a failed Run's completed work in a PR too: that plan still gave up, so what waits on it stops
   if (run && outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) === 'failed') return 'stopped'
   if (run && runDelivered(run)) return 'delivered'
+  // Manual delivery: the owner merges by hand, then archives; Astera never records that delivery itself
+  if (job.delivery === 'manual' && job.archivedAt !== undefined && run && outcomeOfTasks(s.tasks.filter((t) => t.runId === run.id)) === 'completed')
+    return 'delivered'
   if (!isJobActive(job)) return 'stopped'
   // An error while Astera still retries the delivery is not a stop: what waits on it comes once that try lands
   const retrying = run?.deliveryState?.state === 'retrying' || run?.deliveryState?.state === 'delivering' || run?.deliveryState?.state === 'pending'
