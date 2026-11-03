@@ -19,6 +19,9 @@ export interface MirrorStore {
    *  one leaves it undefined, which turns the check off rather than failing every write. */
   accept(s: OrchState, version?: number): void
   loaded(): boolean
+  /** Moves every time the state held here does (a push, a refill, a write, a write put back). The window asks for it
+   *  (orch.generation) to tell a state that moved from one that did not without reading every list again. Starts at 0. */
+  generation(): number
 }
 
 export function createMirrorStore(a: {
@@ -27,8 +30,20 @@ export function createMirrorStore(a: {
     args: Record<string, unknown>
     sessionId: string
   }): Promise<{ status: number; body: unknown }>
+  /** Told after the state held here changed, with the new generation: main tells the window (orch:moved), so a Gate
+   *  answered from the CLI leaves its panel without waiting for a poll. A throw is the listener's own. */
+  onMoved?(generation: number): void
 }): MirrorStore {
   let state: OrchState | null = null
+  let generation = 0
+  const moved = (): void => {
+    generation++
+    try {
+      a.onMoved?.(generation)
+    } catch {
+      /* the listener's own failure costs the mirror nothing */
+    }
+  }
   /** The Host commit this mirror is holding — **or the one it will be holding once the writes already
    *  in flight have landed.**
    *
@@ -73,6 +88,7 @@ export function createMirrorStore(a: {
       // Host too old to issue versions is one this check is off for, and inventing a number here
       // would start refusing every write against it.
       if (typeof version === 'number') version = version + 1
+      moved()
       const r = await a.call({ cmd: 'state-put', args: { state: next, version: sent }, sessionId: '' })
       if (r.status === 409) {
         // **The Host had moved on, so this write never landed and the mirror was wrong before it was
@@ -84,9 +100,11 @@ export function createMirrorStore(a: {
         if (body && isValidState(body.state)) {
           state = body.state
           version = body.version
+          moved()
         } else if (state === next) {
           state = previous
           version = previousVersion
+          moved()
         }
         throw new OrchStateConflict(body?.version, sent)
       }
@@ -104,6 +122,7 @@ export function createMirrorStore(a: {
         if (state === next) {
           state = previous
           version = previousVersion
+          moved()
         }
         throw new Error(`the Host refused a state write: ${r.status}`)
       }
@@ -118,7 +137,9 @@ export function createMirrorStore(a: {
     accept: (s, v) => {
       state = s
       version = v
+      moved()
     },
-    loaded: () => state !== null
+    loaded: () => state !== null,
+    generation: () => generation
   }
 }

@@ -174,6 +174,15 @@ export function exitCodeForStatus(status: number): number {
  */
 export const SILENT_HOST_CODE: CliErrorCode = 'TIMEOUT'
 
+/**
+ * How long a command waits for the Host's `hello` once the pipe is open (the SDK's default is 5 s). A Host whose event
+ * loop is held for seconds (2026-11-03: loopDelayP99 4 s, reads 10 s) answered hellos after the CLI had already hung
+ * up, so each command failed with TIMEOUT, its agent ran it again, and the Host wrote every late hello into a closed
+ * pipe (`connection error: Error: write EPIPE`, in bursts). The Host's own hello deadline is 10 s; this waits past it.
+ * An absent Host is unaffected: that answers `unreachable` at once.
+ */
+export const CLI_HELLO_TIMEOUT_MS = 15_000
+
 export function connectFailureEnd(a: {
   error: ConnectFailure['error']
   address: string
@@ -742,13 +751,13 @@ const runtimeDeps = (a: { env: NodeJS.ProcessEnv; platform: NodeJS.Platform; hom
     ensureIdentity: (san) => loadOrCreateIdentity(store(), { displayName: a.displayName ?? os.hostname(), ...(san === '0.0.0.0' || san === '::' ? {} : { san }) }),
     loadIdentity: () => loadIdentity(store()),
     hostCall: async (cmd, args, o) => {
-      let conn = await connectHost({ address, profileDir, app: CLI_VERSION, log: logToStderr })
+      let conn = await connectHost({ address, profileDir, app: CLI_VERSION, timeoutMs: CLI_HELLO_TIMEOUT_MS, log: logToStderr })
       const startHost = (): ReturnType<typeof runHostCommand> =>
         runHostCommand({ cmd: 'host-start', env: a.env, platform: a.platform, home: a.home, noKeepalive: a.noKeepalive })
       if ('error' in conn && conn.error === 'unreachable' && o.start) {
         const started = await startHost()
         if (!started.ok) return { error: started.error }
-        conn = await connectHost({ address, profileDir, app: CLI_VERSION, log: logToStderr })
+        conn = await connectHost({ address, profileDir, app: CLI_VERSION, timeoutMs: CLI_HELLO_TIMEOUT_MS, log: logToStderr })
       }
       if ('error' in conn) {
         if (conn.error === 'impostor') return { error: impostorError(address, profileDir) }
@@ -1689,7 +1698,7 @@ export async function main(): Promise<void> {
       return remote
     }
     const connectStarted = Date.now()
-    const conn = await connectHost({ address, profileDir, app: CLI_VERSION, log: logToStderr })
+    const conn = await connectHost({ address, profileDir, app: CLI_VERSION, timeoutMs: CLI_HELLO_TIMEOUT_MS, log: logToStderr })
     verbose.say(
       'error' in conn
         ? `connecting to ${address} failed after ${Date.now() - connectStarted}ms: ${conn.error}`

@@ -319,6 +319,28 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
   let idleTimer: ReturnType<typeof setTimeout> | null = null
   const sockets = new Set<net.Socket>()
   /**
+   * A client that hung up before its answer was written (EPIPE, ECONNRESET). On 2026-11-03 these came in bursts: the
+   * Host's loop was held for seconds, each CLI gave up on its hello before the Host read it, and every late hello then
+   * logged `connection error: Error: write EPIPE`. That is one fact (the Host was slow to answer), so it is said once
+   * per minute with how many it was, not once per client.
+   */
+  const HUNG_UP_EVERY_MS = 60_000
+  let hungUp = { since: -Infinity, more: 0 }
+  const connectionError = (err: unknown): void => {
+    const code = (err as NodeJS.ErrnoException | null)?.code
+    if (code !== 'EPIPE' && code !== 'ECONNRESET') return deps.log.write(`connection error: ${String(err)}`)
+    const t = Date.now()
+    if (t - hungUp.since < HUNG_UP_EVERY_MS) {
+      hungUp.more++
+      return
+    }
+    const before = hungUp.more
+    hungUp = { since: t, more: 0 }
+    deps.log.write(
+      `a client hung up before the Host answered it (${code}): it stopped waiting, so this Host is slow to answer${before > 0 ? ` — ${before} more since the last such line` : ''}`
+    )
+  }
+  /**
    * The peers that have completed the handshake. **Broadcasts go here, never to `sockets`.**
    *
    * On win32 the pipe carries the default security descriptor, and that is not what design §5
@@ -658,6 +680,9 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
         if (m?.t === 'hello') {
           // Said hello, whatever protocol it turned out to speak — the deadline is about silence.
           greeted()
+          // A client that gave up waiting before this hello was read is owed nothing: answering it would only be a
+          // write into a closed pipe, and greeting it would count a client that is gone.
+          if (socket.destroyed || !socket.writable) return
           if (m.protocol !== HOST_PROTOCOL) {
             deps.log.write(`client speaks protocol ${String(m.protocol)}, this Host speaks ${HOST_PROTOCOL}`)
             send({ t: 'protocol-mismatch', protocol: HOST_PROTOCOL })
@@ -927,7 +952,7 @@ export async function startHostServer(deps: HostServerDeps): Promise<HostServer>
       if (live === 0) armIdle()
     }
     socket.on('close', gone)
-    socket.on('error', (err) => deps.log.write(`connection error: ${String(err)}`))
+    socket.on('error', connectionError)
   })
 
   await new Promise<void>((resolve, reject) => {

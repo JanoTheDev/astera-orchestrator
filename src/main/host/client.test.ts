@@ -1757,3 +1757,79 @@ describe('HostClient keeps reconnecting while the app runs', () => {
     expect(c.status().connected).toBe(false)
   })
 })
+
+// 2026-11-03: a Host that greets and then loses the pipe at once (`connected`, then `write EPIPE`, over and over). The
+// hello used to start the backoff over, so every such drop was dialled again after 1 s, for as long as it went on.
+describe('HostClient backs off from a connection that drops right after its hello', () => {
+  it('waits longer after each such drop instead of redialling every second', async () => {
+    const addr = addressFor('greet-then-drop')
+    if (addr.dirToPrepare) await fs.mkdir(addr.dirToPrepare, { recursive: true, mode: 0o700 })
+    let connections = 0
+    const raw = net.createServer((sock) => {
+      connections++
+      sock.setEncoding('utf8')
+      sock.on('error', () => {})
+      const read = createLineReader({
+        onMessage: (v) => {
+          const nonce = (v as { nonce?: string }).nonce ?? ''
+          sock.write(encodeLine({ t: 'hello', protocol: HOST_PROTOCOL, host: '9.9.9', pid: process.pid, startedAt: 'x', proof: hostProof(KEY, nonce) }))
+          setImmediate(() => sock.destroy())
+        },
+        onBadLine: () => {},
+        onHandlerError: () => {}
+      })
+      sock.on('data', read)
+    })
+    await new Promise<void>((resolve) => raw.listen(addr.address, resolve))
+    const logs: string[] = []
+    const c = new HostClient({ hostKey, address: addr.address, appVersion: '9.0.0', spawnHost: () => {}, log: (m) => logs.push(m) })
+    c.start()
+    try {
+      const waits = (): number[] => logs.flatMap((l) => /retrying in (\d+)ms/.exec(l)?.[1] ?? []).map(Number)
+      for (let i = 0; i < 100 && waits().length < 2; i++) await new Promise((r) => setTimeout(r, 50))
+      expect(waits().slice(0, 2)).toEqual([1_000, 2_000])
+      expect(connections).toBe(2)
+    } finally {
+      await c.stop()
+      await new Promise<void>((resolve) => raw.close(() => resolve()))
+    }
+  })
+
+  it('starts the backoff over after a connection that held', async () => {
+    const addr = addressFor('held-then-drop')
+    if (addr.dirToPrepare) await fs.mkdir(addr.dirToPrepare, { recursive: true, mode: 0o700 })
+    const socks: net.Socket[] = []
+    const raw = net.createServer((sock) => {
+      socks.push(sock)
+      sock.setEncoding('utf8')
+      sock.on('error', () => {})
+      const read = createLineReader({
+        onMessage: (v) => {
+          const nonce = (v as { nonce?: string }).nonce ?? ''
+          if ((v as { t?: string }).t === 'hello')
+            sock.write(encodeLine({ t: 'hello', protocol: HOST_PROTOCOL, host: '9.9.9', pid: process.pid, startedAt: 'x', proof: hostProof(KEY, nonce) }))
+        },
+        onBadLine: () => {},
+        onHandlerError: () => {}
+      })
+      sock.on('data', read)
+    })
+    await new Promise<void>((resolve) => raw.listen(addr.address, resolve))
+    const logs: string[] = []
+    const c = new HostClient({ hostKey, address: addr.address, appVersion: '9.0.0', spawnHost: () => {}, log: (m) => logs.push(m), stableMs: 100 })
+    c.start()
+    try {
+      const waits = (): number[] => logs.flatMap((l) => /retrying in (\d+)ms/.exec(l)?.[1] ?? []).map(Number)
+      for (const n of [1, 2]) {
+        await settled(c, (s) => s.connected)
+        await new Promise((r) => setTimeout(r, 200)) // past stableMs
+        socks[socks.length - 1]!.destroy()
+        for (let i = 0; i < 60 && waits().length < n; i++) await new Promise((r) => setTimeout(r, 50))
+      }
+      expect(waits()).toEqual([1_000, 1_000])
+    } finally {
+      await c.stop()
+      await new Promise<void>((resolve) => raw.close(() => resolve()))
+    }
+  })
+})

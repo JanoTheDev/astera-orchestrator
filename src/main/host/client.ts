@@ -66,6 +66,8 @@ export interface HostClientDeps {
   retiringWaitMs?: number
   /** `requestRestart`'s allowance past the Host's own wait for the Host to be gone. Default RESTART_EXIT_MARGIN_MS; injected for tests. */
   restartExitMarginMs?: number
+  /** STABLE_CONNECTION_MS; injected for tests. */
+  stableMs?: number
 }
 
 const DEFAULT_ATTEMPTS = 25
@@ -93,6 +95,11 @@ export const HANDSHAKE_MS = 10_000
 export const READY_TIMEOUT_MS = CONNECT_PHASE_MS + HANDSHAKE_MS
 /** After a connection that worked drops, wait before trying again: 1s, 2s, 4s, 8s, capped at 10s. */
 const BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 10_000]
+/** A connection has to have lived this long for its drop to start the backoff over at its first step. One that drops
+ *  right after its hello (a Host that greets and then cannot keep the pipe: `write EPIPE` straight after
+ *  `connected`) used to reset the backoff at every hello, so it was dialled again every second for as long as that went
+ *  on; now each such drop waits longer than the last, up to the cap. */
+export const STABLE_CONNECTION_MS = 30_000
 /** Once a cycle's fast attempts all failed, it keeps trying (the client never ends while the app runs):
  *  0.5s, 1s, 2s, 4s, 8s, then every 10s until a Host answers. */
 export const RECONNECT_FIRST_MS = 500
@@ -209,6 +216,9 @@ export class HostClient {
    *  once that is over. */
   private readonly afterSpawn = new Set<() => void>()
   private drops = 0
+  /** When the current connection's hello landed (Date.now), or null: a drop of one that lived STABLE_CONNECTION_MS
+   *  starts the backoff over. */
+  private greetedAt: number | null = null
   /** When a Host at the address first hung up before its hello in the current wait, or null. */
   private retiringSince: number | null = null
   private readonly subscribers = new Set<(m: HostMessage) => void>()
@@ -810,6 +820,9 @@ export class HostClient {
         problem: stillLeaving ?? this.state.problem ?? 'the connection to the Host dropped'
       })
       if (stillLeaving) this.settleReady()
+      // Only a connection that held starts the backoff over (STABLE_CONNECTION_MS)
+      if (this.greetedAt !== null && Date.now() - this.greetedAt >= (this.deps.stableMs ?? STABLE_CONNECTION_MS)) this.drops = 0
+      this.greetedAt = null
       const wait = BACKOFF_MS[Math.min(this.drops, BACKOFF_MS.length - 1)]
       this.drops += 1
       this.deps.log(`connection to the Host dropped — retrying in ${wait}ms`)
@@ -903,7 +916,7 @@ export class HostClient {
       }
       this.proven = this.socket
       this.clearHandshake()
-      this.drops = 0
+      this.greetedAt = Date.now()
       this.retiringSince = null
       // Judged here, from the two versions this handshake already carries, so the status the Info tab
       // reads and the replacement rule in ipc.ts act on cannot disagree about it.
