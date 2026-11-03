@@ -768,7 +768,7 @@ astera jobs    set    --id <jobId | runId> [--concurrency <n>] [--after <jobId|n
 astera jobs    overlaps --id <jobId>
 astera main-plan [--project <projectId>]
 astera plan-state --job <jobId | runId>
-astera jobs    archive --id <jobId> [--kill-sessions]
+astera jobs    archive [--id <jobId>] [--ids <jobId,jobId,…>] [--kill-sessions]
 astera jobs    unarchive --id <jobId>
 astera jobs    plan --id <jobId> [--account <id>] [--replan <waves|off>] [--concurrency <n>] [--delivery <pr|push|manual>] [--no-review] [--auto-approve <on|off>] [--hands-off <on|off>] [--planning <chat|auto>]
 astera jobs    feedback --job <jobId> --text <text|->
