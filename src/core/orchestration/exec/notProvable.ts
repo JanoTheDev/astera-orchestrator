@@ -56,7 +56,8 @@ export const acceptedNotProvable = (title: string, note: string): string => `acc
  *  (`needs: 'environment'`), and there is at least one; null otherwise. A blocker a code change fixes, or one that needs
  *  a scope, permission or person call, keeps today's path. */
 export function environmentOnlyIssues(task: Pick<Task, 'reviewIssues'> | undefined): ReviewIssue[] | null {
-  const blocking = (task?.reviewIssues ?? []).filter((i) => i.blocking)
+  // Code blockers are left to the repair the answer opens, as in state.ts's needs-decision verdict
+  const blocking = (task?.reviewIssues ?? []).filter((i) => i.blocking && i.needs !== undefined && i.needs !== 'code')
   return blocking.length > 0 && blocking.every((i) => i.needs === 'environment') ? blocking : null
 }
 

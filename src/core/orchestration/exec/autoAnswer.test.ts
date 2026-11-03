@@ -640,10 +640,18 @@ describe('a review-needs-decision Gate on a hands-off plan', () => {
     expect(answer).toContain('its absence is not a finding')
   })
 
-  it('T12: an environment blocker beside a code or scope blocker goes the usual way', () => {
+  it('T12: an environment blocker beside a scope blocker goes the usual way', () => {
     const g = gate('The review needs a decision: next dev not run (needs environment)')
-    for (const other of [issue({ id: 'iss_2', title: 'bug' }), issue({ id: 'iss_2', title: 'wider change', needs: 'scope' })])
-      expect(handsOffStepsDue(reviewed([issue({ needs: 'environment' }), other]), [g], T0)).toEqual([{ kind: 'coordinator', question: g }])
+    const other = issue({ id: 'iss_2', title: 'wider change', needs: 'scope' })
+    expect(handsOffStepsDue(reviewed([issue({ needs: 'environment' }), other]), [g], T0)).toEqual([{ kind: 'coordinator', question: g }])
+  })
+
+  it('T12: a code blocker beside an environment blocker is left to the repair: still accepted as not provable', () => {
+    const g = gate('The review needs a decision: next dev not run (needs environment)')
+    for (const needs of [undefined, 'code'] as const) {
+      const steps = handsOffStepsDue(reviewed([issue({ needs: 'environment' }), issue({ id: 'iss_2', title: 'bug', ...(needs ? { needs } : {}) })]), [g], T0)
+      expect(steps[0]?.kind).toBe('answer')
+    }
   })
 
   it('T12: a Task accepted this way once already goes the usual way, not round a loop', () => {

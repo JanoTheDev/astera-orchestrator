@@ -439,7 +439,7 @@ export const SCOPE_REVIEW_ANSWER_HEAD = 'Widen the scope:'
  *  checked before this, so the wider files are ordinary code. */
 function scopeReviewStepOf(s: OrchState, q: OpenQuestion, asked: string): HandsOffStep | null {
   const task = s.tasks.find((t) => t.id === q.taskId)
-  const blocking = (task?.reviewIssues ?? []).filter((i) => i.blocking)
+  const blocking = (task?.reviewIssues ?? []).filter((i) => i.blocking && i.needs !== undefined && i.needs !== 'code')
   if (!task || blocking.length === 0 || !blocking.every((i) => i.needs === 'scope')) return null
   if (/ask me/i.test(`${task.prompt ?? ''}
 ${task.spec}`)) return null

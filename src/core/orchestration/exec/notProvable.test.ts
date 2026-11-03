@@ -70,8 +70,13 @@ describe('environmentOnlyIssues', () => {
     expect(environmentOnlyIssues({ reviewIssues: issues })?.map((i) => i.title)).toEqual(['dev server not run', 'no device'])
   })
 
+  it('leaves code blockers beside them to the repair', () => {
+    const issues = [issue({ title: 'no device', needs: 'environment' }), issue({ title: 'bug' }), issue({ title: 'typo', needs: 'code' })]
+    expect(environmentOnlyIssues({ reviewIssues: issues })?.map((i) => i.title)).toEqual(['no device'])
+  })
+
   it.each([
-    ['a code blocker beside it', [issue({ needs: 'environment' }), issue({ title: 'bug' })]],
+    ['only code blockers', [issue({ title: 'bug' })]],
     ['a scope blocker beside it', [issue({ needs: 'environment' }), issue({ needs: 'scope' })]],
     ['only a non-blocking environment note', [issue({ blocking: false, needs: 'environment' })]],
     ['no issues', []]
