@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { liftStartHold, RESTART_HOLD_REASON, startHeldNow, writeStartHold } from '../startHold'
-import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, idleNudge, IDLE_STALL_MS, CAPTURED_SUBJECT, isFinishedReport, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, VALIDATE_STALL_MS, createStallWatch, stallRemedies, type StallEntry, type StallWatchDeps, type StallProbe, type StallRemedy } from './stallWatch'
+import { DROPPED_ASK_MS, HOLD_ASK_MS, LEASE_ASK_MS, LEASE_TELL_MS, PLANNER_GONE_MS, PLANNER_GONE_RESTARTS, PLANNER_IDLE_MS, PLANNER_NUDGE, PLANNER_RESTART_MS, BACKOFF_MS, BUSY_REFRESH_MS, BUSY_TELL_MS, DEAD_COORDINATOR_MS, DRAFT_STALL_MS, idleNudge, IDLE_STALL_MS, CAPTURED_SUBJECT, isFinishedReport, LOST_STALL_MS, MERGE_STALL_MS, READY_STALL_MS, STALL_WATCH_MS, TRIES, VALIDATE_STALL_MS, createStallWatch, stallRemedies, type StallEntry, type StallWatchDeps, type StallProbe, type StallRemedy } from './stallWatch'
 import { INSTALL_START_WINDOW_MS, isInstallingStart } from './stallWatch'
 import { SETUP_SLOT_WAIT_MS, SETUP_TIMEOUT_MS } from '../../worktrees/setup'
 import { PENDING_START_WINDOW_MS } from '../command'
@@ -727,12 +727,94 @@ describe('no silent stalls (T11)', () => {
       ['restart-planner:pl', (PLANNER_IDLE_MS + PLANNER_RESTART_MS) / MIN],
       ['raise-planner:job_1', (2 * PLANNER_IDLE_MS + PLANNER_RESTART_MS) / MIN]
     ])
-    // gone: nothing to nudge, restarted at 20 min, raised 20 min later
-    expect(timeline(planning(), 180 * MIN, { ...idle, alive: () => false })).toEqual([['restart-planner:pl', 20], ['raise-planner:job_1', 40]])
     // working, handed over, chat planning (it waits on the person): nothing
     expect(timeline(planning(), 180 * MIN, { ...idle, busy: () => true })).toEqual([])
     expect(timeline(planning({ planReadyAt: NOW }), 180 * MIN)).toEqual([])
     expect(timeline(planning({ planning: 'chat' }), 180 * MIN)).toEqual([])
+  })
+
+  // 2026-11-03: the pty supervisor died and took four planners with it; their plans read "planning" with nobody planning
+  // them, the 20-minute idle wait (and, for a chat plan, nothing at all) between them and a new planner.
+  it('a gone planner, chat or auto: started again at 2 min (resumed), once more after a backoff, then raised once', () => {
+    const gone = { ...idle, alive: () => false }
+    const want: [string, number][] = [
+      ['restart-planner:pl', PLANNER_GONE_MS / MIN],
+      ['restart-planner:pl', (PLANNER_GONE_MS + BACKOFF_MS[0]) / MIN],
+      ['raise-planner:job_1', (PLANNER_GONE_MS + BACKOFF_MS[0] + BACKOFF_MS[1]) / MIN]
+    ]
+    expect(PLANNER_GONE_RESTARTS).toBe(2)
+    expect(timeline(planning(), 180 * MIN, gone)).toEqual(want)
+    expect(timeline(planning({ planning: 'chat' }), 180 * MIN, gone)).toEqual(want)
+    // the first resumes the planner's conversation, the second starts fresh
+    let memo = new Map<string, StallEntry>()
+    const restarts: StallRemedy[] = []
+    for (const t of every30s(10 * MIN)) {
+      const r = stallRemedies(planning(), t, memo, gone)
+      memo = r.memo
+      restarts.push(...r.due.filter((d) => d.kind === 'restart-planner'))
+    }
+    expect(restarts.map((r) => r.kind === 'restart-planner' && r.resume === true)).toEqual([true, false])
+    expect(restarts[0]).toMatchObject({ kind: 'restart-planner', jobId: 'job_1', sessionId: 'pl', alive: false })
+  })
+
+  it('a gone planner whose start waits for an account, or while a start is in flight, or after the plan was handed over: not restarted', () => {
+    const gone = { ...idle, alive: () => false }
+    expect(timeline(planning({ startWait: 'every account is at its limit' }), 60 * MIN, gone)).toEqual([])
+    expect(timeline(planning(), 60 * MIN, { ...gone, spawning: () => true })).toEqual([])
+    expect(timeline(planning({ planReadyAt: NOW }), 60 * MIN, gone)).toEqual([])
+    expect(timeline(planning({ pendingStart: false }), 60 * MIN, gone)).toEqual([])
+  })
+
+  it('a restarted planner that runs and dies again is started again; the restarts stay bounded across planners', () => {
+    // pl dies; its restart pl2 runs 10 min and dies; pl2 is restarted fresh; the next death is raised
+    const timesAlive: Record<string, [number, number]> = { pl: [0, 0], pl2: [3, 13], pl3: [16, 30] }
+    let s = planning()
+    let memo = new Map<string, StallEntry>()
+    const got: [string, number][] = []
+    for (const t of every30s(90 * MIN)) {
+      const m = (t - T0) / MIN
+      const r = stallRemedies(s, t, memo, {
+        ...idle,
+        busy: () => true,
+        alive: (id) => m >= timesAlive[id][0] && m < timesAlive[id][1]
+      })
+      memo = r.memo
+      for (const d of r.due) {
+        got.push([`${d.kind}:${label(d)}`, m])
+        if (d.kind === 'restart-planner') {
+          const ids = s.jobs[0].plannerSessionIds!
+          s = { ...s, jobs: [{ ...s.jobs[0], plannerSessionIds: [...ids, ids.length === 1 ? 'pl2' : 'pl3'] }] }
+        }
+      }
+    }
+    expect(got).toEqual([['restart-planner:pl', 2], ['restart-planner:pl2', 15], ['raise-planner:job_1', 32]])
+  })
+
+  it('the Host resumes a gone planner in its own conversation, then falls back to a fresh start, and skips one already replaced', async () => {
+    // resumed: one jobs-plan with --resume
+    const a = watchRig(planning({ plannerAccountId: 'accP' }), () => false, [], () => false, undefined, { agentSessionOf: async () => 'conv-1' })
+    await a.run(PLANNER_GONE_MS)
+    expect(a.cmds).toEqual([{ cmd: 'jobs-plan', args: { id: 'job_1', account: 'accP', resume: 'conv-1' } }])
+    expect(a.lines.at(-1)).toMatch(/^Resumed the planner in its own conversation on accP: its session had ended/)
+    // the resume refused: a fresh start right after
+    const b = watchRig(
+      planning({ plannerAccountId: 'accP' }),
+      () => false,
+      [],
+      () => false,
+      (cmd, args) => (cmd === 'jobs-plan' && args.resume !== undefined ? { status: 400, body: { error: 'no conversation' } } : undefined),
+      { agentSessionOf: async () => 'conv-1' }
+    )
+    await b.run(PLANNER_GONE_MS)
+    expect(b.cmds.map((c) => c.args)).toEqual([{ id: 'job_1', account: 'accP', resume: 'conv-1' }, { id: 'job_1', account: 'accP' }])
+    expect(b.lines.at(-1)).toMatch(/^Started the planner again with the same brief on accP/)
+    // back by the time it applies (a roll's new pty landed after the check): nothing is started. The check asks once a
+    // pass (5 passes to PLANNER_GONE_MS), and the applier's ask after it answers alive.
+    let asked = 0
+    const c = watchRig(planning(), () => false, [], () => ++asked > PLANNER_GONE_MS / STALL_WATCH_MS + 1)
+    await c.run(PLANNER_GONE_MS)
+    expect(asked).toBe(PLANNER_GONE_MS / STALL_WATCH_MS + 2)
+    expect(c.cmds).toEqual([])
   })
 
   it('the Host nudges, restarts (old planner closed, a usable account) and raises the planner through its commands', async () => {

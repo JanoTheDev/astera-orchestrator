@@ -550,6 +550,10 @@ export function createHostDriving(d: {
         cap: () => readMaxConcurrentWorkers(settingsPath).catch(() => machineSpecs().recommended),
         busy: (id) => d.spawner.sessionBusy(id),
         alive: (id) => hostSessionAlive(d.registry, d.procs, id),
+        // A gone planner (stallWatch.ts PLANNER_GONE_MS): not restarted while a start is in flight, and resumed in its
+        // own conversation the first time
+        spawning: () => d.spawner.inFlight() > 0,
+        agentSessionOf: (id) => d.orch.internalDeps().agentSessionOf?.(id) ?? Promise.resolve(null),
         isRegistered: (p) => d.worktrees.isRegistered(p),
         ...(d.usageGuard
           ? {
