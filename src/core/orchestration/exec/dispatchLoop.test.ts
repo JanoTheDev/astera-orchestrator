@@ -4421,3 +4421,38 @@ describe('ready Tasks start or show the true blocker (T8)', () => {
     })
   })
 })
+
+// 2026-11-03T07:58: one worker-start ran 483 s (worktree checks and a pty spawn on a starved machine), and the 12 ready
+// Tasks of 5 plans behind it in the pass waited all that time. A slot's start that hangs no longer holds the next slot.
+describe('a start that hangs does not hold the slots behind it', () => {
+  it("places plan B's ready Task while plan A's worker-start still spawns, and does not start A's Task twice", async () => {
+    const h = rig()
+    h.ctx.slotLaunchWaitMs = 100
+    const s = h.state()
+    h.setState({
+      ...s,
+      jobs: [...s.jobs, { id: 'job_2', objective: 'other', cwd: '/q', createdAt: NOW, concurrency: 1, autoDispatch: true }],
+      runs: [...s.runs, { id: 'run_2', jobId: 'job_2', ordinal: 1, createdAt: NOW, worktree: '/wt2' }],
+      tasks: [...s.tasks, task({ id: 'tsk_3', runId: 'run_2', jobId: 'job_2' })]
+    })
+    let finish = (): void => {}
+    const hanging = new Promise<void>((r) => (finish = r))
+    h.startWorker.mockImplementation(async (a: StartArgs) => {
+      if (a.taskId === 'tsk_1') await hanging
+      return { sessionId: `s-${a.taskId}`, cwd: a.runCwd ?? 'x', specPath: 'x' }
+    })
+    const t0 = Date.now()
+    await h.loop.run()
+    // The pass ended long before the hanging start, and plan B's Task was placed
+    expect(Date.now() - t0).toBeLessThan(3_000)
+    await vi.waitFor(() => expect(h.startWorker.mock.calls.map(([a]) => a.taskId)).toContain('tsk_3'))
+    expect(h.state().tasks.find((t) => t.id === 'tsk_3')?.status).toBe('dispatched')
+    // Another pass meanwhile does not start the Task whose start is still under way
+    await h.loop.run()
+    expect(h.startWorker.mock.calls.filter(([a]) => a.taskId === 'tsk_1')).toHaveLength(1)
+    finish()
+    await h.settle()
+    expect(h.state().dispatches.find((d) => d.taskId === 'tsk_1' && !d.endedAt)).toMatchObject({ sessionId: 's-tsk_1' })
+    expect(h.startWorker.mock.calls.filter(([a]) => a.taskId === 'tsk_1')).toHaveLength(1)
+  })
+})

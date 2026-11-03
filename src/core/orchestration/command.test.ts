@@ -3830,6 +3830,59 @@ describe('worker-start — usage guard', () => {
   })
 })
 
+// 2026-11-03: a worker-start's settings reads (the start hold, the worker cap, the usage refresh) held the Host's chain
+// on a starved disk. They run with the chain handed on (deps.outsideChain), and the command runs again on the state as
+// it is after them.
+describe('worker-start — its reads with the chain handed on', () => {
+  const setup = async () => {
+    const deps = makeDeps()
+    const run = await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', concurrency: 5 })
+    const runId = (run.body as { id: string }).id
+    const task = ((await call(deps, 'task-create', { account: 'acc1', runId, spec: 'x' })).body as { id: string }).id
+    const other = ((await call(deps, 'task-create', { account: 'acc1', runId, spec: 'y' })).body as { id: string }).id
+    const outside: string[] = []
+    let capReads = 0
+    deps.maxConcurrentWorkers = () => (capReads++, 4)
+    // The chain's hand-off, recorded; inside it the test lands a commit of another command
+    let meanwhile: (() => Promise<void>) | null = null
+    deps.outsideChain = async <T,>(effect: () => Promise<T>): Promise<T> => {
+      outside.push('out')
+      const r = await effect()
+      if (meanwhile) await meanwhile()
+      return r
+    }
+    return { deps, task, other, outside, capReads: () => capReads, setMeanwhile: (f: () => Promise<void>) => (meanwhile = f) }
+  }
+  const start = (deps: OrchServerDeps, task: string) => call(deps, 'worker-start', { task, agent: 'codex', account: 'acc1', worktree: 'current' })
+
+  it('reads the cap outside the chain, once, and keeps a commit another command made meanwhile', async () => {
+    const h = await setup()
+    const runId = h.deps.getState().tasks.find((t) => t.id === h.other)!.runId!
+    h.setMeanwhile(async () => {
+      expect((await call(h.deps, 'task-create', { account: 'acc1', runId, spec: 'made meanwhile' })).status).toBe(200)
+    })
+    const r = await start(h.deps, h.task)
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(h.outside.length).toBeGreaterThanOrEqual(1)
+    expect(h.capReads()).toBe(1)
+    const st = h.deps.getState()
+    expect(st.dispatches.filter((d) => d.taskId === h.task)).toHaveLength(1)
+    expect(st.tasks.some((t) => t.spec === 'made meanwhile')).toBe(true)
+  })
+
+  it('checks again after the reads: a Dispatch opened for the Task meanwhile refuses the start, and nothing is opened twice', async () => {
+    const h = await setup()
+    h.setMeanwhile(async () => {
+      h.setMeanwhile(async () => {})
+      expect((await start(h.deps, h.task)).status).toBe(200)
+    })
+    const r = await start(h.deps, h.task)
+    expect(r.status).toBe(400)
+    expect(String((r.body as { error?: string }).error)).toContain('dispatch already open')
+    expect(h.deps.getState().dispatches.filter((d) => d.taskId === h.task)).toHaveLength(1)
+  })
+})
+
 // W1-B: the app-wide cap holds every placer, a coordinator included, across Jobs.
 describe('worker-start — app-wide worker cap', () => {
   const twoJobs = async (cap: number | null): Promise<{ deps: OrchServerDeps & { state: OrchState }; a: string[]; b: string[] }> => {

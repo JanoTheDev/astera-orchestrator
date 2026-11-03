@@ -143,6 +143,42 @@ describe("a report's and a new plan's slow reads leave the command chain", () =>
     expect(orch.state().dispatches.find((d) => d.id === dsp)).toMatchObject({ outcome: 'succeeded' })
   })
 
+  // 2026-11-03T07:58: a worker-start ran 483 s (worktree checks, git, the pty spawn on a starved machine)
+  it("answers task-update while a worker-start's spawn runs, and keeps both commits", async () => {
+    const { working, other } = await seed()
+    const spawn = gate({ sessionId: 'ses2', cwd: 'D:/wt/b', specPath: 'D:/specs/b.md' })
+    const orch = orchOver({
+      local: {
+        startWorker: spawn.effect,
+        startCoordinator: stub,
+        releaseWorker: stub,
+        readWorker: stub,
+        probeLimit: async () => null,
+        readReviewFile: async () => null,
+        makeRunWorktree: stub,
+        mergeWorktrees: stub,
+        removeWorktrees: stub,
+        owns: () => true
+      } as never
+    })
+    await orch.ready()
+    const starting = call(orch, 'worker-start', { task: other, agent: 'claude', account: 'acc1', worktree: 'current' })
+    try {
+      await spawn.entered
+      // The start's Dispatch is committed before the spawn, and another command commits meanwhile
+      expect(orch.state().dispatches.some((d) => d.taskId === other && !d.endedAt)).toBe(true)
+      expect(await answersWithin(orch, 'jobs-rename', { id: orch.state().jobs[0].id, title: 'renamed meanwhile' })).toBeLessThan(500)
+    } finally {
+      spawn.release()
+    }
+    const r = await starting
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    const st = orch.state()
+    expect(st.dispatches.find((d) => d.taskId === other && !d.endedAt)).toMatchObject({ sessionId: 'ses2', cwd: 'D:/wt/b' })
+    expect(st.jobs[0].title).toBe('renamed meanwhile')
+    expect(st.tasks.find((t) => t.id === working)?.status).toBe('dispatched')
+  })
+
   it("answers task-update while jobs-create resolves the project root, and keeps that commit", async () => {
     const { other } = await seed()
     const resolve = gate('D:/p')
