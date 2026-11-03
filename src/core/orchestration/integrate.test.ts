@@ -374,6 +374,11 @@ describe('buildIntegrationSpec', () => {
       ]
     })
 
+  it('lets a hook-refused merge commit go with --no-verify, for the merge commit only', () => {
+    expect(spec()).toContain('git commit --no-edit --no-verify')
+    expect(spec()).toMatch(/for the merge\s+commit only/)
+  })
+
   it('합칠 워크트리의 경로와 브랜치를 모두 적는다', () => {
     const out = spec()
     expect(out).toContain(WT_A)

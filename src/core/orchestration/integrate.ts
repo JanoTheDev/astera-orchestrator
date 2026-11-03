@@ -342,6 +342,11 @@ merge:
   git add <the files you resolved>
   git commit --no-edit
 
+If a commit hook refuses that merge commit (pre-commit or commit-msg; a measure of the whole merged diff,
+not a conflict you left), commit it with \`git commit --no-edit --no-verify\`: the merged commits each
+passed the hooks when they were made, and the delivery still runs the pre-push hook. Do this for the merge
+commit only, never for a commit of your own changes, and do not ask about it.
+
 Four rules make the rest of the run work:
 
 - Never leave a merge undone. Do not \`git merge --abort\` and move on, and never \`git reset --hard\`.
