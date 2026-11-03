@@ -188,4 +188,16 @@ describe('T5a: usage in the roll verdict', () => {
     expect(pickAvailable(s, 1, NOW)).toBeNull()
     expect(planRetry(s, NOW)).toEqual({ target: 2, retryAt: NOW + 3e6 + RETRY_MARGIN_MS, weekly: true })
   })
+
+  // usagePauseAt 100: a 99% account is not blocked, but a roll takes an account nothing is known of before it
+  it('a nearly spent account is the last target, after the unknown ones', () => {
+    const readings = new Map([['b', { session: w(0, null), weekly: w(99, iso(NOW + 9e6)) }]])
+    const u = usageRetryOf(['a', 'b', 'c', 'd'], { readings, pauseAt: 100 }, NOW)
+    expect(u.last).toEqual(['b'])
+    expect(u.blocks).toEqual([null, null, null, null])
+    expect(pickAvailable(state({ accountIds: ['a', 'b', 'c', 'd'], recovery: u.blocks, order: u.order, last: u.last }), 1, NOW)).toBe(2)
+    // and still taken when it is the only one left
+    const only = state({ accountIds: ['a', 'b', 'c'], recovery: [null, null, rec({ at: NOW + 6e6 })], order: [], last: ['b'] })
+    expect(pickAvailable(only, 1, NOW)).toBe(1)
+  })
 })

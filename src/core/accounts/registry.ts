@@ -8,6 +8,7 @@ import { makeDescriptors, type ProviderDescriptor } from '../providers/descripto
 import { DEFAULT_ACCOUNT_PLACEHOLDER_LABEL } from './detect'
 import { nextAccountColor } from './colors'
 import { isLoggedIn } from './loginCheck'
+import { prepareClaudeAccountDir } from './claudeTrust'
 import { emailChangeOf } from './emailChange'
 import { keepDamaged, readStoreFile, StoreUnread } from '../storeFile'
 import { renameRetrying } from '../renameRetry'
@@ -283,7 +284,24 @@ export class AccountRegistry {
     // The evidence differs per provider and platform — claude is .credentials.json or macOS
     // Keychain, codex is auth.json. accounts/loginStatus.ts owns that branching; loginCheck.ts is the
     // one rule the Host's spawner and checks share with this (C8).
-    return isLoggedIn(account, this.descriptors)
+    const ok = await isLoggedIn(account, this.descriptors)
+    // A claude account seen logged in (a login just made, or the first check of this run) gets the settings an
+    // unattended session needs, once per folder per run (prepareClaudeAccountDir)
+    if (ok) void this.prepare(account)
+    return ok
+  }
+
+  /** Folders prepareClaudeAccountDir has run on in this process. */
+  private prepared = new Set<string>()
+
+  /** prepareClaudeAccountDir for a claude account, once per folder per process, best-effort: a folder it cannot write
+   *  costs the prompts it would have spared, never the add or the login check. */
+  private async prepare(account: Account): Promise<void> {
+    if (providerOf(account) !== 'claude') return
+    const key = comparablePath(account.configDir)
+    if (this.prepared.has(key)) return
+    this.prepared.add(key)
+    await prepareClaudeAccountDir(account.configDir).catch(() => {})
   }
 
   private async add(
@@ -300,7 +318,7 @@ export class AccountRegistry {
       color: color ?? nextAccountColor(this.accounts.map((a) => a.color)),
       createdAt: new Date().toISOString()
     }
-    return this.changing(() => {
+    const added = await this.changing(() => {
       // Asked again inside the queue (final review M-5): two imports of one folder in flight register it once.
       const norm = comparablePath(configDir)
       const existing = this.accounts.find((a) => comparablePath(a.configDir) === norm)
@@ -311,6 +329,9 @@ export class AccountRegistry {
       this.dismissed = this.dismissed.filter((d) => comparablePath(d) !== comparablePath(configDir))
       return account
     })
+    // A claude account starts with the settings an unattended session needs (prepareClaudeAccountDir)
+    await this.prepare(added)
+    return added
   }
 
   private async uniqueDir(root: string, slug: string): Promise<string> {

@@ -334,7 +334,7 @@ const retryState = (chain: Chain, blocks: BlockRegistry, now: number, usage?: Ac
   return {
   accountIds: chain.accountIds,
   currentIndex: chain.cycle.currentIndex,
-  ...(fromUsage ? { order: fromUsage.order } : {}),
+  ...(fromUsage ? { order: fromUsage.order, last: fromUsage.last } : {}),
   recovery: chain.accountIds.map((id, i) =>
     laterBlock(
       laterBlock(laterBlock(chain.recovery[i] ?? null, blocks.get(id, now)), fromUsage?.blocks[i] ?? null),

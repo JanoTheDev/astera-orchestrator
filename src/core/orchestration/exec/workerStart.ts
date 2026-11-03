@@ -13,11 +13,17 @@ import { descriptorOf, isAmbientDir, type ProviderDescriptor } from '../../provi
 import { providerOf } from '../../providers/meta'
 import { findClaudeTranscript } from '../../history/strategies/claude'
 import { rollChainFor } from '../../accounts/dispatchAccount'
-import { autoOrderOf, rankAccounts, type AutoAccountsGuard, type UnusableReason } from '../../accounts/autoAccountOrder'
+import { autoOrderOf, HIGH_WATER_PCT, rankAccounts, type AutoAccountsGuard, type UnusableReason } from '../../accounts/autoAccountOrder'
 import { isGhostAccountId } from '../../accounts/ghostId'
 import type { UsageGuard } from '../usageGuard'
 import { markCodexProjectTrusted } from '../../accounts/codexTrust'
-import { CLAUDE_SETTINGS_FILE, claudeConfigFileFor, ensureClaudeTheme, markClaudeProjectTrusted } from '../../accounts/claudeTrust'
+import {
+  CLAUDE_SETTINGS_FILE,
+  claudeConfigFileFor,
+  ensureClaudeAccountSettings,
+  ensureClaudeAccountState,
+  markClaudeProjectTrusted
+} from '../../accounts/claudeTrust'
 import { coordinatorLaunchPrompt } from '../handover'
 import { startPlannerSession } from './plannerStart'
 import { workerTabTitle } from './coordinatorRotate'
@@ -355,6 +361,7 @@ export class NoRoomError extends Error {}
 const UNUSABLE_WHY: Record<UnusableReason, string> = {
   'weekly-full': 'its weekly limit is at the usage threshold',
   'session-full': 'its 5-hour limit is at the usage threshold',
+  'near-full': `its usage is at or over ${HIGH_WATER_PCT}%`,
   unknown: 'its usage is unknown',
   stale: 'its usage reading is old',
   'logged-out': 'it is not logged in',
@@ -366,7 +373,8 @@ const UNUSABLE_WHY: Record<UnusableReason, string> = {
  * The guard is read again (bounded by START_READ_WAIT_MS), then rankAccounts over the provider's accounts with the live
  * sessions and the starts in flight (UsageGuard.liveSessions/reserve, so a burst spreads) and the per-account caps:
  * `preferred` if usable, else the first usable of `own` (a Task's chain), else the best usable. With none usable, an
- * account whose usage is unknown may still start (preferred first); a full, capped or logged-out one never does: the
+ * account whose usage is unknown may still start (preferred first), then one at or over the high-water mark
+ * (`near-full`, HIGH_WATER_PCT) but under the threshold, least used first; a full, capped or logged-out one never does: the
  * answer is then `ok: false` with a plain reason, and the start waits. The choice counts from here (`release`).
  * "Pick accounts automatically" off, or no guard or login check wired: the named account alone, as before.
  */
@@ -424,7 +432,10 @@ export async function chooseStartAccount(
       return r && (r.weekly || r.session) ? [r.weekly?.usedPercent ?? 0, r.session?.usedPercent ?? 0] : null
     }
     const known = tryable.filter((id) => lastKnown(id)).sort((x, y) => lastKnown(x)![0] - lastKnown(y)![0] || lastKnown(x)![1] - lastKnown(y)![1])
-    const start = firstOf(usable) ?? known[0] ?? firstOf(tryable)
+    // An account at or over the high-water mark but under the threshold still works: it is the last choice before
+    // waiting, least used first (rankAccounts' order), the named one no exception
+    const nearFull = ranked.unusable.filter((x) => x.reason === 'near-full').map((x) => x.account.id)
+    const start = firstOf(usable) ?? known[0] ?? firstOf(tryable) ?? nearFull[0]
     if (start === undefined) {
       const why = ranked.unusable.map((x) => `${x.account.id} (${UNUSABLE_WHY[x.reason]})`).join(', ')
       const resets = ranked.unusable.flatMap((x) => {
@@ -686,24 +697,25 @@ export async function preTrustWorkspace(a: {
       await markCodexProjectTrusted(account.configDir, a.cwd)
       return
     }
-    await markClaudeProjectTrusted(
-      claudeConfigFileFor({
-        configDir: account.configDir,
-        homeDir: a.homeDir,
-        ambient: isAmbientDir(descriptorOf(a.descriptors, account), a.homeDir, account.configDir)
-      }),
-      a.cwd
-    )
+    const stateFile = claudeConfigFileFor({
+      configDir: account.configDir,
+      homeDir: a.homeDir,
+      ambient: isAmbientDir(descriptorOf(a.descriptors, account), a.homeDir, account.configDir)
+    })
+    await markClaudeProjectTrusted(stateFile, a.cwd)
+    // "Accept bypass permissions mode?" is asked once per account and the answer kept in this same file
+    await ensureClaudeAccountState(stateFile)
   } catch (e) {
     a.log(`trust preset failed account=${account.id} cwd=${a.cwd}: ${String(e)}`)
   }
-  // The theme onboarding would have asked for, now that the trust preset marks onboarding done: in
-  // settings.json under the config dir, for the ambient account too (its <home>/.claude). Apart from
-  // the trust write, so a settings file this cannot write costs a light theme, not a trust menu.
+  // The theme onboarding would have asked for, now that the trust preset marks onboarding done, and the two answers an
+  // unattended session cannot give (project MCP servers, the bypass-mode warning): in settings.json under the config
+  // dir, for the ambient account too (its <home>/.claude). Apart from the trust write, so a settings file this cannot
+  // write costs those prompts, not a trust menu.
   if (providerOf(account) === 'codex') return
   try {
-    await ensureClaudeTheme(path.join(account.configDir, CLAUDE_SETTINGS_FILE))
+    await ensureClaudeAccountSettings(path.join(account.configDir, CLAUDE_SETTINGS_FILE))
   } catch (e) {
-    a.log(`theme preset failed account=${account.id}: ${String(e)}`)
+    a.log(`settings preset failed account=${account.id}: ${String(e)}`)
   }
 }

@@ -46,6 +46,7 @@ import { copyTranscript } from './transcript'
 import { claudeHistoryStrategy } from '../history/strategies/claude'
 import { parseStatusLinePayload, extractStatusLineSession } from '../usage/statusline'
 import { lastActivityAt, readPendingWorkflowCount } from './activity'
+import { highWaterOf, rankAccounts, usedPercentOf } from '../accounts/autoAccountOrder'
 import {
   isIdleNotification,
   isUnknownNotificationType,
@@ -419,7 +420,18 @@ interface Chain {
   heldTimer: ReturnType<typeof setTimeout> | null
   // snapshotKey of the last snapshot written, so an unchanged chain is not written again on every tick.
   snapKey: string
+  /** When the session's last turn ended (its Stop hook) with no new turn since (any other hook but an idle
+   *  Notification starts one): the safe point a proactive roll waits for (proactiveRollCheck). null while a turn runs. */
+  turnEndedAt?: number | null
+  /** When this chain last rolled proactively, so a chain does not hop on every turn while readings settle. */
+  proactiveAt?: number | null
 }
+
+/** How long after a turn ends a proactive roll waits, so the tick's limit checks read the transcript first: a turn
+ *  that ended on a limit is the reactive path's, which carries the work on with a prompt. */
+const PROACTIVE_SETTLE_MS = 10_000
+/** The least time between two proactive rolls of one chain. */
+const PROACTIVE_MIN_GAP_MS = 10 * 60_000
 
 /** Extracts just the part of a Chain the retry verdict needs (the input of core/rolling/retry.ts).
  *
@@ -448,7 +460,7 @@ const retryState = (chain: Chain, blocks: BlockRegistry, now: number, usage?: Ac
   return {
   accountIds: chain.accountIds,
   currentIndex: chain.cycle.currentIndex,
-  ...(fromUsage ? { order: fromUsage.order } : {}),
+  ...(fromUsage ? { order: fromUsage.order, last: fromUsage.last } : {}),
   recovery: chain.accountIds.map((id, i) =>
     laterBlock(
       laterBlock(laterBlock(chain.recovery[i] ?? null, blocks.get(id, now)), fromUsage?.blocks[i] ?? null),
@@ -688,6 +700,10 @@ export class RollingCoordinator {
     if (!chain || chain.disposed) return
     if (typeof payload !== 'object' || payload === null) return
     const p = payload as { hook_event_name?: unknown } & NotificationPayload
+    // The proactive roll's safe point (proactiveRollCheck): a turn ended, and nothing has started another since. An
+    // idle Notification is the ended turn waiting; any other event (a prompt, a tool, a permission card) is a turn.
+    if (p.hook_event_name === 'Stop') chain.turnEndedAt = this.now()
+    else if (p.hook_event_name !== 'Notification' || !isIdleNotification(p)) chain.turnEndedAt = null
     if (p.hook_event_name !== 'Notification') return
     // A Notification that is not idle (a permission request and the like) means a choice is on screen —
     // sending text to that screen would have Enter approve the highlighted item, so nothing intervenes.
@@ -1784,11 +1800,18 @@ export class RollingCoordinator {
   /** Executing a roll: copy → kill → respawn under the same ID → schedule the automatic prompt (the
    *  order is fixed). When Smart Resume is on and a briefing was built, the copy and `resumeSessionId`
    *  are skipped instead — the new session starts blank, carrying only the briefing (see the `smart`
-   *  branch below). */
-  private async roll(chain: Chain, toIndex: number, manual = false): Promise<void> {
+   *  branch below).
+   *
+   *  `proactive` (proactiveRollCheck): the session is between turns on a nearly spent account, not limited. The
+   *  conversation moves with `--resume` and **no prompt is typed** — nothing was running, so nothing is owed a
+   *  carry-on — and an abort arms no wait, since nothing is blocked. */
+  private async roll(chain: Chain, toIndex: number, manual = false, opts: { proactive?: boolean } = {}): Promise<void> {
     if (chain.rolling || chain.disposed) return
+    const proactive = opts.proactive === true
+    // Nothing waits on a proactive roll: an abort leaves the session where it was, as a person's switch does
+    const noWait = manual || proactive
     // S6 R26: settleInPlace, resumeAfterWait and forceRoll reach here without passing onLimit.
-    if (!this.acts(chain)) return this.requeueRoll(chain, toIndex, 'quiet at entry')
+    if (!this.acts(chain)) return proactive ? undefined : this.requeueRoll(chain, toIndex, 'quiet at entry')
     // A roll that goes ahead supersedes one held earlier (a fresh limit verdict, or the hold's own fire).
     if (chain.heldTimer) {
       clearTimeout(chain.heldTimer)
@@ -1803,7 +1826,7 @@ export class RollingCoordinator {
       const target = this.deps.getAccount(chain.accountIds[toIndex])
       if (!target) {
         this.deps.log(`roll aborted — no such account id=${chain.accountIds[toIndex]}`)
-        this.rescheduleAbortedRoll(chain, 'no such account', manual)
+        this.rescheduleAbortedRoll(chain, 'no such account', noWait)
         return
       }
       if (!chain.claudeSessionId || !chain.transcriptPath) await this.refreshMeta(chain)
@@ -1816,10 +1839,11 @@ export class RollingCoordinator {
       // has nothing to resume, but it does have the prompt it was started with. It starts over on the
       // target account as a blank slate owed that prompt, through the same briefing path Smart Resume
       // uses (the prompt is typed once the new session is ready). Without one, the roll waits as before.
-      const restartPrompt = !sessionId || !transcriptPath ? chain.liveInfo.firstPrompt : undefined
+      // A proactive roll never restarts from the first prompt: that would run the work again, unasked
+      const restartPrompt = !proactive && (!sessionId || !transcriptPath) ? chain.liveInfo.firstPrompt : undefined
       if ((!sessionId || !transcriptPath) && !restartPrompt) {
         this.deps.log(`roll aborted — no session metadata (statusline never recorded) session=${chain.liveId}`)
-        this.rescheduleAbortedRoll(chain, 'no session metadata', manual)
+        this.rescheduleAbortedRoll(chain, 'no session metadata', noWait)
         return
       }
       // resumeText 는 spec 파일에 쓰는 부수 효과가 있는 await 이므로 kill 과 재키잉 사이에는 두지
@@ -1827,7 +1851,8 @@ export class RollingCoordinator {
       // 세션이 아직 살아 있을 때 물어 둔다. **'smart' 일 때만 여기서 묻는다** — 'original' 이면
       // 복사할지(백지 재개인지) 정할 것이 없으므로 묻지 않고, sendPrompt 가 지금까지처럼 respawn
       // 뒤에 스스로 한 번만 묻는다(Step 4) — 두 번 다 물으면 부수 효과도 두 번 일어난다.
-      const strategy = this.resumeStrategy()
+      // A proactive roll resumes the conversation itself: a blank-slate briefing would need a prompt typed
+      const strategy = proactive ? 'original' : this.resumeStrategy()
       let briefing: { prompt: string; briefed: boolean } | null = restartPrompt
         ? { prompt: restartPrompt, briefed: true }
         : null
@@ -1897,7 +1922,7 @@ export class RollingCoordinator {
         } catch (err) {
           const why = err instanceof Error ? err.message : String(err)
           this.deps.log(`roll aborted — the respawn would be refused: ${why} session=${chain.liveId}`)
-          this.rescheduleAbortedRoll(chain, `spawn refused: ${why}`, manual)
+          this.rescheduleAbortedRoll(chain, `spawn refused: ${why}`, noWait)
           return
         }
         if (chain.disposed) {
@@ -1971,7 +1996,7 @@ export class RollingCoordinator {
             currentIndex: toIndex,
             wait: null,
             rolledAt: this.now(),
-            awaitingPrompt: chain.kind !== 'chat',
+            awaitingPrompt: chain.kind !== 'chat' && !proactive,
             claude: {
               sessionId: smart ? null : sessionId,
               transcriptPath: dest ?? null,
@@ -2067,7 +2092,7 @@ export class RollingCoordinator {
       } else {
         // The briefing built above is passed down so sendPrompt does not ask resumeText a second time
         // (Step 4) — undefined on the ordinary path, where sendPrompt keeps asking for itself as before.
-        this.scheduleAutoPrompt(chain, smart ? briefing?.prompt : undefined)
+        this.scheduleAutoPrompt(chain, smart ? briefing?.prompt : undefined, 'handover', !proactive)
       }
     } catch (err) {
       this.deps.log(`roll failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -2078,7 +2103,7 @@ export class RollingCoordinator {
       // It is deliberately not distinguished: a flag saying "the kill already happened" would have to be
       // threaded through the whole kill→spawn→re-key sequence to be correct, and a wrong flag would
       // silence the reschedule on the aborts that need it.
-      this.rescheduleAbortedRoll(chain, 'roll failed', manual)
+      this.rescheduleAbortedRoll(chain, 'roll failed', noWait)
     } finally {
       chain.rolling = false
       chain.killing = false
@@ -2131,11 +2156,25 @@ export class RollingCoordinator {
    *  for one anyway would replace `chain.prompt` (possibly the user's own text from the New Session
    *  dialog) with a pointer to a briefing file nobody needs. A Job worker's packet refresh is
    *  unaffected — `tabFallback` only gates the tab-session fallback, not the Job Dispatch lookup. */
-  private scheduleAutoPrompt(chain: Chain, briefing?: string, kind: 'handover' | 'briefing' = 'handover'): void {
+  private scheduleAutoPrompt(
+    chain: Chain,
+    briefing?: string,
+    kind: 'handover' | 'briefing' = 'handover',
+    /** false: a proactive roll (roll's `proactive`). The session is ready and left at its prompt: nothing is typed. */
+    send = true
+  ): void {
     const liveId = chain.liveId
     const startedAt = this.now()
     const sendPrompt = async (): Promise<void> => {
       if (chain.disposed || chain.liveId !== liveId) return
+      if (!send) {
+        chain.awaitingReady = false
+        this.pushState(chain, 'none')
+        this.snap(chain)
+        this.deps.log(`proactive roll ready — no prompt sent session=${liveId}`)
+        this.armHealthy(chain)
+        return
+      }
       // `kind` 'briefing' is a restore's (carry C-c): the blank slate's briefing was never typed, and it
       // is asked for as roll()'s smart branch asked — tabFallback true — rather than as the handover a
       // `--resume`d process gets. The id is the live one now; the old session is gone.
@@ -2480,7 +2519,56 @@ export class RollingCoordinator {
       this.recordRecovery(chain, payload, undefined, undefined, queried)
       this.onLimit(chain)
     }
+    // After every limit check of this tick came up empty: a limit is the reactive path's, never this one's
+    if (!chain.rolling && !chain.waitTimer && !chain.awaitingReady) this.proactiveRollCheck(chain, u)
     this.snap(chain)
+  }
+
+  /**
+   * Moves a session off a nearly spent account before it hits the limit, between turns.
+   *
+   * **Why.** Rolling used to be reactive only: a session on an account at 99% weekly kept going there until the CLI
+   * printed a limit, while other accounts had room (2026-11-03). Here, once the account's usage (this session's
+   * statusLine this tick, else the account's reading) is at or over the high-water mark (highWaterOf(pauseAt)) and
+   * under the limit itself, the chain rolls to the best other account, through the same roll() a limit takes.
+   *
+   * **The safe point is between turns**: a Stop hook with no turn since (Chain.turnEndedAt), PROACTIVE_SETTLE_MS old,
+   * so this tick's transcript check has run past it. The roll then types no prompt (roll's `proactive`): nothing was
+   * running, so the resumed conversation simply waits on the new account for its next message.
+   *
+   * **The target must be better**: retry.ts's pickAvailable over the usual retry state (blocked, logged-out and full
+   * accounts skipped, the usable ones best first, then unknown or stale ones, near-full ones last), and not itself
+   * near-full or full. With none, nothing happens: the session goes on where it is and the reactive path, and its wait
+   * for the earliest reset, takes over at the limit. One proactive roll per PROACTIVE_MIN_GAP_MS per chain.
+   */
+  private proactiveRollCheck(chain: Chain, u: ReturnType<typeof parseStatusLinePayload>): void {
+    if (chain.kind === 'chat' || chain.turnEndedAt == null || chain.heldTimer || chain.accountIds.length < 2) return
+    const now = this.now()
+    if (now - chain.turnEndedAt < PROACTIVE_SETTLE_MS) return
+    if (chain.proactiveAt != null && now - chain.proactiveAt < PROACTIVE_MIN_GAP_MS) return
+    const usage = this.deps.accountUsage?.()
+    if (!usage) return
+    const current = chain.accountIds[chain.cycle.currentIndex]
+    const reading = usage.readings.get(current)
+    // This session's own windows first: they were read this tick
+    const mine = { session: u?.session ?? reading?.session ?? null, weekly: u?.weekly ?? reading?.weekly ?? null }
+    const pct = usedPercentOf(mine, now)
+    const mark = highWaterOf(usage.pauseAt)
+    if (pct === null || pct < mark || pct >= LIMIT_PCT) return
+    const state = retryState(chain, this.deps.blocks, now, usage)
+    const target = pickAvailable(state, (chain.cycle.currentIndex + 1) % chain.accountIds.length, now)
+    if (target === null) return
+    const targetId = chain.accountIds[target]
+    const verdict = rankAccounts({ accounts: [{ id: targetId }], readings: usage.readings, threshold: usage.pauseAt, nowMs: now }).unusable[0]
+      ?.reason
+    if (verdict === 'near-full' || verdict === 'weekly-full' || verdict === 'session-full') return
+    chain.proactiveAt = now
+    chain.turnEndedAt = null
+    this.deps.log(
+      `proactive roll session=${chain.liveId} account=${current} at ${pct}% (high-water ${mark}%) → ${targetId}` +
+        `${verdict ? ` (${verdict})` : ''}`
+    )
+    void this.roll(chain, target, false, { proactive: true }).catch((err) => this.deps.log(`proactive roll failed: ${String(err)}`))
   }
 
   /** Transcript limit detection. This is the primary signal, independent of the statusLine snapshot —

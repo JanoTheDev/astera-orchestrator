@@ -165,6 +165,76 @@ export function upsertClaudeTheme(existing: string): string {
   return JSON.stringify({ ...root, theme: 'dark' }, null, indentOf(text) || 2) + (text.endsWith('\n') ? '\n' : '')
 }
 
+/** What an unattended session needs in an account's settings.json, past the theme: without these, a tab Astera
+ *  started stopped on "enable this project's MCP servers?" and on "accept bypass permissions mode?" with nobody there
+ *  (2026-11-03, set by hand on the four live accounts). */
+export const CLAUDE_UNATTENDED_SETTINGS = { enableAllProjectMcpServers: true, skipDangerousModePermissionPrompt: true } as const
+
+/** The bypass-mode acceptance claude keeps in its state file (`.claude.json`), not in settings.json. */
+export const CLAUDE_UNATTENDED_STATE = { bypassPermissionsModeAccepted: true } as const
+
+/** Returns `existing` JSON with every key of `wanted` set to its value, or `existing` unchanged (the same string) when
+ *  it already says so. Everything else is kept; the file's own indentation is kept (`fallbackIndent` for a new one). */
+function upsertKeys(existing: string, wanted: Readonly<Record<string, unknown>>, fallbackIndent: number): string {
+  const text = existing.charCodeAt(0) === 0xfeff ? existing.slice(1) : existing
+  const root: Record<string, unknown> = text.trim() === '' ? {} : (JSON.parse(text) as Record<string, unknown>)
+  if (typeof root !== 'object' || root === null || Array.isArray(root)) throw new Error('not a JSON object')
+  if (Object.entries(wanted).every(([k, v]) => root[k] === v)) return existing
+  return JSON.stringify({ ...root, ...wanted }, null, indentOf(text) || fallbackIndent) + (text.endsWith('\n') ? '\n' : '')
+}
+
+/** settings.json for an unattended session: the dark theme when none is chosen (upsertClaudeTheme) and
+ *  CLAUDE_UNATTENDED_SETTINGS. */
+export function upsertClaudeAccountSettings(existing: string): string {
+  return upsertKeys(upsertClaudeTheme(existing), CLAUDE_UNATTENDED_SETTINGS, 2)
+}
+
+/** `.claude.json` with CLAUDE_UNATTENDED_STATE. */
+export function upsertClaudeAccountState(existing: string): string {
+  return upsertKeys(existing, CLAUDE_UNATTENDED_STATE, 0)
+}
+
+/** One read-modify-write of `file` under the discipline markClaudeProjectTrusted keeps: one at a time per file, `.bak`,
+ *  tmp+rename, an unreadable or blank file left alone (the call fails). `createIfMissing` false: an absent file is left
+ *  absent. */
+async function rewriteJson(file: string, upsert: (existing: string) => string, createIfMissing: boolean): Promise<void> {
+  return oneAtATime(file, async () => {
+    const read = await readStoreFile(file)
+    if (read.kind === 'unreadable') throw read.error
+    if (read.kind !== 'text' && !createIfMissing) return
+    if (read.kind === 'text' && read.text.trim() === '') throw new Error(`${file} is blank; not written over`)
+    const existing = read.kind === 'text' ? read.text : ''
+    const next = upsert(existing)
+    if (next === existing) return
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.copyFile(file, file + '.bak').catch(() => {})
+    await writeThroughTmp(file, next)
+  })
+}
+
+/** Makes one account's settings.json fit for an unattended session (upsertClaudeAccountSettings). */
+export function ensureClaudeAccountSettings(settingsFile: string): Promise<void> {
+  return rewriteJson(settingsFile, upsertClaudeAccountSettings, true)
+}
+
+/** Marks bypass mode accepted in one account's state file (upsertClaudeAccountState). `createIfMissing` false (an
+ *  account just added or logged in): a folder claude has not written its state into yet is left for claude to create. */
+export function ensureClaudeAccountState(stateFile: string, o: { createIfMissing?: boolean } = {}): Promise<void> {
+  return rewriteJson(stateFile, upsertClaudeAccountState, o.createIfMissing ?? true)
+}
+
+/** Both of the above for a claude account's config dir (an account added or logged in), best-effort per file: the state
+ *  file only when claude has written one. The ambient account's state file is in the home root (claudeConfigFileFor),
+ *  which the spawn path's preTrustWorkspace covers. */
+export async function prepareClaudeAccountDir(configDir: string, log: (m: string) => void = () => {}): Promise<void> {
+  await ensureClaudeAccountSettings(path.join(configDir, CLAUDE_SETTINGS_FILE)).catch((e) =>
+    log(`account settings preset failed dir=${configDir}: ${String(e)}`)
+  )
+  await ensureClaudeAccountState(path.join(configDir, CLAUDE_CONFIG_FILE), { createIfMissing: false }).catch((e) =>
+    log(`account state preset failed dir=${configDir}: ${String(e)}`)
+  )
+}
+
 /** Gives one account's settings file a theme when it has none (upsertClaudeTheme). Same write
  *  discipline as markClaudeProjectTrusted: one at a time, `.bak`, tmp+rename, and a file that is
  *  there but blank or unreadable is left alone rather than replaced by a one-key object. */

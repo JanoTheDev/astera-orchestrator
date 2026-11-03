@@ -1164,6 +1164,62 @@ describe('a roll checks the target account usage (T5a)', () => {
   })
 })
 
+// Owner, 2026-11-03: "why isn't it switching to another account and still using the account at 99% usage". Rolling
+// only ever reacted to a printed limit; a session on a nearly spent account now moves between turns.
+describe('a proactive roll off a nearly spent account (high-water mark)', () => {
+  const win = (usedPercent: number) => ({ usedPercent, resetsAt: new Date(Date.now() + 3 * 24 * 60 * MIN).toISOString() })
+  const setup = (weekly: number, readings = new Map([['a2', { session: win(10), weekly: win(20) }]])) => {
+    const h = harness({ accountUsage: () => ({ readings, pauseAt: 100 }) })
+    h.payloads.set('s1', payloadEx({ five: 5, weekly }))
+    h.coord.register(h.info1)
+    return h
+  }
+  // The tick reads files for real (the transcript tail): each 5 seconds of fake time waits for that I/O to land
+  const step = async (ms: number): Promise<void> => {
+    for (let t = 0; t < ms; t += 5_000) await advanceIo(Math.min(5_000, ms - t))
+  }
+
+  it('rolls at the next safe point to an account with room, resuming the conversation and typing nothing', async () => {
+    const h = setup(99)
+    await step(20_000) // ticks while a turn runs: no roll
+    expect(h.spawned).toHaveLength(0)
+    h.coord.onHookEvent('s1', { hook_event_name: 'Stop' })
+    await step(31_000)
+    expect(h.spawned).toHaveLength(1)
+    expect(h.spawned[0]).toMatchObject({ accountId: 'a2', resumeSessionId: 'claude-sess' })
+    await step(2 * MIN) // past the ready fallback
+    expect(h.written.filter((w) => w.id === 's2')).toEqual([])
+  })
+
+  it('does not roll under the mark, mid-turn, or with no better account', async () => {
+    const under = setup(90)
+    under.coord.onHookEvent('s1', { hook_event_name: 'Stop' })
+    await step(60_000)
+    expect(under.spawned).toHaveLength(0)
+
+    const midTurn = setup(99)
+    midTurn.coord.onHookEvent('s1', { hook_event_name: 'Stop' })
+    midTurn.coord.onHookEvent('s1', { hook_event_name: 'UserPromptSubmit' })
+    await step(60_000)
+    expect(midTurn.spawned).toHaveLength(0)
+
+    const full = setup(99, new Map([
+      ['a2', { session: win(10), weekly: win(97) }],
+      ['a3', { session: win(10), weekly: win(100) }]
+    ]))
+    full.coord.onHookEvent('s1', { hook_event_name: 'Stop' })
+    await step(60_000)
+    expect(full.spawned).toHaveLength(0)
+  })
+
+  it('leaves a session at its limit to the reactive path', async () => {
+    const h = setup(100)
+    h.coord.onHookEvent('s1', { hook_event_name: 'Stop' })
+    await step(16_000) // one tick past the settle time, before the silence fallback
+    expect(h.spawned).toHaveLength(0)
+  })
+})
+
 describe('RollingCoordinator 단일 계정 자동 재개', () => {
   it('5시간 한도 → 리셋까지 대기 후 같은 계정으로 재개', async () => {
     const h = harness()
