@@ -724,6 +724,16 @@ export interface Task {
   reviewRequested?: boolean
   /** Consecutive failure count. 3 means circuit break */
   consecutiveFailures: number
+  /** Hands-off (exec/handsOffRecovery.ts): its worker could not be started (the Host, its pty supervisor or the worktree
+   *  root did not answer), so its next start waits until `at`; `tries` failed starts in a row. Cleared once a start
+   *  succeeds. Never counts toward `consecutiveFailures`: the work did not fail, the machine did. */
+  startRetry?: { tries: number; at: string; reason: string }
+  /** Hands-off (exec/handsOffRecovery.ts): the circuit breaker tripped and Astera gave it a fresh attempt (a stronger
+   *  model, a fresh worker, `summary` of what failed in its spec), `n` of them so far. */
+  freshAttempt?: { n: number; at: string; summary: string }
+  /** Hands-off (exec/handsOffRecovery.ts): its fresh attempts ran out too, so Astera marked it failed and cancelled what
+   *  waits on it, so the rest of the plan finishes. Nothing retries it again on its own. */
+  handsOffGaveUpAt?: string
   createdAt: string
   updatedAt: string
   // ── W1-A role models ──

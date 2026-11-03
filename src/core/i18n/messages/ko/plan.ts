@@ -570,4 +570,5 @@ export const plan = {
   "plan.consoles.reason.awaiting-retry": "재시도 대기 중",
   "plan.consoles.reason.closing": "닫는 중",
   "plan.consoles.reason.none": "곧 닫힘",
+  "plan.reason.failureLimitHandsOff": "{failures}번 연속 실패 · 맡김 모드: Astera 가 스스로 새로 다시 시도한다",
 } as const

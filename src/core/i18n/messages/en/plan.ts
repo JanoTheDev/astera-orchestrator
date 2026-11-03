@@ -549,4 +549,5 @@ export const plan: Record<keyof typeof ko, string> = {
   'plan.consoles.reason.awaiting-retry': 'waiting for a retry',
   'plan.consoles.reason.closing': 'closing',
   'plan.consoles.reason.none': 'closes soon',
+  'plan.reason.failureLimitHandsOff': 'Failed {failures} times in a row · hands-off: Astera gives it a fresh attempt on its own',
 }

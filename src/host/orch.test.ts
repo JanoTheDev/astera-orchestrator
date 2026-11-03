@@ -5473,6 +5473,24 @@ describe('T2: a worker start answers once its install queues for a heavy slot', 
     expect(orch.state().gates.find((g) => g.taskId === a && g.status === 'open')?.question).toContain('the spawn was refused')
   })
 
+  // 2026-11-03 gat_cb468a10d5db1ad1: "Could not start this Task: Error: the pty supervisor did not answer the spawn"
+  it('a hands-off plan opens no Gate for a start that fails after its install queued: it waits out a backoff, ready', async () => {
+    const { a } = await seedTwoRuns()
+    const file = path.join(dir, 'orchestration.json')
+    const seeded = JSON.parse(await fs.readFile(file, 'utf8')) as OrchState
+    await fs.writeFile(file, JSON.stringify({ ...seeded, jobs: seeded.jobs.map((j) => ({ ...j, handsOff: true })) }, null, 2), 'utf8')
+    const w = installing()
+    const orch = orchOver({ hasApp: () => false, act: vi.fn(), local: w.local })
+    expect((await orch.call({ cmd: 'worker-start', args: fresh(a, 'a'), sessionId: '' })).status).toBe(200)
+    w.installs.get(a)!(new Error('the pty supervisor did not answer the spawn'))
+    await vi.waitFor(() => expect(orch.state().dispatches.filter((d) => d.taskId === a)).toEqual([]))
+    const t = orch.state().tasks.find((x) => x.id === a)!
+    expect(t.status).toBe('ready')
+    expect(t.startRetry).toMatchObject({ tries: 1, reason: expect.stringContaining('did not answer the spawn') })
+    expect(t.consecutiveFailures).toBe(0)
+    expect(orch.state().gates.filter((g) => g.taskId === a)).toEqual([])
+  })
+
   it('a start refused after its install because the Host is leaving goes back to ready with no Gate, for the next Host', async () => {
     const { a } = await seedTwoRuns()
     const w = installing()

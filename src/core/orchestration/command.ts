@@ -232,6 +232,7 @@ import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate
 import { crashResumedBrief } from './exec/crashResume'
 import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
 import { specsDirOf } from './exec/specFiles'
+import { freshAttemptNote, handsOffTask, recordStartFailure, recoverHandsOffTask, withoutStartRetry } from './exec/handsOffRecovery'
 import { INSTALL_PLACEHOLDER_PREFIX, INSTALL_START_WINDOW_MS, isInstallingStart } from './exec/stallWatch'
 import { specFileName } from './exec/coordinator'
 import { approvalDefaultOf } from '../settings/approvalDefault'
@@ -5381,7 +5382,16 @@ async function handleCommandInner(
       if (task.status === 'validating' || task.status === 'reviewing')
         return bad(`task is awaiting a verdict: ${task.status}`)
       if (task.status === 'merging') return bad('task is being merged into the plan branch')
-      if (task.consecutiveFailures >= FAILURE_LIMIT)
+      // Hands-off: an attempt owed past the breaker (`--owed`, Astera's own: the stall watchdog's retry of a lost worker).
+      // Its lost attempt was one the Host lost sight of (outcome_unknown: the Host died or jammed) or one already granted
+      // past the breaker: the machine failed, not the work, so the attempt is given again, itself marked grantedExtra.
+      const owedOf = (): boolean => {
+        if (args.owed !== true || fromAgentSession || caller.role === 'mcp') return false
+        const lost = s.dispatches.find((d) => d.id === str(args.retryOf) && d.taskId === taskId)
+        return lost !== undefined && lost.outcome === undefined && (lost.workerState === 'outcome_unknown' || lost.grantedExtra === true)
+      }
+      const owed = task.consecutiveFailures >= FAILURE_LIMIT && owedOf()
+      if (task.consecutiveFailures >= FAILURE_LIMIT && !owed)
         return bad(`circuit break: ${FAILURE_LIMIT} consecutive failures`)
       const openForTask = s.dispatches.find((d) => d.taskId === taskId && !d.outcome && !d.endedAt)
       // T3: the app places a coordinator Run's ready Tasks itself, so a coordinator's worker-start often finds the
@@ -5626,7 +5636,8 @@ async function handleCommandInner(
           sessionId: pendingSessionId,
           cwd: runJob?.cwd ?? '',
           specPath: '',
-          retryOf
+          retryOf,
+          ...(owed ? { ignoreCircuit: true } : {})
         },
         now
       )
@@ -5645,9 +5656,12 @@ async function handleCommandInner(
       const report = previous?.outcome === 'failed'
         ? s.messages.filter((m) => m.dispatchId === previous.id && m.type === 'worker_done').at(-1)
         : undefined
-      const previousFailure = previous?.outcome === 'failed'
-        ? { subject: report?.subject ?? 'it failed', body: report?.body ?? 'No failure report was recorded.' }
-        : undefined
+      // A hands-off fresh attempt (exec/handsOffRecovery.ts) reads the summary of every failure before it, not only the last
+      const previousFailure =
+        freshAttemptNote(s, task) ??
+        (previous?.outcome === 'failed'
+          ? { subject: report?.subject ?? 'it failed', body: report?.body ?? 'No failure report was recorded.' }
+          : undefined)
 
       let started: Awaited<ReturnType<OrchServerDeps['startWorker']>>
       try {
@@ -5725,6 +5739,8 @@ async function handleCommandInner(
               const latest = deps.getState()
               await deps.setState({
                 ...latest,
+                // A start that made it: its hands-off start backoff, if any, is over
+                tasks: latest.tasks.map((t) => (t.id === taskId ? withoutStartRetry(t) : t)),
                 dispatches: latest.dispatches.map((d) =>
                   d.id === dispatchId ? { ...d, sessionId: done.sessionId, cwd: done.cwd, specPath: done.specPath, ...dispatchModelFields(done) } : d
                 )
@@ -5750,11 +5766,21 @@ async function handleCommandInner(
                 dispatches: latest.dispatches.filter((x) => x.id !== dispatchId),
                 tasks: latest.tasks.map((t) => (t.id === taskId ? { ...t, status: previousStatus, updatedAt: at } : t))
               }
+              // Hands-off (exec/handsOffRecovery.ts): no Gate. The start waits out a backoff and is made again by the
+              // loop's pass, a few times, then the Task is held so the plan goes on; nobody is asked.
+              const handsOff = !(e instanceof HostRetiring) && handsOffTask(rolledBack, task)
+              const retried = handsOff ? recordStartFailure(rolledBack, taskId, error, Date.parse(at), at) : null
+              if (retried)
+                deps.log?.(
+                  retried.step.kind === 'retry'
+                    ? `worker-start: task ${taskId} runs hands-off, so no Gate: its start is tried again at ${retried.step.retry.at} (try ${retried.step.retry.tries} of ${retried.step.limit})`
+                    : `worker-start: task ${taskId} runs hands-off and could not be started ${retried.step.tries} times: held, the rest of its plan goes on`
+                )
               const gated =
-                e instanceof HostRetiring
+                e instanceof HostRetiring || retried
                   ? null
                   : createGate(rolledBack, { taskId, question: tr((await deps.lang?.()) ?? 'en', 'jobs.integration.startFailed', { error }) }, at)
-              await deps.setState(gated?.ok ? gated.state : rolledBack)
+              await deps.setState(retried ? retried.state : gated?.ok ? gated.state : rolledBack)
             })
           }
         )
@@ -5786,6 +5812,10 @@ async function handleCommandInner(
       const latest = deps.getState()
       await deps.setState({
         ...latest,
+        // A start that made it: its hands-off start backoff, if any, is over (pure, no I/O: the invariant above holds)
+        tasks: latest.tasks.some((t) => t.id === taskId && t.startRetry !== undefined)
+          ? latest.tasks.map((t) => (t.id === taskId ? withoutStartRetry(t) : t))
+          : latest.tasks,
         dispatches: latest.dispatches.map((d) =>
           d.id === dispatchId
             ? { ...d, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath, ...dispatchModelFields(started) }
@@ -5956,6 +5986,30 @@ async function handleCommandInner(
       if (action !== 'retry' && action !== 'accept' && action !== 'cancel') return bad('--action must be one of retry|accept|cancel')
       // T10: Astera's own retry in a hands-off plan keeps the failure count (exec/failedRetry.ts)
       return commit(resolveFailedWait(s, id, action, now, { reason: str(args.reason) ?? undefined, keepFailures: args.keepFailures === true }))
+    }
+    // Hands-off (exec/handsOffRecovery.ts): the dispatch loop records a worker start it could not make, instead of a Gate
+    case 'task-start-retry': {
+      if (fromAgentSession || caller.role === 'mcp') return denied(`${cmd} is Astera's own`)
+      const id = str(args.id)
+      const reason = str(args.reason)
+      if (!id || !reason) return bad('--id and --reason are required')
+      const task = s.tasks.find((t) => t.id === id)
+      if (!task) return notFound(`unknown task: ${id}`)
+      if (!handsOffTask(s, task)) return conflict(`${id} is not in a hands-off plan: a failed start is the owner's Gate`)
+      if (task.status !== 'ready' && task.status !== 'pending') return conflict(`${id} is ${task.status}: there is no start to retry`)
+      const r = recordStartFailure(s, id, reason, Date.parse(now), now)!
+      await deps.setState(r.state)
+      return okBody(r.step.kind === 'retry' ? { retry: r.step.retry, waitMs: r.step.waitMs, limit: r.step.limit } : { held: true, tries: r.step.tries, limit: r.step.limit })
+    }
+    // Hands-off (exec/handsOffRecovery.ts): a Task whose circuit breaker tripped gets a fresh attempt, or is given up on
+    case 'task-hands-off-recover': {
+      if (fromAgentSession || caller.role === 'mcp') return denied(`${cmd} is Astera's own`)
+      const id = str(args.id)
+      if (!id) return bad('--id is required')
+      const r = recoverHandsOffTask(s, id, now)
+      if (!r.ok) return r.missing ? notFound(r.error) : conflict(r.error)
+      await deps.setState(r.state)
+      return okBody({ id, status: r.value.task.status, step: r.value.step })
     }
     // T36: the driving loop asks the owner once about each failure a stalled Run waits on (replan.ts stallOf).
     case 'run-failed-ask': {

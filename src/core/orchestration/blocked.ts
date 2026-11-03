@@ -175,12 +175,13 @@ export function taskBoardsOf(
     const gate = [...(gates.get(task.id) ?? [])].sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0]
     if (gate)
       return { kind: 'gate', gateId: gate.id, question: gate.question, ...(gate.kind ? { gateKind: gate.kind } : {}) }
+    // T10: a hands-off plan retries it itself. handsOffOf (delivery.ts) as this renderer-safe module can read it, as
+    // activity.ts does: by `projectId` only (the folder match needs node)
+    const handsOff = job.handsOff ?? (job.projectId !== undefined ? s.projects.find((p) => p.id === job.projectId)?.handsOff : undefined) ?? false
     if (task.consecutiveFailures >= FAILURE_LIMIT)
-      return { kind: 'failure-limit', failures: task.consecutiveFailures, limit: FAILURE_LIMIT }
+      // Hands-off: Astera gives it a fresh attempt, or gives up on it (exec/handsOffRecovery.ts); never the owner's
+      return { kind: 'failure-limit', failures: task.consecutiveFailures, limit: FAILURE_LIMIT, ...(handsOff && task.handsOffGaveUpAt === undefined ? { handsOff: true as const } : {}) }
     if (task.status === 'failed') {
-      // T10: a hands-off plan with no coordinator retries it itself, after its backoff. handsOffOf (delivery.ts) as this
-      // renderer-safe module can read it, as activity.ts does: by `projectId` only (the folder match needs node)
-      const handsOff = job.handsOff ?? (job.projectId !== undefined ? s.projects.find((p) => p.id === job.projectId)?.handsOff : undefined) ?? false
       const auto = handsOff && run.coordinatorSessionId === undefined && run.externalCoordinatorSessionId === undefined
       const retryAt = auto ? failedRetryAt(task) : undefined
       return {

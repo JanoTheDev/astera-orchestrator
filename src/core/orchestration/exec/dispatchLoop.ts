@@ -57,6 +57,7 @@ import { outcomeOf } from '../view'
 import { completionSettled, failedWaitAsked, failedWaitChoice, replansDue, stallOf } from '../replan'
 import { REPLAN_LIFT_HOLD } from './replanStart'
 import { failedRetriesDue, failedRetryOf } from './failedRetry'
+import { handsOffTask, isTransientStartFailure, startRetryWaiting, type RecoverStep } from './handsOffRecovery'
 // W8-C draft PR
 import { draftPrDue } from '../draftPr'
 import { refreshOnto, tipOf, type Integration, type Refresh } from './integrateGit'
@@ -407,6 +408,76 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (blocked.status >= 400) log(`scheduler: blocking task=${taskId} was rejected — ${JSON.stringify(blocked.body)}`)
     } catch (e) {
       log(`scheduler: blocking task=${taskId} failed — ${String(e)}`)
+    }
+  }
+  /** Hands-off (handsOffRecovery.ts): a Task past its circuit breaker gets a fresh attempt (a stronger model, a summary
+   *  of what failed), or, those spent, is given up on and what waits on it cancelled. Recorded as a decision on its Job
+   *  and a feed line; never the owner's question. Never throws. */
+  const recoverHandsOff = async (t: Task, why: string): Promise<void> => {
+    try {
+      const r = await c.handle('task-hands-off-recover', { id: t.id })
+      if (r.status >= 400) {
+        log(`run=${t.runId}: Astera could not recover ${t.id}: ${JSON.stringify(r.body)}`)
+        return
+      }
+      const step = (r.body as { step?: RecoverStep }).step
+      const line =
+        step?.kind === 'fresh'
+          ? `${t.title} failed ${t.consecutiveFailures} times in a row: started a fresh attempt${step.model ? ` on ${step.model}${step.effort ? `/${step.effort}` : ''}` : ''} with a summary of what failed`
+          : `${t.title} failed again after its fresh attempt: marked failed and what waits on it cancelled, so the rest of the plan finishes`
+      if (t.runId !== undefined) c.activity?.(watchdogActivity(c.getState(), t.runId, line, t.id))
+      const job = t.runId === undefined ? undefined : handsOffJobOf(c.getState(), t.runId)
+      if (job)
+        await decide(job.id, {
+          kind: 'escalation',
+          taskId: t.id,
+          question: `${t.title} failed ${t.consecutiveFailures} times in a row (${why})`.slice(0, 300),
+          choice: step?.kind === 'fresh' ? 'fresh attempt with a stronger model' : 'marked failed, dependents cancelled',
+          why: step?.why ?? why
+        })
+    } catch (e) {
+      log(`run=${t.runId}: recovering ${t.id} failed: ${String(e)}`)
+    }
+  }
+  /** When the loop next looks at a start backoff that ran out (handsOffRecovery.ts), so a Task waiting one is placed then
+   *  with nothing else committed. One timer, at the earliest. */
+  let startRetryWake: { at: number; timer: ReturnType<typeof setTimeout> } | null = null
+  const wakeForStartRetry = (atMs: number): void => {
+    if (startRetryWake && startRetryWake.at <= atMs) return
+    if (startRetryWake) clearTimeout(startRetryWake.timer)
+    const timer = setTimeout(() => {
+      startRetryWake = null
+      void runScheduler().catch((e) => log(`scheduler: the pass after a start backoff failed: ${String(e)}`))
+    }, Math.max(0, atMs - c.nowMs()) + 50)
+    ;(timer as { unref?: () => void }).unref?.()
+    startRetryWake = { at: atMs, timer }
+  }
+  /** A worker start the loop could not make. Hands-off: no Gate and no failure toward the breaker; the start waits out a
+   *  backoff (`task-start-retry`), and its tries spent the Task is held so the rest of the plan goes on. Otherwise the
+   *  owner's Gate, as before (`gateSlot`). Never throws. */
+  const startFailed = async (taskId: string, reason: string): Promise<void> => {
+    const state = c.getState()
+    const task = state.tasks.find((t) => t.id === taskId)
+    if (!task || !handsOffTask(state, task)) return gateSlot(taskId, reason)
+    log(`scheduler: cannot start task=${taskId} — ${reason}`)
+    try {
+      const r = await c.handle('task-start-retry', { id: taskId, reason })
+      if (r.status >= 400) {
+        log(`scheduler: recording the failed start of task=${taskId} was refused (${JSON.stringify(r.body)}); asking instead`)
+        return gateSlot(taskId, reason)
+      }
+      const body = r.body as { retry?: { tries: number; at: string }; limit: number; held?: true; tries?: number }
+      if (body.retry) {
+        log(`scheduler: task=${taskId} runs hands-off: its start is tried again at ${body.retry.at} (try ${body.retry.tries} of ${body.limit}), no Gate`)
+        wakeForStartRetry(Date.parse(body.retry.at))
+        return
+      }
+      const line = `${task.title} could not be started ${body.tries} times in a row (${reason.slice(0, 200)}): held, the rest of the plan goes on`
+      if (task.runId !== undefined) c.activity?.(watchdogActivity(c.getState(), task.runId, line, taskId))
+      const job = task.runId === undefined ? undefined : handsOffJobOf(c.getState(), task.runId)
+      if (job) await decide(job.id, { kind: 'gate', taskId, question: `could not start ${task.title}: ${reason}`.slice(0, 300), choice: 'held after its start retries', why: 'the machine kept failing to start its worker; the plan goes on without it' })
+    } catch (e) {
+      log(`scheduler: recording the failed start of task=${taskId} failed — ${String(e)}`)
     }
   }
   const gateSlot = async (taskId: string, reason: string, opts?: { kind: typeof MERGE_FAILED_GATE; options: string[] }): Promise<void> => {
@@ -1228,7 +1299,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   const failedStepTried = new Set<string>()
   const failedRetriedByAstera = (s: OrchState, task: Task): boolean => {
     const step = task.runId === undefined ? undefined : failedRetryOf(s, task, { coordinatorLive: coordinatorLive(s, task.runId), nowMs: c.nowMs() })
-    return step !== undefined && step.kind !== 'escalate' && !failedStepTried.has(`${task.id}@${task.updatedAt}`)
+    return step !== undefined && !failedStepTried.has(`${task.id}@${task.updatedAt}`)
   }
   const retryFailedTasks = async (): Promise<void> => {
     const s = c.getState()
@@ -1236,20 +1307,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       const t = step.task
       const key = `${t.id}@${t.updatedAt}`
       if (failedStepTried.has(key)) continue
-      if (step.kind === 'escalate') {
+      if (step.kind === 'recover') {
         if (!c.mayStart()) return
         failedStepTried.add(key)
-        log(`run=${t.runId}: failed ${t.id} goes to the owner: ${step.why}`)
-        // Hands-off leftovers: asked now, stalled Run or not (`unstallRuns` only asks for a stalled one); once per failure
-        try {
-          const r = await c.handle('run-failed-ask', { run: t.runId, task: t.id })
-          const asked = (r.body as { asked?: unknown[] } | undefined)?.asked
-          if (r.status >= 400) log(`run=${t.runId}: asking the owner about failed ${t.id} was refused: ${JSON.stringify(r.body)}`)
-          else if (Array.isArray(asked) && asked.length > 0 && t.runId !== undefined)
-            c.activity?.(watchdogActivity(c.getState(), t.runId, `${t.title} failed and goes to the owner: ${step.why}`, t.id))
-        } catch (e) {
-          log(`run=${t.runId}: asking the owner about failed ${t.id} failed: ${String(e)}`)
-        }
+        // Hands-off: never the owner. A fresh attempt with a stronger model, or, those spent, given up on
+        await recoverHandsOff(t, step.why)
         continue
       }
       if (step.kind === 'wait' || (step.kind === 'retry' && !step.due)) continue
@@ -2165,7 +2227,15 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           heldProbe = false
         }
         const startHeld = typeof heldProbe === 'boolean' ? heldProbe : await heldProbe.catch(() => false)
-        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers, startHeld }).filter((s) => !attempted.has(s.taskId))
+        // Hands-off start backoff (handsOffRecovery.ts): a Task whose last start failed waits until its time, then a timer
+        // runs this pass again
+        const nowMs = c.nowMs()
+        const backoff = new Map(c.getState().tasks.filter((t) => startRetryWaiting(t, nowMs)).map((t) => [t.id, Date.parse(t.startRetry!.at)]))
+        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers, startHeld }).filter((s) => {
+          const waitUntil = backoff.get(s.taskId)
+          if (waitUntil !== undefined) wakeForStartRetry(waitUntil)
+          return !attempted.has(s.taskId) && waitUntil === undefined
+        })
         // 띄울 자리가 없으면 계정 조회까지 가지 않는다. 이 함수는 **모든 저장마다** 불리고 그
         // 대부분은 띄울 것이 없는 저장이다 — 아래 조회에 계정마다 파일(macOS 에서는 Keychain)
         // 읽기가 하나씩 붙으므로, 빈 바퀴에 그것을 치르면 상태를 쓰는 모든 명령이 그만큼 느려진다.
@@ -2204,12 +2274,13 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
               log('scheduler: the Host is leaving — no further slot this activation')
               return
             }
-            if (end.kind === 'gate') await gateSlot(slot.taskId, end.reason)
+            // A machine that did not answer (a fork timed out, a drive unreachable) is retried in a hands-off plan, not asked
+            if (end.kind === 'gate') await (isTransientStartFailure(end.reason) ? startFailed : gateSlot)(slot.taskId, end.reason)
             else if (end.kind === 'refused')
-              await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: JSON.stringify(end.reply.body) }))
+              await startFailed(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: JSON.stringify(end.reply.body) }))
           } catch (e) {
             forgetHold(slot.taskId)
-            await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: String(e) }))
+            await startFailed(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: String(e) }))
           }
         }
       } while (scheduleAgain)

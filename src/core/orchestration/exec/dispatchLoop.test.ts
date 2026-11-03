@@ -28,6 +28,7 @@ import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } 
 import { needsInput } from '../sessionIndex'
 import { deliveryErrorOf, outcomeOf } from '../running'
 import { ASK_GRACE_MS } from './autoAnswer'
+import { START_RETRY_LIMIT_OTHER } from './handsOffRecovery'
 import type { Decision, Dispatch, Job, Message, PushCadence, Task } from '../types'
 import { acceptSlotHolds, taskBoardsOf } from '../blocked'
 import { FAILURE_LIMIT } from '../types'
@@ -1051,25 +1052,53 @@ describe('createDispatchLoop', () => {
   })
 
   // T10: a hands-off plan answers each Gate and the Task goes back to ready; the same reason must not open Gates for ever.
-  it('blocks a Task once, with no third Gate, when a hands-off plan has answered the same reason twice', async () => {
+  it('a hands-off plan opens no Gate for a start it could not make: it retries after a backoff, then holds the Task', async () => {
     const h = rig({ startFailsFor: 'all' })
     h.startWorker.mockRejectedValue(new Error('same reason'))
     const s0 = h.state()
     h.setState({ ...s0, jobs: s0.jobs.map((j) => ({ ...j, handsOff: true })) })
-    for (let i = 0; i < 2; i++) {
+    for (let i = 1; i <= START_RETRY_LIMIT_OTHER; i++) {
       await h.loop.run()
       await h.settle()
-      const open = h.state().gates.filter((g) => g.taskId === 'tsk_1' && g.status === 'open')
-      expect(open).toHaveLength(1)
-      expect((await h.real('questions-answer', { id: open[0].id, answer: 'Refused' })).status).toBe(200)
+      const t1 = h.state().tasks.find((t) => t.id === 'tsk_1')!
+      expect(t1.status).toBe('ready')
+      expect(t1.startRetry?.tries).toBe(i)
+      expect(t1.consecutiveFailures).toBe(0)
+      // Waiting out its backoff: the next pass does not start it
+      const starts = h.startWorker.mock.calls.length
+      await h.loop.run()
       await h.settle()
+      expect(h.startWorker.mock.calls.length).toBe(starts)
+      h.clock = Date.parse(t1.startRetry!.at) + 1
     }
     await h.loop.run()
     await h.settle()
-    expect(h.state().gates.filter((g) => g.taskId === 'tsk_1')).toHaveLength(2)
+    expect(h.state().gates.filter((g) => g.taskId === 'tsk_1')).toHaveLength(0)
     const blocked = h.state().tasks.find((t) => t.id === 'tsk_1')
     expect(blocked?.status).toBe('blocked')
     expect(blocked?.result).toContain('same reason')
+  })
+
+  it('a hands-off plan retries a start the machine did not answer more often, and a start that made it clears the backoff', async () => {
+    const h = rig({ startFailsFor: 'all' })
+    h.startWorker.mockRejectedValue(new Error('WORKTREE_ROOT_UNREACHABLE: could not check whether C:\\wt\\x is free'))
+    const s0 = h.state()
+    h.setState({ ...s0, jobs: s0.jobs.map((j) => ({ ...j, handsOff: true })) })
+    for (let i = 1; i <= START_RETRY_LIMIT_OTHER + 1; i++) {
+      await h.loop.run()
+      await h.settle()
+      const t1 = h.state().tasks.find((t) => t.id === 'tsk_1')!
+      expect(t1.status).toBe('ready')
+      expect(t1.startRetry?.tries).toBe(i)
+      h.clock = Date.parse(t1.startRetry!.at) + 1
+    }
+    h.startWorker.mockImplementation(async (a: StartArgs) => ({ sessionId: 's-ok', cwd: a.runCwd ?? 'x', specPath: 'x' }))
+    await h.loop.run()
+    await h.settle()
+    const t1 = h.state().tasks.find((t) => t.id === 'tsk_1')!
+    expect(t1.status).toBe('dispatched')
+    expect(t1.startRetry).toBeUndefined()
+    expect(h.state().gates.filter((g) => g.taskId === 'tsk_1')).toHaveLength(0)
   })
 
   it('keeps opening a Gate for a plan that is not hands-off', async () => {
@@ -3330,21 +3359,53 @@ describe('a Run stalled on a failed Task (T36)', () => {
     expect(h.handled()).toContain('task-failed-resolve')
   })
 
-  it('a hands-off plan asks the owner once its tries are used up with no work committed, and the answer Retry runs the Task again', async () => {
+  it('a hands-off plan never asks the owner once its tries are used up: a fresh attempt with what failed, then given up', async () => {
     const h = rig()
-    // T10: with tries left Astera retries it itself; the third failure with nothing committed is the owner's
+    const decisions: Decision[] = []
+    h.ctx.recordDecision = async (_jobId, d) => {
+      decisions.push(d)
+    }
+    // 2026-11-03: "Failed 4 times in a row · nothing restarts it on its own". Hands-off, nothing committed: Astera decides
     failedFirst(h, { handsOff: true }, { consecutiveFailures: 3 })
     await h.loop.run()
     await h.loop.nudge()
     await h.settle()
-    expect(asked(h)).toHaveLength(1)
-    expect(asked(h)[0].answered).toBe(false)
-    await h.real('questions-answer', { id: asked(h)[0].id, answer: 'Retry' })
+    expect(asked(h)).toHaveLength(0)
+    const fresh = h.state().tasks.find((t) => t.id === 'tsk_1')!
+    expect(fresh).toMatchObject({ consecutiveFailures: 0, freshAttempt: { n: 1 } })
+    expect(fresh.freshAttempt?.summary).toContain('made 19 screens, gaps listed')
+    const started = h.startWorker.mock.calls.map((c) => c[0]).filter((a) => a.taskId === 'tsk_1')
+    expect(started).toHaveLength(1)
+    expect(started[0].spec).toContain('fresh attempt')
+    expect(started[0].spec).toContain('made 19 screens, gaps listed')
+    expect(decisions.map((d) => d.choice)).toContain('fresh attempt with a stronger model')
+
+    // Its fresh attempt fails its tries too: given up, what waits on it cancelled, still nobody asked
+    h.clock += 10 * 60_000
+    const s = h.state()
+    const failedAt = new Date(h.clock).toISOString()
+    h.setState({
+      ...s,
+      dispatches: s.dispatches.map((d) => (d.taskId === 'tsk_1' && !d.endedAt ? { ...d, endedAt: failedAt, outcome: 'failed' as const, workerState: 'stopped' as const } : d)),
+      tasks: s.tasks.map((t) => (t.id === 'tsk_1' ? { ...t, status: 'failed' as const, consecutiveFailures: 3, updatedAt: failedAt } : t))
+    })
     await h.loop.run()
+    await h.loop.nudge()
     await h.settle()
-    // T7: the retry's commit asks for a pass while this one tidies; it runs once the tidy ends and places the Task
-    expect(h.state().tasks.find((t) => t.id === 'tsk_1')).toMatchObject({ consecutiveFailures: 0 })
-    expect(h.startWorker.mock.calls.map((c) => JSON.stringify(c)).some((c) => c.includes('tsk_1'))).toBe(true)
+    expect(asked(h)).toHaveLength(0)
+    const gaveUp = h.state().tasks.find((t) => t.id === 'tsk_1')!
+    expect(gaveUp.status).toBe('failed')
+    expect(gaveUp.handsOffGaveUpAt).toBeDefined()
+    // cancelRemainingTask: a Task that waited on it leaves the Run
+    expect(h.state().tasks.some((t) => t.deps.includes('tsk_1'))).toBe(false)
+    expect(decisions.map((d) => d.choice)).toContain('marked failed, dependents cancelled')
+    // Given up is final: no further step on later passes
+    const calls = h.startWorker.mock.calls.length
+    await h.loop.run()
+    await h.loop.nudge()
+    await h.settle()
+    expect(h.startWorker.mock.calls.length).toBe(calls)
+    expect(asked(h)).toHaveLength(0)
   })
 
   it('with replanning on: a scoped replan first, and the owner is asked once it ended with the Task still failed', async () => {
@@ -3710,12 +3771,14 @@ describe('a hands-off plan decides for the owner (#117)', () => {
     expect(answered).toMatchObject({ status: 200 })
     await tick(1_000)
     await tick(1_000)
+    // 2026-11-03: marked failed past its breaker, it gets a fresh attempt on its own (handsOffRecovery.ts), not the owner
     expect(state.jobs[0].decisions?.map((d) => [d.kind, d.choice])).toEqual([
       ['gate', 'retry-once'],
       ['gate', 'mark-failed'],
+      ['escalation', 'fresh attempt with a stronger model'],
       ['escalation', 'blue: it matches the brand colours']
     ])
-    expect(state.jobs[0].decisions?.[2]).toMatchObject({ taskId: other, question: 'Blue or green for the button?', why: 'blue: it matches the brand colours' })
+    expect(state.jobs[0].decisions?.[3]).toMatchObject({ taskId: other, question: 'Blue or green for the button?', why: 'blue: it matches the brand colours' })
 
     const tree = [{ id: 'p1', name: 'P', path: '/p', plans: [{ jobId: state.jobs[0].id, projectId: 'p1', name: 'o', planner: [], coordinator: [], workers: [] }] }]
     const inbox = (jobs: Job[]) =>

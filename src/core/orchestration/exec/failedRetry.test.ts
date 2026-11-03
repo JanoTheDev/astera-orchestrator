@@ -265,14 +265,24 @@ describe("failedRetryOf: the last failure", () => {
     expect(stepOf(lastTry({}, "ddddddd"), at(MIN))?.kind).toBe("accept");
   });
 
-  it("escalates when nothing was committed: the last head is its base", () => {
+  it("recovers when nothing was committed: the last head is its base", () => {
     expect(stepOf(lastTry({}, "aaaaaaa"), at(MIN))).toMatchObject({
-      kind: "escalate",
+      kind: "recover",
       why: expect.stringContaining("it committed no work"),
     });
   });
 
-  it("escalates when its checks fail, or never checked its last attempt", () => {
+  it("recovers with a live coordinator too: nobody but Astera can start it past its breaker", () => {
+    expect(stepOf(lastTry({}, "aaaaaaa"), at(MIN), true)?.kind).toBe("recover");
+  });
+
+  it("leaves a Task Astera gave up on already", () => {
+    expect(
+      stepOf(lastTry({ handsOffGaveUpAt: FAILED_AT }, "aaaaaaa"), at(MIN)),
+    ).toBeUndefined();
+  });
+
+  it("recovers when its checks fail, or never checked its last attempt", () => {
     const failing = lastTry(
       {
         checks: [passed({ status: "failed" })],
@@ -281,11 +291,11 @@ describe("failedRetryOf: the last failure", () => {
       "ddddddd",
     );
     expect(stepOf(failing, at(MIN))).toMatchObject({
-      kind: "escalate",
+      kind: "recover",
       why: expect.stringContaining("its checks do not pass"),
     });
     const unchecked = lastTry({ validateConfigIds: ["cfg_test"] }, "ddddddd");
-    expect(stepOf(unchecked, at(MIN))?.kind).toBe("escalate");
+    expect(stepOf(unchecked, at(MIN))?.kind).toBe("recover");
     const stale = lastTry(
       {
         checks: [passed({ endedAt: "2026-10-31T01:40:00.000Z" })],
@@ -293,21 +303,24 @@ describe("failedRetryOf: the last failure", () => {
       },
       "ddddddd",
     );
-    expect(stepOf(stale, at(MIN))?.kind).toBe("escalate");
+    expect(stepOf(stale, at(MIN))?.kind).toBe("recover");
   });
 
-  it("waits briefly for the last head to be recorded, then escalates", () => {
+  it("waits briefly for the last head to be recorded, then recovers", () => {
     const s = lastTry({}, undefined);
     expect(stepOf(s, at(MIN))?.kind).toBe("wait");
-    expect(stepOf(s, at(HEAD_WAIT_MS))?.kind).toBe("escalate");
+    expect(stepOf(s, at(HEAD_WAIT_MS))?.kind).toBe("recover");
   });
 
-  it("escalates into the owner question the stalled Run already raises", () => {
+  it("recovers although the owner was asked: the question is left behind, answered by the recovery", () => {
     const s = lastTry({}, "aaaaaaa");
     const stall = stallOf(s, s.runs[0])!;
-    expect(failedWaitQuestion(s, stall.blocks[0], FAILED_AT).options).toEqual([
-      ...FAILED_WAIT_OPTIONS,
-    ]);
+    const asked: OrchState = {
+      ...s,
+      messages: [failedWaitQuestion(s, stall.blocks[0], FAILED_AT)],
+    };
+    expect(asked.messages[0].options).toEqual([...FAILED_WAIT_OPTIONS]);
+    expect(stepOf(asked, at(MIN))?.kind).toBe("recover");
   });
 });
 
@@ -414,7 +427,8 @@ describe("failedRetryOf: what stays unchanged", () => {
       ],
     };
     expect(stepOf(gated, at(MIN))).toBeUndefined();
-    const s = lastTry({}, "aaaaaaa");
+    // A retry with tries left that the owner was asked about is theirs (past the breaker, see "the last failure")
+    const s = state({});
     const asked: OrchState = {
       ...s,
       messages: [

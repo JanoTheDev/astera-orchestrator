@@ -8,10 +8,10 @@
 //   tries run out instead of repeating forever.
 // - `accept`: its last try failed, but its branch has commits beyond its base and its latest checks passed (or it has
 //   none): it counts as done with a `completionOverride` that says so.
-// - `escalate`: otherwise. The owner is asked the failed-Task question (Retry / Accept as done / Cancel what waits on it,
-//   replan.ts `failedWaitQuestion`) once per failure, whether or not the Run is stalled (the dispatch loop's
-//   `retryFailedTasks` raises it with `run-failed-ask --task`; `unstallRuns` asks for a stalled Run, and whichever comes
-//   first wins, `failedWaitAsked`), and the activity feed says so.
+// - `recover`: otherwise. Hands-off means the owner is not asked (2026-11-03): the Task gets a fresh attempt with a
+//   stronger model, and once those fail too it is given up on, what waits on it cancelled (handsOffRecovery.ts,
+//   `task-hands-off-recover`). Done whether or not a coordinator is alive: a coordinator cannot start a Task past its
+//   circuit breaker either. An owner's own answer to an earlier failed-Task question still wins (`unstallRuns`).
 // - `wait`: its last try ended moments ago and the Host has not recorded where its branch ended yet, so whether it
 //   committed is not known (`HEAD_WAIT_MS`).
 //
@@ -41,7 +41,8 @@ export type FailedRetryStep =
       why: string;
     }
   | { kind: "accept"; task: Task; reason: string }
-  | { kind: "escalate"; task: Task; why: string }
+  /** Past its breaker and not acceptable: a fresh attempt, or given up on (handsOffRecovery.ts) */
+  | { kind: "recover"; task: Task; why: string }
   | { kind: "wait"; task: Task; why: string };
 
 const oneLine = (text: string | undefined, max = 300): string =>
@@ -101,16 +102,17 @@ export function checksPass(s: OrchState, t: Task): boolean {
 
 /**
  * What Astera does about failed Task `t` now, or undefined when it is not Astera's to decide: not failed, not a live
- * hands-off plan (active, not held, the Run not paused), a coordinator is alive or starting (`coordinatorLive`, the
- * dispatch loop's), a replan is under way (it looks at the failure first), a worker or a Gate is on it, or the owner was
- * already asked about this failure (their answer is carried out by `unstallRuns`).
+ * hands-off plan (active, not held, the Run not paused), a replan is under way (it looks at the failure first), a worker
+ * or a Gate is on it, the owner answered the failed-Task question (`unstallRuns` carries it out), or Astera gave up on it
+ * already (`handsOffGaveUpAt`). A retry with tries left is a live coordinator's (`coordinatorLive`, the dispatch loop's),
+ * as is one the owner was asked about; past the breaker nobody but Astera can move it, so it decides.
  */
 export function failedRetryOf(
   s: OrchState,
   t: Task,
   a: { coordinatorLive: boolean; nowMs: number },
 ): FailedRetryStep | undefined {
-  if (t.status !== "failed" || a.coordinatorLive) return undefined;
+  if (t.status !== "failed" || t.handsOffGaveUpAt !== undefined) return undefined;
   const run =
     t.runId === undefined ? undefined : s.runs.find((r) => r.id === t.runId);
   const job = run && jobOf(s, run);
@@ -128,11 +130,11 @@ export function failedRetryOf(
     return undefined;
   if (s.gates.some((g) => g.taskId === t.id && g.status === "open"))
     return undefined;
-  if (failedWaitAsked(s, t) || failedWaitChoice(s, t) !== undefined)
-    return undefined;
+  if (failedWaitChoice(s, t) !== undefined) return undefined;
   const why = failedWhy(t);
   const at = failedRetryAt(t);
   if (at !== undefined) {
+    if (a.coordinatorLive || failedWaitAsked(s, t)) return undefined;
     const attempt = Math.max(t.consecutiveFailures, 1) + 1;
     return {
       kind: "retry",
@@ -161,7 +163,7 @@ export function failedRetryOf(
       reason: `failed ${t.consecutiveFailures} of ${FAILURE_LIMIT} attempts; accepted because it committed its work and its checks pass: ${why}`,
     };
   return {
-    kind: "escalate",
+    kind: "recover",
     task: t,
     why: `failed ${t.consecutiveFailures} of ${FAILURE_LIMIT} attempts; ${committed === true ? "its checks do not pass" : "it committed no work"}: ${why}`,
   };

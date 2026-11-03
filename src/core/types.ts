@@ -648,8 +648,9 @@ export type TaskBlockedReason =
   /** A definition Task: copied into each Run, never placed itself. */
   | { kind: 'definition' }
   | { kind: 'gate'; gateId: string; question: string; gateKind?: GateKind }
-  /** FAILURE_LIMIT consecutive failures: nothing restarts it on its own. */
-  | { kind: 'failure-limit'; failures: number; limit: number }
+  /** FAILURE_LIMIT consecutive failures: nothing restarts it on its own. `handsOff`: its plan runs hands-off, so Astera
+   *  gives it a fresh attempt itself (exec/handsOffRecovery.ts): not the owner's to clear. */
+  | { kind: 'failure-limit'; failures: number; limit: number; handsOff?: true }
   /** Failed with retries left: its coordinator (or a person) decides whether to retry. `noCoordinator` (W5-B, #45): the
    *  Run has no coordinator slot, so only a person can (the app's loop starts `ready` Tasks, never a failed one).
    *  `retryAt` (T10): a hands-off plan with no coordinator, so Astera retries it itself at that time, as attempt

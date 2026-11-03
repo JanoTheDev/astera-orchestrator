@@ -170,7 +170,7 @@ async function rig(
   }
 }
 
-describe('Hands-off leftovers: a failed Task Astera escalates asks the owner once', () => {
+describe('Hands-off leftovers: a failed Task past its breaker is recovered, never asked', () => {
   const failedWaits = (st: OrchState) => st.messages.filter((m) => isFailedWait(m))
   /** A hands-off plan with no coordinator whose first Task failed its last try without committing; `waiting` makes the
    *  second Task wait on it (the Run stalls), else the second is done and nothing waits on the failed one. */
@@ -191,43 +191,38 @@ describe('Hands-off leftovers: a failed Task Astera escalates asks the owner onc
     return r
   }
 
-  it('asks the failed-wait question although the Run is not stalled, and the feed says so', async () => {
+  // 2026-11-03: "when I say hands off I mean hands off". Past its breaker a hands-off Task is Astera's to move, never asked
+  it('asks nothing: a fresh attempt instead, once, and the feed says so', async () => {
     const r = await failedPlan(false)
     expect(stallOf(r.state(), r.state().runs[0])).toBeUndefined()
     await r.tick()
-    const asked = failedWaits(r.state())
-    expect(asked).toHaveLength(1)
-    expect(asked[0]).toMatchObject({ taskId: r.state().tasks[0].id, answered: false, options: [...FAILED_WAIT_OPTIONS] })
-    expect(asked[0].subject).toContain('C:\\wt\\x\\src\\parser.ts')
-    expect(r.lines.filter((l) => l.type === 'watchdog' && String(l.payload.reason).includes('goes to the owner'))).toHaveLength(1)
-    expect(r.lines.find((l) => l.type === 'watchdog')?.taskId).toBe(r.state().tasks[0].id)
-    // once per failure: later ticks ask nothing more
+    expect(failedWaits(r.state())).toHaveLength(0)
+    const t0 = r.state().tasks[0]
+    expect(t0).toMatchObject({ consecutiveFailures: 0, freshAttempt: { n: 1 } })
+    expect(t0.freshAttempt?.summary).toContain('C:\\wt\\x\\src\\parser.ts')
+    expect(r.lines.filter((l) => l.type === 'watchdog' && String(l.payload.reason).includes('fresh attempt'))).toHaveLength(1)
+    expect(r.lines.find((l) => l.type === 'watchdog')?.taskId).toBe(t0.id)
     await r.tick()
     await r.tick()
-    expect(failedWaits(r.state())).toHaveLength(1)
-    expect(r.lines.filter((l) => l.type === 'watchdog')).toHaveLength(1)
+    expect(failedWaits(r.state())).toHaveLength(0)
   })
 
-  it('asks once, not twice, when the Run is stalled and unstallRuns would ask too', async () => {
+  it('asks nothing when the Run is stalled either: unstallRuns leaves a Task Astera recovers', async () => {
     const r = await failedPlan(true)
     expect(stallOf(r.state(), r.state().runs[0])).toBeDefined()
     await r.tick()
     await r.tick()
-    const asked = failedWaits(r.state())
-    expect(asked).toHaveLength(1)
-    expect(asked[0].subject).toContain('wait on failed')
+    expect(failedWaits(r.state())).toHaveLength(0)
   })
 
-  it('asks again for a later failure of the same Task, not for the one already asked about', async () => {
-    const r = await failedPlan(false)
-    await r.tick()
+  it('answers a failed-Task question already open over it, so nobody waits on it', async () => {
+    const r = await failedPlan(true)
     const s = r.state()
-    // the owner retried it and it failed again, later
-    r.advance(10 * 60_000)
-    const again = new Date(Date.parse(NOW) + 10 * 60_000).toISOString()
-    await r.deps.setState({ ...s, tasks: s.tasks.map((t, i) => (i === 0 ? { ...t, updatedAt: again } : t)) })
+    const asked = await r.handle('run-failed-ask', { run: s.runs[0].id, task: s.tasks[0].id })
+    expect((asked.body as { asked: unknown[] }).asked).toHaveLength(1)
     await r.tick()
-    expect(failedWaits(r.state())).toHaveLength(2)
+    expect(failedWaits(r.state()).every((m) => m.answered)).toBe(true)
+    expect(r.state().tasks[0].freshAttempt?.n).toBe(1)
   })
 
   it('run-failed-ask --task leaves a Task that is not failed alone', async () => {
