@@ -190,6 +190,43 @@ describe('registrySessions — list', () => {
     ])
   })
 
+  // 2026-11-03: three windows polled `sessions list` every 5 s, each reading every session's files on its own.
+  it('callers that ask together share one listing, each with its own array', async () => {
+    const { ptys, procs } = harness()
+    let reads = 0
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => (release = r))
+    const sessions = registrySessions({ ptys, procs, hookEventsDir: NO_HOOK_DIR, accounts: async () => (reads++, await gate, []) })
+    const asks = [sessions.listSessions(), sessions.listSessions(), sessions.listSessions()]
+    release()
+    const [a, b, c] = await Promise.all(asks)
+    expect(reads).toBe(1)
+    expect(a).toEqual(b)
+    expect(b).toEqual(c)
+    expect(a).not.toBe(b)
+    // done, so the next one reads again
+    await sessions.listSessions()
+    expect(reads).toBe(2)
+  })
+
+  it('a caller does not join a listing that started before a session opened or ended', async () => {
+    const { ptys, procs, agent, openChat } = harness()
+    let reads = 0
+    let release: () => void = () => {}
+    const gate = new Promise<void>((r) => (release = r))
+    const sessions = registrySessions({ ptys, procs, hookEventsDir: NO_HOOK_DIR, accounts: async () => (reads++, await gate, []) })
+    const before = sessions.listSessions()
+    agent.exit(0)
+    const afterExit = sessions.listSessions()
+    openChat('proc-b')
+    const afterOpen = sessions.listSessions()
+    release()
+    expect(reads).toBe(3)
+    expect((await before).find((r) => r.id === 'ses-1')?.alive).toBe(true)
+    expect((await afterExit).find((r) => r.id === 'ses-1')?.alive).toBe(false)
+    expect((await afterOpen).filter((r) => r.id === 'chat-1').map((r) => r.procId)).toEqual(['proc-a'])
+  })
+
   // A note the app wrote is the app's, and nothing forces its keys to be strings.
   it('a note key that is not a string reads as null rather than being passed on', async () => {
     const ptys = new PtyRegistry({ spawn: fakePty, log: () => {} })

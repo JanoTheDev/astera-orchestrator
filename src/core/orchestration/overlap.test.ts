@@ -19,7 +19,8 @@ import {
   titleSimilarity
 } from './overlap'
 import { plannerRefusal } from './planner'
-import { LEASE_WAIT_OPTIONS, slotsToFill } from './schedule'
+import { LEASE_WAIT_OPTIONS, pathsOverlap, slotsToFill } from './schedule'
+import { activeOrQueued, otherPlansOf, planTasksOf } from './mainPlan'
 import { emptyState, resolveGate, type OrchState } from './state'
 import type { Dispatch, Job, JobRun, Task } from './types'
 import { buildReplanBrief } from './exec/replanStart'
@@ -115,6 +116,59 @@ describe('the cross-plan file guard', () => {
     const s = twoPlans()
     const one: OrchState = { ...s, tasks: s.tasks.map((t) => (t.id === 't3' ? { ...t, runId: 'r1' } : t)) }
     expect(taskBoardsOf(one).get('t3')?.reason).toEqual({ kind: 'same-files', waitingOn: { id: 't6', title: 'T6' }, path: 'src/api/' })
+  })
+})
+
+describe('overlapsOf — many plans (2026-11-03: 85 plans made one refreshOverlaps take 1.3 to 2 s)', () => {
+  /** What overlapsOf answered before its per-state memo and its scopes worked out once: every pair, asked afresh. */
+  const naive = (j: Job, s: OrchState) => {
+    const mine = planTasksOf(s, j)
+    if (mine.length === 0) return []
+    const out: unknown[] = []
+    for (const other of otherPlansOf(s, j))
+      for (const t of mine)
+        for (const o of planTasksOf(s, other)) {
+          const issue = t.links?.issue?.number
+          if (issue !== undefined && issue === o.links?.issue?.number) {
+            out.push({ taskId: t.id, jobId: other.id, otherTaskId: o.id, by: 'issue', issue })
+            continue
+          }
+          const path = (t.affectedPaths ?? []).find((p) => (o.affectedPaths ?? []).some((q) => pathsOverlap(p, q)))
+          if (path !== undefined) out.push({ taskId: t.id, jobId: other.id, otherTaskId: o.id, by: 'path', path })
+        }
+    return out
+  }
+  it('answers what every pair asked afresh answers, for running, queued, finished and other-project plans', () => {
+    const dirs = ['src/api', 'src/api/routes.ts', 'src/ui/', 'src/ui*', 'docs', './src/api/../ui/x.ts', 'lib/a.ts', '*']
+    const jobs: Job[] = []
+    const runs: JobRun[] = []
+    const tasks: Task[] = []
+    for (let p = 0; p < 12; p++) {
+      const id = `j${p}`
+      jobs.push(job(id, { ...(p % 4 === 3 ? { projectId: 'prj_2' } : {}), ...(p % 5 === 4 ? { pendingStart: true } : {}) }))
+      const runId = p % 5 === 4 ? undefined : `r${p}`
+      if (runId) runs.push(run(runId, id))
+      for (let k = 0; k < 6; k++)
+        tasks.push(
+          task(`t${p}_${k}`, runId ? { runId } : { jobId: id }, {
+            // plan 6 is finished: every Task completed, so it meets nothing
+            status: p === 6 ? 'completed' : 'ready',
+            affectedPaths: [dirs[(p + k) % dirs.length], dirs[(p * 3 + k) % dirs.length]].slice(0, 1 + (k % 2)),
+            ...(k === 5 ? { links: { issue: { number: p % 3, url: 'u' } } } : {})
+          })
+        )
+    }
+    const s: OrchState = { ...emptyState(), jobs, runs, tasks }
+    let found = 0
+    for (const j of s.jobs) {
+      const got = overlapsOf(j, s)
+      found += got.length
+      expect(got).toEqual(naive(j, s))
+    }
+    expect(found).toBeGreaterThan(50)
+    // and refreshOverlaps writes exactly those onto each active plan
+    const next = refreshOverlaps({ ...s, tasks: [] }, s, T0)
+    for (const j of next.jobs) expect(j.overlaps ?? []).toEqual(activeOrQueued(s, s.jobs.find((x) => x.id === j.id)!) ? naive(j, s) : [])
   })
 })
 

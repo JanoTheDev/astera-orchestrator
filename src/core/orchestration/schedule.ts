@@ -129,8 +129,30 @@ const foldsCase = (): boolean => {
  *  and the project root (`root`, when the path is absolute inside it) dropped, cut at its first `*`. `''` is the whole
  *  repository (`.`, `*`, empty). `partial`: the glob cut a name in two (`src/foo*`), so it covers every name that
  *  starts with `path`, not only the directory. */
-function scopeOf(p: string, root?: string): { path: string; partial: boolean } {
+export interface PathScope {
+  readonly path: string
+  readonly partial: boolean
+}
+
+/** `scopeOf`'s answers, by case rule, root and path. **Measured on a live profile (2026-11-03): 85 plans and 544 Tasks
+ *  made one `refreshOverlaps` take 1.3 to 2 s, nearly all of it in `scopeOf`**, because every pair of Tasks of two plans
+ *  re-normalised both of their paths, and the Host runs it on every commit. A path names the same scope every time, so
+ *  each is worked out once. Bounded: past SCOPE_CACHE_MAX entries it starts over, which costs only the work again. */
+const scopeCache = new Map<string, PathScope>()
+const SCOPE_CACHE_MAX = 50_000
+
+function scopeOf(p: string, root?: string): PathScope {
   const fold = foldsCase()
+  const key = `${fold ? 1 : 0}\u0000${root ?? ''}\u0000${p}`
+  const hit = scopeCache.get(key)
+  if (hit !== undefined) return hit
+  const scope = computeScope(p, root, fold)
+  if (scopeCache.size >= SCOPE_CACHE_MAX) scopeCache.clear()
+  scopeCache.set(key, scope)
+  return scope
+}
+
+function computeScope(p: string, root: string | undefined, fold: boolean): PathScope {
   let posix = p.trim().replace(/\\/g, '/')
   const star = posix.indexOf('*')
   const partial = star > 0 && posix[star - 1] !== '/'
@@ -148,8 +170,28 @@ function scopeOf(p: string, root?: string): { path: string; partial: boolean } {
   return { path: out.join('/'), partial: partial && out.length > 0 }
 }
 
-const covers = (x: { path: string; partial: boolean }, y: { path: string }): boolean =>
-  x.path === '' || y.path === x.path || y.path.startsWith(`${x.path}/`) || (x.partial && y.path.startsWith(x.path))
+/** `y` is `x`, or inside it (`x/…`), or, for a cut name, starts with it. No string is built: it runs for every pair of
+ *  paths of every pair of Tasks of two plans. */
+const covers = (x: PathScope, y: PathScope): boolean => {
+  if (x.path === '' || y.path === x.path) return true
+  if (!y.path.startsWith(x.path)) return false
+  return x.partial || y.path.charCodeAt(x.path.length) === 47 // '/'
+}
+
+/** `pathsOverlap` on scopes already worked out (`pathScopes`), for a caller that compares one path with many. */
+export const scopesOverlap = (x: PathScope, y: PathScope): boolean => covers(x, y) || covers(y, x)
+
+/** The scopes of a list of affected paths with no root, as `pathsOverlap(a, b)` works them out. Kept per list: a Task
+ *  is replaced, never changed in place, so an unchanged Task keeps its list and its scopes from one commit to the next. */
+const scopesByList = new WeakMap<readonly string[], { fold: boolean; scopes: readonly PathScope[] }>()
+export function pathScopes(paths: readonly string[]): readonly PathScope[] {
+  const fold = foldsCase()
+  const hit = scopesByList.get(paths)
+  if (hit !== undefined && hit.fold === fold) return hit.scopes
+  const scopes = paths.map((p) => scopeOf(p))
+  scopesByList.set(paths, { fold, scopes })
+  return scopes
+}
 
 /** Whether two affected paths can name the same file: equal, or one a directory prefix of the other (`src/a` and
  *  `src/a/b.ts`, not `src/ab`), after `scopeOf` (so `./src/a`, `/src/a`, `<root>/src/a` and `src/x/../a` are all

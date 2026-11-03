@@ -124,6 +124,11 @@ const rowOf = (e: PtyEntry, kind: HostSession['kind'], state: SessionState, prov
   }
 }
 
+/** Which sessions a listing starts from: each entry's pty or process id, whether it is alive and the note's id. Two
+ *  listings with the same shape answer the same rows but for what the hook files say at that moment. */
+export const shapeOf = (terminals: readonly PtyEntry[], chats: readonly PtyEntry[]): string =>
+  [...terminals, ...chats].map((e) => `${e.id}:${e.alive ? 1 : 0}:${e.meta?.id ?? ''}`).join('|')
+
 /** How much of the end of a file the first read takes. Most events are a few hundred bytes; a Write's
  *  PreToolUse carries the file it writes, so the window doubles until it holds the whole last line.
  *  The whole lines in the window are the ones the stamp can reorder: two captures land out of order
@@ -271,6 +276,27 @@ export function registrySessions(a: {
     return waits.size === 0 ? rows : rows.map((r) => (waits.has(r.id) ? { ...r, heavyWait: waits.get(r.id) } : r))
   }
 
+  /** Every session row, built from the registries' entries as `listSessions` read them. */
+  const listRows = async (terminals: PtyEntry[], chats: PtyEntry[]): Promise<HostSession[]> => {
+    const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
+    // An account with no provider field is a Claude account (core/types.ts Account.provider).
+    const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
+    const rows = await withHeavyWait([
+      ...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)),
+      ...chats.map((e) => rowOf(e, 'chat', 'unknown', providers))
+    ])
+    // **One id, one row, and the live one.** `ChatManager.respawnWithBypass` spawns again under the
+    // same note, so an ended process and its replacement can share an id.
+    const byId = new Map<string, HostSession>()
+    for (const r of rows) {
+      const had = byId.get(r.id)
+      if (!had || (!had.alive && r.alive)) byId.set(r.id, r)
+    }
+    return [...byId.values()]
+  }
+  /** The listing under way, and the sessions it started from (`shapeOf`); null when none is. */
+  let listing: { shape: string; rows: Promise<HostSession[]> } | null = null
+
   return {
     // One session's row, building nothing for the others (performance audit H4: a remote keystroke names one).
     sessionById: async (id) => {
@@ -285,21 +311,21 @@ export function registrySessions(a: {
     },
     listSessions: async () => {
       const terminals = a.ptys.list().filter((e) => e.meta?.kind === 'session')
-      const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
-      // An account with no provider field is a Claude account (core/types.ts Account.provider).
-      const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
-      const rows = await withHeavyWait([
-        ...terminals.map((e, i) => rowOf(e, 'terminal', states[i].state, providers, states[i].prompt, states[i].lastAction)),
-        ...a.procs.list().filter((e) => e.meta?.kind === 'chat').map((e) => rowOf(e, 'chat', 'unknown', providers))
-      ])
-      // **One id, one row, and the live one.** `ChatManager.respawnWithBypass` spawns again under the
-      // same note, so an ended process and its replacement can share an id.
-      const byId = new Map<string, HostSession>()
-      for (const r of rows) {
-        const had = byId.get(r.id)
-        if (!had || (!had.alive && r.alive)) byId.set(r.id, r)
+      const chats = a.procs.list().filter((e) => e.meta?.kind === 'chat')
+      // **Callers that ask together share one listing** (2026-11-03: three windows polling `sessions list` every 5 s,
+      // and every one of them read every session's hook file, the accounts and the heavy queue on its own). A caller
+      // joins a listing already under way only when that listing started from the very same sessions, alive or not, so
+      // a session opened or ended a moment ago is never missing from the answer of someone who asked after it.
+      const shape = shapeOf(terminals, chats)
+      if (listing !== null && listing.shape === shape) return [...(await listing.rows)]
+      const rows = listRows(terminals, chats)
+      const mine = { shape, rows }
+      listing = mine
+      try {
+        return [...(await rows)]
+      } finally {
+        if (listing === mine) listing = null
       }
-      return [...byId.values()]
     },
     readSession: (id, lines) => {
       const pty = ptyOf(id)

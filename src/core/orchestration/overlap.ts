@@ -15,7 +15,7 @@ import { isJobActive } from './lifecycle'
 import { outcomeOfRun } from './running'
 // T1 the main plan
 import { activeOrQueued, externalDepsOf, holdExternalDeps, mainPlanOf, otherPlansOf, planIdOf, planTasksOf } from './mainPlan'
-import { isLeaseWaitGate, LEASE_WAIT_OPTIONS, leasesByProject, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs, serialFilesOf } from './schedule'
+import { isLeaseWaitGate, LEASE_WAIT_OPTIONS, leasesByProject, pathScopes, pathsOverlap, planOutranks, projectKeyOf, sameFilesAs, scopesOverlap, serialFilesOf } from './schedule'
 import { createGate, type OrchState } from './state'
 import { afterStandOf } from './after'
 import { cancelRemainingTask } from './replan'
@@ -27,21 +27,60 @@ export { planTasksOf, otherPlansOf } from './mainPlan'
 /** Each of `job`'s Tasks against every Task of every active or queued plan of the same project: one entry per pair that
  *  links the same issue (`Task.links.issue`) or has overlapping affected paths. */
 export function overlapsOf(job: Job, s: OrchState): PlanOverlap[] {
-  const mine = planTasksOf(s, job)
+  return overlapsIn(job, s, plansView(s))
+}
+
+/** What `overlapsOf` asks of the state about each plan, worked out at most once per plan for one state. `refreshOverlaps`
+ *  asks it for every plan against every other on every commit: asking `activeOrQueued` and `planTasksOf` afresh for each
+ *  pair scanned every Run and Task once per pair. Only for the one state it was made from, never kept past the call. */
+interface PlansView {
+  active(job: Job): boolean
+  tasks(job: Job): Task[]
+  key(job: Job): string
+}
+
+function plansView(s: OrchState): PlansView {
+  const active = new Map<string, boolean>()
+  const tasks = new Map<string, Task[]>()
+  const keys = new Map<string, string>()
+  const memo = <T>(m: Map<string, T>, job: Job, f: () => T): T => {
+    if (m.has(job.id)) return m.get(job.id) as T
+    const v = f()
+    m.set(job.id, v)
+    return v
+  }
+  return {
+    active: (job) => memo(active, job, () => activeOrQueued(s, job)),
+    tasks: (job) => memo(tasks, job, () => planTasksOf(s, job)),
+    key: (job) => memo(keys, job, () => projectKeyOf(s, job))
+  }
+}
+
+function overlapsIn(job: Job, s: OrchState, view: PlansView): PlanOverlap[] {
+  const mine = view.tasks(job)
   if (mine.length === 0) return []
   const out: PlanOverlap[] = []
-  for (const other of otherPlansOf(s, job)) {
-    const theirs = planTasksOf(s, other)
-    for (const t of mine)
+  // `otherPlansOf(s, job)`: the active or queued plans of the same project but this one (`activeOrQueued` has `isJobActive`)
+  const key = view.key(job)
+  const others = s.jobs.filter((j) => j.id !== job.id && view.key(j) === key && view.active(j))
+  for (const other of others) {
+    const theirs = view.tasks(other)
+    for (const t of mine) {
+      const paths = t.affectedPaths ?? []
+      // `pathsOverlap(p, q)` with each path's scope worked out once, not once per pair (schedule.ts `scopeCache`)
+      const scopes = pathScopes(paths)
       for (const o of theirs) {
         const issue = t.links?.issue?.number
         if (issue !== undefined && issue === o.links?.issue?.number) {
           out.push({ taskId: t.id, jobId: other.id, otherTaskId: o.id, by: 'issue', issue })
           continue
         }
-        const path = (t.affectedPaths ?? []).find((p) => (o.affectedPaths ?? []).some((q) => pathsOverlap(p, q)))
-        if (path !== undefined) out.push({ taskId: t.id, jobId: other.id, otherTaskId: o.id, by: 'path', path })
+        const otherScopes = pathScopes(o.affectedPaths ?? [])
+        if (otherScopes.length === 0) continue
+        const i = scopes.findIndex((x) => otherScopes.some((y) => scopesOverlap(x, y)))
+        if (i !== -1) out.push({ taskId: t.id, jobId: other.id, otherTaskId: o.id, by: 'path', path: paths[i] })
       }
+    }
   }
   return out
 }
@@ -54,9 +93,10 @@ export function refreshOverlaps(prev: OrchState, next: OrchState, now: string = 
   let changed = false
   const notices: { job: Job; lines: string[] }[] = []
   const planById = new Map(next.jobs.map((o) => [o.id, o]))
+  const view = plansView(next)
   const jobs = next.jobs.map((j) => {
     // a finished or archived plan does no more work, so it meets nothing
-    const found = activeOrQueued(next, j) ? overlapsOf(j, next) : []
+    const found = view.active(j) ? overlapsIn(j, next, view) : []
     if (JSON.stringify(found) === JSON.stringify(j.overlaps ?? [])) return j
     changed = true
     // T9: the new overlaps on which the other plan goes first: this plan is the one that waits
@@ -291,17 +331,28 @@ function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
   // 2. hold a duplicate
   const asked = new Set(s.gates.filter(isDuplicateGate).map((g) => g.taskId))
   const started = new Set(s.dispatches.map((d) => d.taskId))
+  // Asked once per plan rather than once per pair of plans, or per Task (`plansView`'s reason), and again after a Gate.
+  const stands = new Map<string, ReturnType<typeof afterStandOf>>()
+  const standOf = (id: string): ReturnType<typeof afterStandOf> => {
+    if (!stands.has(id)) stands.set(id, afterStandOf(s, id))
+    return stands.get(id)!
+  }
+  const keeperTasks = new Map<string, Task[]>()
+  const tasksOfKeeper = (a: Job): Task[] => {
+    if (!keeperTasks.has(a.id)) keeperTasks.set(a.id, planTasksOf(s, a))
+    return keeperTasks.get(a.id)!
+  }
   for (const b of s.jobs) {
     const runId = latestRunId(s, b.id)
     if (runId === undefined || !isJobActive(b)) continue
     const keepers = s.jobs.filter(
-      (a) => a.id !== b.id && projectKeyOf(s, a) === projectKeyOf(s, b) && planOutranks(a, b) && afterStandOf(s, a.id) === 'waiting'
+      (a) => a.id !== b.id && projectKeyOf(s, a) === projectKeyOf(s, b) && planOutranks(a, b) && standOf(a.id) === 'waiting'
     )
     if (keepers.length === 0) continue
     for (const t of s.tasks) {
       if (t.runId !== runId || (t.status !== 'ready' && t.status !== 'pending') || started.has(t.id) || asked.has(t.id)) continue
       const hit = keepers
-        .flatMap((a) => planTasksOf(s, a).map((o) => ({ a, o, why: duplicateWhy(t, o, b.cwd) })))
+        .flatMap((a) => tasksOfKeeper(a).map((o) => ({ a, o, why: duplicateWhy(t, o, b.cwd) })))
         .find((x) => x.why !== undefined)
       if (!hit) continue
       const question =
@@ -310,6 +361,9 @@ function coordinate(prev: OrchState, next: OrchState, now: string): OrchState {
       const r = createGate(s, { taskId: t.id, question, options: [...DUPLICATE_OPTIONS] }, now)
       if (r.ok) {
         s = r.state
+        // the Gate blocked a Task, which can move its plan's stand: asked again from the new state
+        stands.clear()
+        keeperTasks.clear()
         asked.add(t.id)
       }
     }

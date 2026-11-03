@@ -48,6 +48,7 @@ import { hostRuntimeBase } from '../core/host/runtime'
 import { createRuntimeInstaller, installHostRuntime, spawnableRuntime, spawnWhenInstalled, type InstalledRuntime } from './host/runtimeInstall'
 import { executableProbe, parseExecutablePath, hostKillPlan, killHostCommand } from './host/hostProcess'
 import { hostPidFilePath, parseHostPidFile } from '../core/host/pidFile'
+import { ENDED_BY_APP, hostPidAlive, type EndedByApp } from '../core/host/endedByApp'
 import { readHostKey } from '../core/publicContract'
 import { hostAddress, retireOlderHosts } from '../host/address'
 import { createHostPtyFactory } from './host/ptyFactory'
@@ -7499,13 +7500,35 @@ export function registerIpc(
         return `pid ${pid} is not this app's Host, so it was not ended`
       }
       const kill = killHostCommand(process.platform, pid)
+      // Said to the next Host before it happens (core/host/endedByApp.ts): a forced end runs no exit handler, and the
+      // next Host would otherwise log this as a death without a word.
+      const notePath = path.join(profileDir, 'host', ENDED_BY_APP)
+      try {
+        const note: EndedByApp = { pid, at: Date.now(), why: 'it was not answering' }
+        fsSync.writeFileSync(notePath, JSON.stringify(note))
+      } catch {
+        /* costs the explanation, never the kill */
+      }
       try {
         if (kill) await run(kill.file, kill.args, 10_000)
         else process.kill(pid, 'SIGKILL')
         hostLog(`host: ended the Host that was not answering (pid ${pid})`)
         return null
       } catch (err) {
+        // `taskkill /T` fails when any process of the tree cannot be ended, even when the Host itself was (2026-11-03
+        // 07:33: two ConPTY children answered "not supported" and the Host was gone all the same). Whether the Host is
+        // gone is what this answers, so that is what is asked.
+        if (!hostPidAlive(pid)) {
+          hostLog(`host: ended the Host that was not answering (pid ${pid}); some of its children could not be ended: ${String(err)}`)
+          return null
+        }
         hostLog(`host: could not end pid ${pid}: ${String(err)}`)
+        // It lives on, so the next Host must not read the note as its end
+        try {
+          fsSync.rmSync(notePath, { force: true })
+        } catch {
+          /* then the next Host names the app; the line above says the end failed */
+        }
         return `the Host (pid ${pid}) could not be ended`
       }
     }

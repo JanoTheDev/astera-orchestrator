@@ -1,6 +1,6 @@
 // W6-C: never two workers on the same files (pathsOverlap, slotsToFill, the board's reason) and the hard cap of 10.
 import { describe, expect, it } from 'vitest'
-import { LEASE_WAIT_OPTIONS, pathsOverlap, slotsToFill, workerCapOf } from './schedule'
+import { LEASE_WAIT_OPTIONS, pathScopes, pathsOverlap, scopesOverlap, slotsToFill, workerCapOf } from './schedule'
 import { taskBoardsOf } from './blocked'
 import { emptyState, type OrchState } from './state'
 import { MAX_CONCURRENT_WORKERS, type Dispatch, type Job, type JobRun, type Project, type Task } from './types'
@@ -174,9 +174,26 @@ describe('pathsOverlap — normalised (T9)', () => {
       expect(pathsOverlap('SRC/A.ts', 'src/a.ts')).toBe(true)
       Object.defineProperty(process, 'platform', { value: 'win32' })
       expect(pathsOverlap('/Repo/SRC/a.ts', 'src/A.TS', '/repo')).toBe(true)
+      // the remembered scopes are per case rule, so the same list read under another rule is worked out again
+      const list = ['SRC/A.ts']
+      expect(scopesOverlap(pathScopes(list)[0], pathScopes(['src/a.ts'])[0])).toBe(true)
+      Object.defineProperty(process, 'platform', { value: 'linux' })
+      expect(scopesOverlap(pathScopes(list)[0], pathScopes(['src/a.ts'])[0])).toBe(false)
+      expect(pathsOverlap('SRC/A.ts', 'src/a.ts')).toBe(false)
     } finally {
       Object.defineProperty(process, 'platform', platform)
     }
+  })
+
+  // 2026-11-03: a profile's refreshOverlaps took 1.3 to 2 s a commit, nearly all of it normalising the same paths again
+  // for every pair of Tasks. The scopes are now worked out once per path; the answers must be the very same.
+  it('scopes worked out once answer as pathsOverlap does, pair by pair', () => {
+    const paths = ['src/a', 'src/a/', 'src/a/b.ts', 'src/ab', './src/a', 'src\\a\\b.ts', '/src/a.ts', 'src/a.ts', 'src/foo*', 'src/foobar.ts', 'src/foo/*', 'src/fo.ts', 'src/x/../a.ts', 'src/./a/../b', 'src/b/c.ts', '*', '.', '', 'src/a/**/*.ts', 'src/b/c.ts']
+    const scopes = pathScopes(paths)
+    // the same list is the same answer, kept
+    expect(pathScopes(paths)).toBe(scopes)
+    for (const [i, a] of paths.entries())
+      for (const [j, b] of paths.entries()) expect([a, b, scopesOverlap(scopes[i], scopes[j])]).toEqual([a, b, pathsOverlap(a, b)])
   })
 })
 
