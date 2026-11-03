@@ -26,6 +26,7 @@ import type { CloseReason } from '../../types'
 import { REPAIR_DIAGNOSTICS, diagnosticLine, findingsCountOf } from '../pluginChecks'
 import { boundedSlug } from '../../worktrees/naming'
 import { appendTo, profileDirOfSpecs, read as readOwner } from '../../prompts/ownerInstructions'
+import { subagentGuidance } from '../../prompts/subagents'
 
 /** Job Continuity's two prompt events (P0 design §5): 'requested' right before the prompt leaves
  *  the app, 'confirmed' once it has — the spawned process holds it as argv, or the typed prompt's
@@ -396,14 +397,13 @@ export const WORKER_MACHINE_RULES = `
 - Test, typecheck and build runs are heavy jobs, and so are the full test suite, \`npm run dev\` / Electron and \`npm run dist:linux\`. Run every one of them as \`astera heavy -- <cmd>\`: one at a time on this machine. Manual checks run the dev app on the dev profile (\`ASTERA_PROFILE_DIR=~/.config/astera-dev\`), never the profile Astera runs on.
 `
 
-// The worker may run in Claude Code or Codex, so the section names both tools and is the same text for either.
+// The worker may run in Claude Code or Codex, so the guidance names both tools and is the same text for either. It sits
+// right after the Task's own text, before the obligations: it is about how to start, and read last it came too late.
 export const WORKER_WORK_FAST = `
 ---
 ## Work fast (assembled by the app — do not delete)
 
-- Use subagents: the Agent/Task tool in Claude Code, or parallel sub-tasks in Codex where available. Give them read-only exploration of several files or folders at once, and independent sub-parts of the Task.
-- Keep the main session for decisions, edits that must agree with each other, and the final verification.
-- Never hand the final check to a subagent. You verify what they return.
+${subagentGuidance('worker')}
 `
 
 export function buildSpecFile(a: {
@@ -505,7 +505,7 @@ If this task has an issue, add \`--issue <number>\` to the worker_done report be
   return appendTo(`# ${a.title}
 
 ${a.spec}
-${knowledgeSection}${commitObligation}${issueSection}${WORKER_MACHINE_RULES}${WORKER_WORK_FAST}${a.repair ? repairSection(a.repair) : ''}${a.kind ? skillsSection(a.kind, (s) => a.installedSkills?.has(s) ?? false) : ''}
+${WORKER_WORK_FAST}${knowledgeSection}${commitObligation}${issueSection}${WORKER_MACHINE_RULES}${a.repair ? repairSection(a.repair) : ''}${a.kind ? skillsSection(a.kind, (s) => a.installedSkills?.has(s) ?? false) : ''}
 ---
 ## Reporting obligation (assembled by the app — do not delete)
 
@@ -716,6 +716,8 @@ Then report as below — \`--outcome failed\` when the requirement is not satisf
   return appendTo(`# Review: ${a.title}
 
 You are reviewing work another agent finished. **Do not change any code.** Read, judge, report.
+
+${subagentGuidance('reviewer')}
 
 ## The requirement this work has to satisfy
 

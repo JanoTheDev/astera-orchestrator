@@ -7,6 +7,7 @@
 // left. Its end is #47's: the session is stopped once its work is recorded.
 // W8-D several plans in one repo
 import { PROJECT_FOLDER_HANDS_OFF, PROMPTS_MODE_FILL_IN, plannerPlanningSection } from '../handover'
+import { subagentGuidance } from '../../prompts/subagents'
 import { otherPlansBrief } from '../overlap'
 import { PARTS_AT_ONCE, collectChanges, mapAtMost, rangesFor } from '../changedFiles'
 import { offChain, releases, stillStarting, type OrchServerDeps } from '../command'
@@ -269,6 +270,7 @@ export function buildReplanBrief(a: {
     '- Read `$ASTERA_SKILLS/planner-guide.md`, section "Replanning". Read the code the done Tasks changed:',
     ...(a.focused ? ['  Read only the Tasks listed here, not the whole plan; the rest is unchanged.'] : []),
     `  \`astera runs-changed-files --id ${a.runId} --task <taskId> --json\`, and the files themselves.`,
+    `- ${subagentGuidance('planner')}`,
     '',
     'WHAT YOU MAY DO',
     `- Change a Task that has not started: \`astera task-update --id <taskId>\` with --prompt -, --criteria, --affected-paths, --deps, --worktree, --difficulty, --effort, --title, --spec.`,

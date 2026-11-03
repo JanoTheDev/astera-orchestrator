@@ -2,6 +2,7 @@
 // 계약은 기계가 검사할 수 있어야 한다(schedule.ts 머리말과 같은 이유).
 
 import { appendTo } from '../prompts/ownerInstructions'
+import { subagentGuidance } from '../prompts/subagents'
 
 /** 코디네이터 세션의 첫 입력. **영어인 이유**: 에이전트가 읽는 문구다 — spec 파일
  *  (coordinator.ts 의 buildSpecFile)과 재개 지시문(resumeSection.ts)이 영어인 것과 같은 자리이고,
@@ -153,6 +154,7 @@ export function buildHandoverPrompt(a: {
     'START HERE',
     'The quick reference is in your start context, or `astera help --brief`; `astera help <N>` prints one section of the guide.',
     'Run the full `astera help` only when neither answers your question.',
+    subagentGuidance('coordinator'),
     '',
     'TAKE STOCK BEFORE YOU START ANYTHING',
     'You may be joining this Run part-way through: a person can restart a coordinator from the Jobs',
@@ -330,6 +332,7 @@ export function buildPlannerBrief(a: {
     '  you plan to touch. Follow them, and tell each worker the ones that apply to its Task.',
     '- Read `$ASTERA_SKILLS/planner-guide.md` (how to cut a plan into Tasks). The quick reference is in your start context, or',
     '  `astera help --brief`; `astera help <N>` prints one section; the full `astera help` only when neither answers.',
+    `- ${subagentGuidance('planner')}`,
     '',
     ...(a.unmergedBranches && a.unmergedBranches.length > 0
       ? [
