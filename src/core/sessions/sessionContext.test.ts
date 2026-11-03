@@ -40,6 +40,9 @@ describe('SessionStart context script', () => {
     expect(t).toContain('This session runs inside Astera')
     expect(t).toContain('`astera help`')
     expect(t!.split('\n').length).toBeLessThanOrEqual(12)
+    // every session, hand-opened tabs included, is told to fan work out to subagents
+    expect(t).toContain('Use subagents (the Agent tool in Claude Code')
+    expect(t).toContain('Never hand the final check to a subagent')
   })
 
   it('drops the line of every feature that is off', async () => {

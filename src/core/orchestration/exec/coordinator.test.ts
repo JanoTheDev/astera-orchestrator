@@ -152,8 +152,9 @@ describe('buildSpecFile', () => {
   it('the Work fast section recommends subagents for both Claude Code and Codex, and keeps the final check', () => {
     const out = buildSpecFile({ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' })
     expect(out).toContain('## Work fast')
-    expect(out).toContain('Use subagents: the Agent/Task tool in Claude Code, or parallel sub-tasks in Codex where available.')
-    expect(out).toContain('Never hand the final check to a subagent.')
+    expect(out).toContain('Use subagents (the Agent tool in Claude Code, parallel sub-tasks in Codex where available)')
+    expect(out).toContain('Never hand the final check to a subagent')
+    expect(out.indexOf('## Work fast')).toBeLessThan(out.indexOf('## GitHub issues'))
     expect(out.indexOf('## Work fast')).toBeLessThan(out.indexOf('## Reporting obligation'))
   })
   it('T36: the reporting section tells a worker that a few gaps are a succeeded report with --gaps', () => {
@@ -221,11 +222,12 @@ describe('buildSpecFile', () => {
     // 위 비교만으로는 부족하다 — 두 호출이 같은 분기를 지나므로 삽입 지점에 줄바꿈이 **대칭으로**
     // 새면 양쪽이 똑같이 틀린 문자열을 내고 통과한다. 그래서 그 지점의 줄바꿈 수를 직접 고정한다.
     // W2-D: the GitHub issues section always sits between the spec and the reporting obligation
-    expect(base).toContain('S\n\n---\n## GitHub issues')
+    // the Work fast section comes first, right after the Task's own text
+    expect(base).toContain('S\n\n---\n## Work fast')
+    expect(base).toContain('verify what they return yourself.\n\n---\n## GitHub issues')
     // W8-C heavy: then the machine rules
     expect(base).toContain('for this task.\n\n---\n## Machine rules')
-    expect(base).toContain('Astera runs on.\n\n---\n## Work fast')
-    expect(base).toContain('You verify what they return.\n\n---\n## Reporting obligation')
+    expect(base).toContain('Astera runs on.\n\n---\n## Reporting obligation')
   })
 
   it('지식이 있으면 상대 경로를 목록으로 적는다', () => {

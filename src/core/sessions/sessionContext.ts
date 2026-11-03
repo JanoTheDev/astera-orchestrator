@@ -16,6 +16,7 @@ import { LAUNCH_FORBIDDEN } from './commands'
 import { OWNER_HEADING, ownerFile } from '../prompts/ownerInstructions'
 import { coordinatorBriefName } from '../orchestration/exec/specFiles'
 import { plannerBriefName } from '../orchestration/exec/plannerStart'
+import { subagentGuidance } from '../prompts/subagents'
 
 /** A brief's file name split around its id, from the helpers that name it, so the standalone script
  *  below cannot drift from them (a test also pins this). */
@@ -32,6 +33,7 @@ const LINES = {
   task: '- Record a task in How It Works: /astera-task.',
   handoff: '- Leave a handoff memo: `astera handoff`.',
   orchestration: '- Read or message other sessions, plan Jobs, dispatch work: `astera help`.',
+  subagents: `- ${subagentGuidance('session')}`,
   higgsfield: '- Higgsfield accounts: `astera higgsfield list` / `use --account <account>` (ask the user first).'
 }
 const FOOTER = 'Full list: `astera help --brief`; one section of the guide: `astera help <N>`.'
@@ -72,6 +74,7 @@ try {
     if (s.workUnitTrackingEnabled === true) lines.push(H.LINES.task)
     if (s.resumeStrategy === 'smart') lines.push(H.LINES.handoff)
     lines.push(H.LINES.orchestration)
+    lines.push(H.LINES.subagents)
     if (hf && Array.isArray(hf.accounts) && hf.accounts.length > 0) lines.push(H.LINES.higgsfield)
     // A missing or unreadable file leaves the pointer line above as the only mention.
     try { lines.push(fs.readFileSync(path.join(process.env.ASTERA_SKILLS, H.QUICKREF), 'utf8').trim()) } catch {}
@@ -102,6 +105,7 @@ export function sessionContextLines(settings: unknown, higgsfield: unknown, quic
   if (s.workUnitTrackingEnabled === true) lines.push(LINES.task)
   if (s.resumeStrategy === 'smart') lines.push(LINES.handoff)
   lines.push(LINES.orchestration)
+  lines.push(LINES.subagents)
   if (hf && Array.isArray(hf.accounts) && hf.accounts.length > 0) lines.push(LINES.higgsfield)
   if (quickref?.trim()) lines.push(quickref.trim())
   lines.push(FOOTER)
