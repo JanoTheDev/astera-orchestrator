@@ -8,6 +8,10 @@
 // - **A finished worker's session ends while the plan still runs**: a Task completed (merged or not: the worktree stays),
 //   or a review whose verdict is recorded (`sessionsDoneWith`, finishedSessions.ts). The renderer closes the exited tab by the same rule
 //   (lib/tabAutoClose.ts). A failed Task, a Task with an open Gate, and a session the owner typed into in the last 10 minutes keep theirs.
+// - **Idle tabs are closed fast** (2026-11-03, "idle tabs take up memory"): a worker, reviewer or merge console with no
+//   reason to stay, a tab Astera started for a Dispatch the state no longer holds (named by its roll prompt), and the
+//   planner of an approved auto-planned plan, each once idle at its prompt for the "idleTabCloseMinutes" setting (1
+//   minute by default). A hand-opened tab, a chat-mode planner and a tab typed into in the last 10 minutes are kept.
 // - **A worker tab never reads "Coordinator ·"**: it carries its Task's ref first (`workerTabTitle`).
 //
 // The driving loop calls `createCoordinatorRotation` from its tidy-up pass (dispatchLoop.ts); everything goes through
@@ -25,6 +29,8 @@ import { outcomeOf } from '../view'
 import type { OrchServerDeps } from '../command'
 import { handsOffOf } from './plannerFeedback'
 import { projectOfJob } from '../projects'
+import { specIdsOf } from './adopt'
+import { IDLE_TAB_CLOSE_DEFAULT_MINUTES } from '../../settings/idleTabClose'
 
 /** How many refreshes a Run keeps on record (its feed lines and the retired tabs the renderer closes). */
 export const COORDINATOR_REFRESHES_KEPT = 20
@@ -34,9 +40,10 @@ export const COORDINATOR_REFRESH_RETRY_MS = 60_000
 export const FINISHED_RELEASE_RETRY_MS = 60_000
 export const FINISHED_RELEASE_TRIES = 6
 export { PERSON_INPUT_KEEPS_MS }
-/** T13: a worker, reviewer or merge console with no reason to stay open, idle this long, is closed: 2 × the
- *  "workerSilentMinutes" setting (8 by default, so this is the default). */
-export const IDLE_CONSOLE_CLOSE_MS = 2 * 8 * 60_000
+/** T13: a worker, reviewer or merge console with no reason to stay open, idle this long, is closed: the
+ *  "idleTabCloseMinutes" setting (core/settings/idleTabClose.ts, 1 minute by default, so this is the default). Each
+ *  tab is a claude.exe with its children, and a machine short of memory pays for every one that idles. */
+export const IDLE_CONSOLE_CLOSE_MS = IDLE_TAB_CLOSE_DEFAULT_MINUTES * 60_000
 
 // ── Tab titles ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -297,11 +304,23 @@ export interface RotationContext {
   sessionContextPct?(sessionId: string): number | null | Promise<number | null>
   /** The "Fresh coordinator at context (%)" setting; 0 turns the context refresh off. */
   freshCoordinatorPct?(): number | Promise<number>
-  /** The "workerSilentMinutes" setting. Optional: without it the default (8). */
-  silentMinutes?(): number | Promise<number>
+  /** The "idleTabCloseMinutes" setting. Optional: without it the default (IDLE_CONSOLE_CLOSE_MS). */
+  idleCloseMinutes?(): number | Promise<number>
+  /** The live agent sessions the Host holds, with the text naming their spec (the roll prompt). Optional: without it
+   *  no orphan (a session Astera started for a Dispatch the state no longer has) is closed. */
+  liveSessions?(): ReadonlyArray<{ id: string; spec?: string }>
   mayStart(): boolean
   log(m: string): void
   nowMs(): number
+}
+
+/** An idle tab with no Dispatch to release it by (`idleOrphans`). */
+interface IdleSession {
+  sessionId: string
+  runId?: string
+  taskId?: string
+  role: 'orphan' | 'planner'
+  why: string
 }
 
 export function createCoordinatorRotation(c: RotationContext): { rotate(): Promise<void>; releaseFinished(): Promise<void> } {
@@ -312,30 +331,90 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
   /** Since when a console with no reason has been seen idle, by session id. In memory: a restart counts again. */
   const idleSince = new Map<string, number>()
 
-  /** The Dispatches of consoles that have had no reason and no work for 2 × workerSilentMinutes (T13). */
-  const idleWithoutReason = async (s: OrchState): Promise<Dispatch[]> => {
+  /** The idle window, the "idleTabCloseMinutes" setting. */
+  const closeAfterMs = async (): Promise<number> => (c.idleCloseMinutes ? (await c.idleCloseMinutes()) * 60_000 : IDLE_CONSOLE_CLOSE_MS)
+  /** Whether a session has sat idle at its prompt for `windowMs`, counting from when this process first saw it so. A
+   *  busy (or unreadable) session is not counted and starts over; `seen` keeps the ones counted in this pass. */
+  const idleLongEnough = (sessionId: string, now: number, windowMs: number, seen: Set<string>): boolean => {
+    if (c.sessionBusy?.(sessionId) !== false) return false
+    seen.add(sessionId)
+    const since = idleSince.get(sessionId) ?? now
+    idleSince.set(sessionId, since)
+    return now - since >= windowMs
+  }
+
+  /** The Dispatches of consoles that have had no reason and no work for the idle window (T13). */
+  const idleWithoutReason = (s: OrchState, now: number, windowMs: number, seen: Set<string>): Dispatch[] => {
     if (!c.sessionBusy) return []
-    const now = c.nowMs()
-    const closeAfterMs = c.silentMinutes ? 2 * (await c.silentMinutes()) * 60_000 : IDLE_CONSOLE_CLOSE_MS
-    const seen = new Set<string>()
     const due: Dispatch[] = []
     for (const run of s.runs) {
       if (outcomeOf(s, run.id) !== 'running') continue
       const consoles = openConsolesOf(s, run.id, c.sessionAlive, { typedAt: c.lastPersonInputAt, nowMs: now })
       for (const k of consoles) {
         // Only a worker, reviewer or merge console is closed here; a coordinator and a planner have their own ending
-        if (k.reason !== 'none' || k.dispatchId === undefined || c.sessionBusy(k.sessionId) !== false) continue
-        seen.add(k.sessionId)
-        const since = idleSince.get(k.sessionId) ?? now
-        idleSince.set(k.sessionId, since)
-        if (now - since >= closeAfterMs) {
-          const d = s.dispatches.find((x) => x.id === k.dispatchId)
-          if (d) due.push(d)
-        }
+        if (k.reason !== 'none' || k.dispatchId === undefined || seen.has(k.sessionId)) continue
+        if (!idleLongEnough(k.sessionId, now, windowMs, seen)) continue
+        const d = s.dispatches.find((x) => x.id === k.dispatchId)
+        if (d) due.push(d)
       }
     }
-    for (const id of [...idleSince.keys()]) if (!seen.has(id)) idleSince.delete(id)
     return due
+  }
+
+  /** Idle tabs Astera started that no Dispatch of the state holds (2026-11-03: a reviewer whose Dispatch the state lost
+   *  asked the owner a question in plain text and sat at its prompt for good): a session whose roll prompt names a spec
+   *  (`<taskId>-<dispatchId>`) when no Dispatch names the session and that Dispatch is unknown or ended; and the
+   *  planner of a running plan whose plan was approved (the approval's own stop did not take). Each idle for the window.
+   *  Never one adoption may still record (its Task waits for a worker with none open, adopt.ts), a finished Run's (the
+   *  run-end sweep's), a chat-mode planner (a replan's chat, the plan's own chat) or a session nothing names. */
+  const idleOrphans = (s: OrchState, now: number, windowMs: number, seen: Set<string>): IdleSession[] => {
+    if (!c.sessionBusy) return []
+    const named = new Set<string>()
+    for (const d of s.dispatches) named.add(d.sessionId)
+    for (const r of s.runs) {
+      if (r.coordinatorSessionId !== undefined) named.add(r.coordinatorSessionId)
+      if (r.externalCoordinatorSessionId !== undefined) named.add(r.externalCoordinatorSessionId)
+    }
+    for (const j of s.jobs) {
+      for (const id of j.plannerSessionIds ?? []) named.add(id)
+      if (j.replanning?.sessionId !== undefined) named.add(j.replanning.sessionId)
+      if (j.chatSessionId !== undefined) named.add(j.chatSessionId)
+    }
+    const open = (taskId: string): boolean => s.dispatches.some((d) => d.taskId === taskId && !d.outcome && !d.endedAt)
+    const out: IdleSession[] = []
+    for (const x of c.liveSessions?.() ?? []) {
+      const ids = specIdsOf(x.spec)
+      if (!ids || named.has(x.id) || seen.has(x.id) || !c.sessionAlive(x.id)) continue
+      const recorded = s.dispatches.find((d) => d.id === ids.dispatchId)
+      // Open under another session (a roll moved it): that one is the worker
+      if (recorded && !recorded.outcome && !recorded.endedAt) continue
+      const task = s.tasks.find((t) => t.id === ids.taskId)
+      if (task && (task.status === 'ready' || task.status === 'dispatched') && !open(task.id)) continue
+      if (task?.runId !== undefined && s.runs.some((r) => r.id === task.runId) && outcomeOf(s, task.runId) !== 'running') continue
+      if (!idleLongEnough(x.id, now, windowMs, seen)) continue
+      out.push({
+        sessionId: x.id,
+        ...(task?.runId !== undefined ? { runId: task.runId } : {}),
+        ...(task ? { taskId: task.id } : {}),
+        role: 'orphan',
+        why: recorded ? `its dispatch ${ids.dispatchId} has ended` : `its dispatch ${ids.dispatchId} is unknown to Astera`
+      })
+    }
+    const latestRun = new Map<string, JobRun>()
+    for (const r of s.runs) if ((latestRun.get(r.jobId)?.ordinal ?? -Infinity) < r.ordinal) latestRun.set(r.jobId, r)
+    for (const job of s.jobs) {
+      const id = job.plannerSessionIds?.at(-1)
+      if (id === undefined || job.pendingStart || job.replanning || job.archivedAt !== undefined || job.chatSessionId === id) continue
+      // A chat-mode planner (T1: the person brainstorms with it in its terminal) is left to the person and to the
+      // approval's own stop (command.ts endPlanners), as the stall watch leaves it (stallWatch.ts)
+      if ((job.planning ?? (handsOffOf(s, job) ? 'auto' : 'chat')) === 'chat') continue
+      const run = latestRun.get(job.id)
+      if (!run || outcomeOf(s, run.id) !== 'running' || seen.has(id) || !c.sessionAlive(id)) continue
+      if (s.dispatches.some((d) => d.sessionId === id) || s.runs.some((r) => r.coordinatorSessionId === id)) continue
+      if (!idleLongEnough(id, now, windowMs, seen)) continue
+      out.push({ sessionId: id, runId: run.id, role: 'planner', why: 'its plan was approved' })
+    }
+    return out
   }
 
   const rotate = async (): Promise<void> => {
@@ -370,8 +449,13 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
 
   const releaseFinished = async (): Promise<void> => {
     const s = c.getState()
+    const now = c.nowMs()
+    const windowMs = await closeAfterMs()
+    const seen = new Set<string>()
     const done = sessionsDoneWith(s)
-    const idle = (await idleWithoutReason(s)).filter((d) => !done.includes(d))
+    const idle = idleWithoutReason(s, now, windowMs, seen).filter((d) => !done.includes(d))
+    const orphans = idleOrphans(s, now, windowMs, seen)
+    for (const id of [...idleSince.keys()]) if (!seen.has(id)) idleSince.delete(id)
     for (const d of [...done, ...idle]) {
       const runId = s.tasks.find((t) => t.id === d.taskId)?.runId
       // A finished Run's workers are releaseIdleWorkers', under the coordinator's grace
@@ -396,6 +480,29 @@ export function createCoordinatorRotation(c: RotationContext): { rotate(): Promi
       if (failure === null) continue
       c.log(`${what} ${failure}`)
       if (tries >= FINISHED_RELEASE_TRIES) c.activity?.(runId, d.taskId, `Could not close console ${d.sessionId}`)
+    }
+    // No Dispatch to release these by: closed as a session (`sessions-close` refuses one an open Dispatch holds)
+    for (const o of orphans) {
+      const typedAt = c.lastPersonInputAt?.(o.sessionId) ?? null
+      if (typedAt !== null && c.nowMs() - typedAt < PERSON_INPUT_KEEPS_MS) continue
+      const key = `session:${o.sessionId}`
+      const tried = released.get(key)
+      if (tried && (tried.tries >= FINISHED_RELEASE_TRIES || tried.nextAt > c.nowMs())) continue
+      if (!c.mayStart()) return
+      const tries = (tried?.tries ?? 0) + 1
+      released.set(key, { tries, nextAt: c.nowMs() + FINISHED_RELEASE_RETRY_MS })
+      const what = `${o.runId !== undefined ? `run=${o.runId}: ` : ''}the idle ${o.role === 'planner' ? 'planner' : 'untracked agent tab'} ${o.sessionId} (${o.why})`
+      let failure: string | null = null
+      try {
+        const r = await c.handle('sessions-close', { id: o.sessionId, reason: `idle, ${o.why}` })
+        if (r.status >= 400) failure = `was not closed: ${JSON.stringify(r.body)}`
+        else c.log(`${what} was closed`)
+      } catch (e) {
+        failure = `could not be closed: ${String(e)}`
+      }
+      if (failure === null) continue
+      c.log(`${what} ${failure}`)
+      if (tries >= FINISHED_RELEASE_TRIES && o.runId !== undefined) c.activity?.(o.runId, o.taskId ?? '', `Could not close console ${o.sessionId}`)
     }
   }
 

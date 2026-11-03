@@ -11,6 +11,7 @@ import {
   repairWorkerPrompt,
   knowledgeIn,
   LAUNCH_FORBIDDEN,
+  NO_OWNER_QUESTIONS,
   type CoordinatorDeps
 } from './coordinator'
 import { TASK_KINDS, type CheckResult, type ReviewIssue } from '../types'
@@ -1369,5 +1370,22 @@ describe('typecheck and lint evidence (T17)', () => {
     const out = buildReviewSpecFile({ ...{ title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1', validated: true }, resultPath: 'C:/u/dsp.md.review.json' })
     expect(out.indexOf('## Evidence the checks ran')).toBeGreaterThan(out.indexOf('## The one question you answer'))
     expect(out.indexOf('## Evidence the checks ran')).toBeLessThan(out.indexOf('## Structured verdict'))
+  })
+})
+
+// 2026-11-03: a reviewer ended its turn asking the owner, in its terminal, which dispatch to report under, and sat there
+describe('both spec files forbid ending a turn on a question to the owner', () => {
+  const ids = { title: 'T', spec: 'S', taskId: 'tsk_1', dispatchId: 'dsp_1' }
+  it('the worker spec and the review spec carry the rule, and the review spec names astera ask', () => {
+    const worker = buildSpecFile(ids)
+    const review = buildReviewSpecFile({ ...ids, validated: false })
+    for (const md of [worker, review]) {
+      expect(md).toContain(NO_OWNER_QUESTIONS)
+      expect(md).toContain('astera ask --task-id tsk_1 --dispatch-id dsp_1')
+    }
+    expect(NO_OWNER_QUESTIONS).toContain('nobody\nreads it')
+    expect(NO_OWNER_QUESTIONS).toContain('do not report under another dispatch id')
+    // the review spec's ask command is one shell command across two lines
+    expect(review).toContain('--dispatch-id dsp_1 \\\n    --question - --options')
   })
 })

@@ -994,3 +994,67 @@ describe('T19: a restart brings every agent back as it was', () => {
     expect(handled).toEqual([{ cmd: 'run-start', run: 'run_1', reason: CRASH_REASON, resume: 'n-coord' }])
   })
 })
+
+// 2026-11-03: idle tabs cost memory. A restart brought back a reviewer whose Dispatch the state had lost as a person's
+// tab, and workers done with their plan, each a claude.exe idling at its prompt.
+describe('a handover leaves idle agent tabs closed', () => {
+  const planState = (): OrchState => {
+    const s = crashed()
+    const d = s.dispatches[0]
+    const runId = s.runs[0].id
+    return {
+      ...s,
+      tasks: [
+        { id: 'tsk_1', runId, status: 'dispatched', deps: [] },
+        { id: 'tsk_done', runId, status: 'completed', deps: [] },
+        { id: 'tsk_gate', runId, status: 'blocked', deps: [] }
+      ] as unknown as OrchState['tasks'],
+      dispatches: [
+        d,
+        { ...d, id: 'dsp_impl', taskId: 'tsk_done', sessionId: 'impl-done', endedAt: NOW, outcome: 'succeeded' },
+        { ...d, id: 'dsp_rev', taskId: 'tsk_done', sessionId: 'rev-done', review: true, endedAt: NOW, outcome: 'succeeded' },
+        { ...d, id: 'dsp_kept', taskId: 'tsk_done', sessionId: 'kept', endedAt: NOW, outcome: 'succeeded', retained: true },
+        { ...d, id: 'dsp_gate', taskId: 'tsk_gate', sessionId: 'gated', endedAt: NOW, outcome: 'succeeded' }
+      ] as OrchState['dispatches'],
+      gates: [{ id: 'g1', runId, taskId: 'tsk_gate', question: 'q', status: 'open', createdAt: NOW }] as OrchState['gates']
+    }
+  }
+  const row = (sessionId: string, over: Partial<SavedSession> = {}): SavedSession => ({ sessionId, accountId: 'acc_1', cwd: '/w/wt', nativeSessionId: `n-${sessionId}`, ...over })
+  const rollPrompt = (taskId: string, dispatchId: string): string =>
+    `Continue the work. When it is finished, report exactly once as the reporting obligation in your spec file says, with astera send --type worker_done --task-id ${taskId} --dispatch-id ${dispatchId}.`
+
+  it('does not resume a worker or reviewer done with its plan, and resumes a retained one, a gated one and a person\'s tab', async () => {
+    const logs: string[] = []
+    const { deps, created } = restoreDeps({
+      state: planState(),
+      saved: [row('impl-done'), row('rev-done'), row('kept'), row('gated'), row('tab-1', { cwd: '/w/a' })],
+      handover: true,
+      log: (m) => void logs.push(m)
+    })
+    expect(await restoreSessions(deps)).toEqual({ tabs: 3, planners: 0 })
+    expect(created.map((c) => c.sessionId)).toEqual(['kept', 'gated', 'tab-1'])
+    expect(logs.filter((l) => l.includes('done with its plan')).length).toBe(2)
+  })
+
+  it('does not resume a tab Astera started for a Dispatch the state no longer holds, and keeps an adoptable one and a person\'s roll phrase', async () => {
+    const logs: string[] = []
+    const state = planState()
+    state.tasks.push({ id: 'tsk_wait', runId: state.runs[0].id, status: 'ready', deps: [] } as never)
+    const { deps, created } = restoreDeps({
+      state,
+      saved: [
+        row('orphan', { rollPrompt: rollPrompt('tsk_done', 'dsp_8411') }),
+        row('adoptable', { rollPrompt: rollPrompt('tsk_wait', 'dsp_lost') }),
+        row('mine', { rollPrompt: 'keep going' })
+      ],
+      handover: true,
+      log: (m) => void logs.push(m)
+    })
+    expect(await restoreSessions(deps)).toEqual({ tabs: 2, planners: 0 })
+    expect(created.map((c) => [c.sessionId, c.rollPrompt])).toEqual([
+      ['adoptable', rollPrompt('tsk_wait', 'dsp_lost')],
+      ['mine', 'keep going']
+    ])
+    expect(logs.some((l) => l.includes('orphan') && l.includes('dsp_8411 is unknown to Astera') && l.includes('left closed'))).toBe(true)
+  })
+})

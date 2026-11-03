@@ -51,6 +51,9 @@ import { jobOf, type OrchState } from '../core/orchestration/state'
 import { isPlaceholderSessionId } from '../core/orchestration/types'
 import { handsOffOf } from '../core/orchestration/delivery'
 import { WORKER_DISALLOWED_TOOLS } from '../core/orchestration/exec/coordinator'
+import { specIdsOf } from '../core/orchestration/exec/adopt'
+import { openConsolesOf } from '../core/orchestration/openConsoles'
+import { outcomeOf } from '../core/orchestration/view'
 import { liftStartHold } from '../core/orchestration/startHold'
 import { providerOf } from '../core/providers/meta'
 import { claudeHistoryStrategy, findClaudeTranscript } from '../core/history/strategies/claude'
@@ -501,6 +504,37 @@ export function roleOf(s: OrchState | null, sessionId: string): SessionRole {
   return 'user'
 }
 
+/** Whether a worker session done with its last Dispatch has nothing left to do in its plan: its Run finished, or its
+ *  console would have no reason to stay (openConsoles.ts `none`: a recorded verdict, a completed Task, an older attempt).
+ *  Such a tab is not brought back by a handover (2026-11-03, idle tabs cost memory): the idle-tab release would only
+ *  close it again (exec/coordinatorRotate.ts). A retained one, one waiting on a Gate or a retry, and one whose Task or
+ *  Run the state does not know are brought back as before. */
+export function doneWorkerSession(s: OrchState | null, sessionId: string): boolean {
+  if (!s) return false
+  const last = s.dispatches.filter((d) => d.sessionId === sessionId).at(-1)
+  if (!last || (!last.outcome && !last.endedAt) || last.retained) return false
+  const runId = s.tasks.find((t) => t.id === last.taskId)?.runId
+  if (runId === undefined || !s.runs.some((r) => r.id === runId)) return false
+  if (outcomeOf(s, runId) !== 'running') return true
+  return openConsolesOf(s, runId, () => true).find((k) => k.sessionId === sessionId)?.reason === 'none'
+}
+
+/** Why a session no Dispatch names, whose roll prompt names a spec (`--task-id … --dispatch-id …`, coordinator.ts
+ *  startWorker), is an orphan Astera started: its Dispatch is unknown to the state, ended, or open under another session.
+ *  null: not one, or one adoption may still record (its Task waits for a worker with none open, exec/adopt.ts). Such a
+ *  session is not brought back as a person's tab (2026-11-03: a reviewer whose Dispatch the state lost came back as one
+ *  and sat at its prompt asking the owner which dispatch to report under). */
+export function orphanedAgentSession(s: OrchState | null, row: Pick<SavedSession, 'sessionId' | 'rollPrompt'>): string | null {
+  const ids = specIdsOf(row.rollPrompt)
+  if (!s || !ids || s.dispatches.some((d) => d.sessionId === row.sessionId)) return null
+  const recorded = s.dispatches.find((d) => d.id === ids.dispatchId)
+  if (recorded && !recorded.outcome && !recorded.endedAt) return `its dispatch ${ids.dispatchId} is open in session ${recorded.sessionId}`
+  const task = s.tasks.find((t) => t.id === ids.taskId)
+  if (task && (task.status === 'ready' || task.status === 'dispatched') && !s.dispatches.some((d) => d.taskId === task.id && !d.outcome && !d.endedAt))
+    return null
+  return recorded ? `its dispatch ${ids.dispatchId} has ended` : `its dispatch ${ids.dispatchId} is unknown to Astera`
+}
+
 type StartSettings = Pick<Parameters<RestoreDeps['createSession']>[0], 'model' | 'effort' | 'bypassPermissions' | 'disallowedTools' | 'rollPrompt'>
 
 /** T19: what a worker, or a replan's planner, was started with, so the session a handover resumes runs as it did: the
@@ -662,6 +696,17 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
       // T13: but one a restart handed over mid-Task comes back too, in its own conversation, told once it was restarted.
       midTask = d.handover === true && role === 'worker' && (row as HandoverSession).working === true && !idle()
       if (role !== 'user' && !(d.handover && role === 'worker' && (idle() || midTask))) continue
+      // Idle tabs cost memory: a worker done with its plan, and a tab Astera started for a Dispatch the state no longer
+      // holds, stay closed; the Task's own path (a review restarted, a retry) takes over
+      if (role === 'worker' && !midTask && doneWorkerSession(d.state, row.sessionId)) {
+        d.log(`session restore: worker ${row.sessionId} is done with its plan; left closed`)
+        continue
+      }
+      const orphan = role === 'user' ? orphanedAgentSession(d.state, row) : null
+      if (orphan !== null) {
+        d.log(`session restore: ${row.sessionId} was started by Astera and ${orphan}; left closed`)
+        continue
+      }
       if (!native) {
         d.log(`session restore: ${row.sessionId} in ${row.cwd} has no conversation id to resume; left closed`)
         if (midTask) d.lostWorker?.(row.sessionId)
@@ -688,7 +733,7 @@ export async function restoreSessions(d: RestoreDeps): Promise<{ tabs: number; p
         ...(d.handover ? { sessionId: row.sessionId } : {}),
         ...(row.startedAt !== undefined ? { startedAt: row.startedAt } : {}),
         // T19: a worker comes back on its own model, effort, bypass and tools; a person's tab as before
-        ...(role === 'worker' ? startedWith(row, d.state) : {}),
+        ...(role === 'worker' ? startedWith(row, d.state) : row.rollPrompt ? { rollPrompt: row.rollPrompt } : {}),
         ...(midTask ? { initialPrompt: RESTART_RESUME_LINE } : {})
       })
       d.log(`session restore: ${row.sessionId} resumed as ${info.id} (conversation ${native}) in ${row.cwd}${midTask ? ', told it was restarted mid-Task' : ''}`)

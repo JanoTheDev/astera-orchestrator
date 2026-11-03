@@ -1981,6 +1981,9 @@ export interface CoreApi {
     /** Context use (%) at which a plan's coordinator is replaced by a fresh session; 0 turns the check off. */
     getFreshCoordinatorContextPct(): Promise<number>
     setFreshCoordinatorContextPct(n: number): Promise<void>
+    /** Minutes an Astera-started tab with nothing left to do may idle before it is closed (core/settings/idleTabClose.ts). */
+    getIdleTabCloseMinutes(): Promise<number>
+    setIdleTabCloseMinutes(n: number): Promise<void>
     /** Stall watchdog (orchestration/exec/stallWatch.ts); default true. */
     getStallWatch(): Promise<boolean>
     setStallWatch(on: boolean): Promise<void>

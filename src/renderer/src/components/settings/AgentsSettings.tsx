@@ -6,6 +6,7 @@ import { ResumeStrategySettings } from '../ResumeStrategySettings'
 import { MaxWorkersSetting } from '../MaxWorkersSetting'
 import { HeavyJobsSetting } from '../HeavyJobsSetting'
 import { FreshCoordinatorSetting } from '../FreshCoordinatorSetting'
+import { IdleTabCloseSetting } from '../IdleTabCloseSetting'
 import { StallWatchSetting } from '../StallWatchSetting'
 import { StartAtLoginSetting } from '../StartAtLoginSetting'
 import { AutoAnswerSetting } from '../AutoAnswerSetting'
@@ -92,6 +93,9 @@ export function AgentsSettings(p: GroupProps): React.JSX.Element | null {
       </SettingRow>
       <SettingRow a="freshCoordinator" only={only}>
         <FreshCoordinatorSetting />
+      </SettingRow>
+      <SettingRow a="idleTabClose" only={only}>
+        <IdleTabCloseSetting />
       </SettingRow>
       <SettingRow a="stallWatch" only={only}>
         <StallWatchSetting />

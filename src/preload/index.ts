@@ -267,6 +267,8 @@ const api = {
     setApprovalDefault: invoke('settings.setApprovalDefault'),
     getFreshCoordinatorContextPct: invoke('settings.getFreshCoordinatorContextPct'),
     setFreshCoordinatorContextPct: invoke('settings.setFreshCoordinatorContextPct'),
+    getIdleTabCloseMinutes: invoke('settings.getIdleTabCloseMinutes'),
+    setIdleTabCloseMinutes: invoke('settings.setIdleTabCloseMinutes'),
     getStallWatch: invoke('settings.getStallWatch'),
     setStallWatch: invoke('settings.setStallWatch'),
     getWindowDiagnostic: invoke('settings.getWindowDiagnostic'),

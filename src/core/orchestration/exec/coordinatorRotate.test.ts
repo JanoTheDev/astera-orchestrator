@@ -286,7 +286,8 @@ describe('finished sessions of a running plan', () => {
     // A Task waiting to be dispatched again whose closed worker is still open: no Gate, no work, not retained
     const idleState = (): OrchState => running([task({ id: 'tIdle', status: 'ready' })], [dispatch({ id: 'dIdle', taskId: 'tIdle', sessionId: 'wIdle', outcome: 'failed' })])
 
-    it('closes a console with no reason after it was idle for 16 minutes, with a log line, on a fake clock', async () => {
+    it('closes a console with no reason after it was idle for the default window (1 minute), with a log line, on a fake clock', async () => {
+      expect(IDLE_CONSOLE_CLOSE_MS).toBe(60_000)
       const h = rig(idleState())
       h.ctx.sessionBusy = () => false
       let now = NOW_MS
@@ -301,10 +302,10 @@ describe('finished sessions of a running plan', () => {
       expect(h.logs.some((l) => l.includes('idle') && l.includes('wIdle'))).toBe(true)
     })
 
-    it('closes a console with no reason after 2 x the silent-minutes setting (5 min: 10 min)', async () => {
+    it('closes a console with no reason after the idle-tab setting (10 min)', async () => {
       const h = rig(idleState())
       h.ctx.sessionBusy = () => false
-      h.ctx.silentMinutes = async () => 5
+      h.ctx.idleCloseMinutes = async () => 10
       let now = NOW_MS
       h.ctx.nowMs = () => now
       await h.rotation.releaseFinished()
@@ -380,6 +381,88 @@ describe('finished sessions of a running plan', () => {
     }
     expect(h.releaseWorker).toHaveBeenCalledTimes(FINISHED_RELEASE_TRIES)
     expect(h.activities).toEqual(['Could not close console wDone'])
+  })
+
+  describe('2026-11-03: idle tabs no Dispatch holds', () => {
+    // The reviewer of dsp_8411…: its Dispatch was lost from the state, a later review of the Task finished, and it sat
+    // at its prompt asking the owner which dispatch to report under
+    const orphanState = (): OrchState =>
+      running(
+        [task({ id: 'tsk_rev', status: 'completed' })],
+        [
+          dispatch({ id: 'dImpl', taskId: 'tsk_rev', sessionId: 'wImpl', retained: true }),
+          dispatch({ id: 'dRev2', taskId: 'tsk_rev', sessionId: 'wRev2', review: true, retained: true })
+        ]
+      )
+    const spec = (taskId: string, dispatchId: string): string =>
+      `Continue the work. When it is finished, report exactly once as the reporting obligation in your spec file says, with astera send --type worker_done --task-id ${taskId} --dispatch-id ${dispatchId}.`
+    const orphanRig = (s: OrchState, live: Array<{ id: string; spec?: string }>) => {
+      const h = rig(s)
+      const closed: Array<Record<string, unknown>> = []
+      const handle = h.ctx.handle
+      h.ctx.handle = async (cmd, args) => {
+        if (cmd === 'sessions-close') {
+          closed.push(args)
+          return { status: 200, body: { closed: true } }
+        }
+        return handle(cmd, args)
+      }
+      h.ctx.sessionBusy = () => false
+      h.ctx.liveSessions = () => live
+      let now = NOW_MS
+      h.ctx.nowMs = () => now
+      return { ...h, closed, advance: (ms: number) => void (now += ms) }
+    }
+
+    it('closes a tab Astera started for a Dispatch the state does not know, once it idled for the window', async () => {
+      const h = orphanRig(orphanState(), [{ id: 'wLost', spec: spec('tsk_rev', 'dsp_lost') }])
+      await h.rotation.releaseFinished()
+      expect(h.closed).toEqual([])
+      h.advance(IDLE_CONSOLE_CLOSE_MS)
+      await h.rotation.releaseFinished()
+      expect(h.closed).toEqual([{ id: 'wLost', reason: 'idle, its dispatch dsp_lost is unknown to Astera' }])
+      expect(h.logs.some((l) => l.includes('untracked agent tab wLost') && l.includes('was closed'))).toBe(true)
+    })
+
+    it('keeps a hand-opened tab, a busy orphan, one the owner typed into, and one adoption may still record', async () => {
+      const s = running(
+        [task({ id: 'tsk_rev', status: 'completed' }), task({ id: 'tsk_wait', status: 'ready' })],
+        [dispatch({ id: 'dImpl', taskId: 'tsk_rev', sessionId: 'wImpl', retained: true })]
+      )
+      const h = orphanRig(s, [
+        { id: 'mine' }, // no spec: the owner's own tab
+        { id: 'busy', spec: spec('tsk_rev', 'dsp_gone1') },
+        { id: 'typed', spec: spec('tsk_rev', 'dsp_gone2') },
+        { id: 'adoptable', spec: spec('tsk_wait', 'dsp_gone3') }
+      ])
+      h.ctx.sessionBusy = (id) => id === 'busy'
+      h.ctx.lastPersonInputAt = (id) => (id === 'typed' ? NOW_MS : null)
+      await h.rotation.releaseFinished()
+      h.advance(5 * IDLE_CONSOLE_CLOSE_MS)
+      await h.rotation.releaseFinished()
+      expect(h.closed).toEqual([])
+    })
+
+    it("closes an approved auto plan's planner left idle, and keeps one awaiting approval, a chat-mode one and a chat replan's", async () => {
+      const s = orphanState()
+      s.jobs[0] = { ...s.jobs[0], planning: 'auto', plannerSessionIds: ['plannerOld', 'planner1'] }
+      const h = orphanRig(s, [])
+      await h.rotation.releaseFinished()
+      h.advance(IDLE_CONSOLE_CLOSE_MS)
+      await h.rotation.releaseFinished()
+      expect(h.closed).toEqual([{ id: 'planner1', reason: 'idle, its plan was approved' }])
+
+      // `planning` absent reads as chat on a plan that is not hands-off
+      for (const over of [{ pendingStart: true, planning: 'auto' }, { planning: 'chat' }, {}, { planning: 'auto', replanning: { runId: 'run_1', sessionId: 'rp', startedAt: NOW, chat: true } }]) {
+        const kept = orphanState()
+        kept.jobs[0] = { ...kept.jobs[0], plannerSessionIds: ['planner1'], ...over } as never
+        const k = orphanRig(kept, [])
+        await k.rotation.releaseFinished()
+        k.advance(5 * IDLE_CONSOLE_CLOSE_MS)
+        await k.rotation.releaseFinished()
+        expect(k.closed).toEqual([])
+      }
+    })
   })
 
   it("ends a reviewer once its verdict is recorded, while the Task is still being repaired", async () => {
