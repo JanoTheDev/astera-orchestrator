@@ -15,6 +15,7 @@ import { createPresence } from './presence'
 import { handleCommand, handleExit, type OrchServerDeps } from '../core/orchestration/command'
 // W8-D several plans in one repo
 import { refreshOverlaps } from '../core/orchestration/overlap'
+import { baseOf, rebase, stampCommitted } from '../core/orchestration/staleWrite'
 import type { CompletionCheckInput } from '../core/orchestration/pluginChecks'
 import { OrchestrationStore, isValidState, type OrchLoadResult } from '../core/orchestration/store'
 import { applyPendingReports, readPendingReports, type QueuedReport } from '../core/orchestration/pendingDrain'
@@ -822,6 +823,8 @@ export function createHostOrch(a: {
         aliveSessionIds: alive,
         reportedDispatchIds: reportedDispatchIdsOf(queued.map((q) => q.report))
       })
+      // The loaded state is the base of the first writes (staleWrite.ts), unless a `state-put` already stood in.
+      if (baseOf(store.get()) === undefined) stamp(store.get(), version)
       // The restart cleanup is a transition like any other (the app did this at its boot): every worker it
       // closed as outcome_unknown lands as ATTEMPT_LOST, by the Host (P5).
       journalSafely('recording the load', () => a.journal?.loaded({ before: loadResult!.before, state: store.get() }))
@@ -1036,6 +1039,33 @@ export function createHostOrch(a: {
       }
     }
   }
+  /** The version each committed state was, for the stale-write log line. Weak: a state nobody holds is let go. */
+  const versionOf = new WeakMap<OrchState, number>()
+  /** Marks a state the store now holds as a base (staleWrite.ts), at the version it is. */
+  const stamp = (s: OrchState, at: number): void => {
+    stampCommitted(s)
+    versionOf.set(s, at)
+  }
+  /**
+   * **The guard against a commit built on an older snapshot** (staleWrite.ts). Every path that commits through
+   * `depsFor` passes here: a command (chain or not), a review or validation start, a tail, a tick, a drain, a sweep.
+   * A write whose base is the state held now, or that names no base, is the write as given. One built on an older
+   * state is rebased onto the current one, and said loudly: it is a flow that read, awaited, and wrote, and the
+   * log is how the next one is found.
+   */
+  const rebaseIfStale = (current: OrchState, given: OrchState, actor: JournalActor): OrchState => {
+    const base = baseOf(given)
+    if (base === undefined || base === current || given === current) return given
+    const r = rebase(base, given, current)
+    const list = (xs: string[]): string => xs.slice(0, 12).join(', ') + (xs.length > 12 ? `, … ${xs.length - 12} more` : '')
+    a.log(
+      `stale write rebased: a commit by ${actor.surface}${actor.sessionId ? ` ${actor.sessionId}` : ''} was built on version ${versionOf.get(base) ?? '?'} ` +
+        `while the Host is at ${version}; kept ${r.kept.length} change(s) committed meanwhile` +
+        (r.kept.length > 0 ? ` (${list(r.kept)})` : '') +
+        (r.conflicts.length > 0 ? `; both changed, the writer's side taken: ${list(r.conflicts)}` : '')
+    )
+    return r.state
+  }
   /** Item 9: marks the sessions a commit gave orchestration (exec/runEnd.ts orchSessionsAdded). Isolated: the commit
    *  has landed, and a mark that fails costs only the sweep's reach. */
   const markOrchSessions = (prev: OrchState, next: OrchState): void => {
@@ -1089,8 +1119,12 @@ export function createHostOrch(a: {
       setState: async (given, how) => {
         // The diff base, read before the save moves memory: each commit is journaled once, from here.
         const prev = store.get()
+        // **A write built on a state that has moved on is rebased, never landed whole** (staleWrite.ts; the four
+        // review Dispatches lost on 2026-11-02). Its base is the state it was spread from; when that is not the state
+        // held now, only what the writer changed is applied, and every commit made meanwhile stays.
+        const written = rebaseIfStale(prev, given, actor)
         // W8-D: every plan's `overlaps` follows the Tasks of this commit (overlap.ts), whichever command moved them
-        const next = refreshOverlaps(prev, given)
+        const next = refreshOverlaps(prev, written)
         // Before the commit is marked below: a refused mass delete must leave no half-applied commit behind.
         store.checkSave(next, how)
         // Reserved before the write, for `reserveVersion`'s reason and for one that is this path's
@@ -1104,6 +1138,8 @@ export function createHostOrch(a: {
         // would let a retry re-run a command whose effect the next command can already see.
         // A rollback of this call's own earlier commit takes that one back instead (A36).
         marks.commits += how?.rollsBack ? -1 : 1
+        // Every state derived from this one names it as its base from here on (staleWrite.ts)
+        stamp(next, committed)
         // Published as memory moves, not after the disk: `subscribe` snapshots memory and `version`, which move
         // together right here, so a push taken any later could reach a subscriber older than its snapshot.
         const saving = store.save(next, how)
@@ -1431,6 +1467,8 @@ export function createHostOrch(a: {
     const prev = store.get()
     // Taken here, not after the write lands — the whole of `reserveVersion`'s note.
     const committed = reserveVersion()
+    // The app's whole state is the base of the writes after it (staleWrite.ts); it arrived as JSON, with none of its own
+    stamp(state, committed)
     // Published as memory moves, for the reason in `depsFor`'s setState.
     const saving = store.save(state)
     loaded = true
