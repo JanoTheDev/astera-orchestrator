@@ -32,7 +32,7 @@ import { isLost } from '../../recovery/candidates'
 import { editingByProject, isLeaseWaitGate, LEASE_WAIT_OPTIONS, projectKeyOf, sameFilesAs, serialFilesOf, workerCapOf, workersAgainstCap } from '../schedule'
 import { DROPPED_OPTIONS, isDroppedGate, plannerOverlapNotices } from '../overlap'
 import { coordinatorStarting, jobOf, runGatedForTask, type OrchState } from '../state'
-import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, type Dispatch, type Job, type JobRun, type Task } from '../types'
+import { DEFAULT_CONCURRENCY, FAILURE_LIMIT, isPlaceholderSessionId, type Dispatch, type Job, type JobRun, type Task } from '../types'
 import { outcomeOf } from '../view'
 import { ENTER_DELAY_MS } from '../../sessions/sessionDriver'
 import { workerStartInFlight } from './coordinatorRotate'
@@ -111,6 +111,10 @@ export const PLANNER_GONE_MS = 2 * 60_000
 /** How many times a gone planner is started again before the owner is told; the first resumes its conversation. */
 export const PLANNER_GONE_RESTARTS = 2
 
+/** A worker lost because the Host lost sight of it (its restart cleanup closed it `outcome_unknown`): the Host died or
+ *  jammed, which says nothing about the work. */
+export const lostToTheMachine = (d: Dispatch): boolean => isLost(d) && d.workerState === 'outcome_unknown'
+
 /** The wait before try `step` (1-based count of tries made). */
 const backoffOf = (step: number): number => BACKOFF_MS[Math.min(Math.max(step, 1) - 1, BACKOFF_MS.length - 1)]
 
@@ -163,8 +167,13 @@ export type StallRemedy = { key: string; runId: string } & (
   | { kind: 'merge'; task: Task; runRoot: string; worktree: string }
   | { kind: 'draft-pr'; done: number }
   | { kind: 'restart'; since: number; try: number }
-  /** No `dispatch`: the Task is `dispatched` with no record at all, and no live worker runs its spec */
-  | { kind: 'retry-lost'; task: Task; dispatch?: Dispatch; try: number }
+  /** No `dispatch`: the Task is `dispatched` with no record at all, and no live worker runs its spec. `owed`: started
+   *  past its circuit breaker (`worker-start --owed`), its lost attempt lost to the machine. `end`: Dispatches of the
+   *  Task whose sessions are still alive, ended first so no second worker runs beside them */
+  | { kind: 'retry-lost'; task: Task; dispatch?: Dispatch; try: number; owed?: true; end?: string[] }
+  /** Hands-off: a lost Task past its breaker or its retries gets a fresh attempt, or is given up on (handsOffRecovery.ts),
+   *  never raised to the owner. `end` as for `retry-lost` */
+  | { kind: 'recover'; task: Task; why: string; end?: string[] }
   | { kind: 'nudge-worker'; task: Task; dispatch: Dispatch; since: number }
   /** A Task `validating` with no check of it running: its validation started again in its implementation's folder */
   | { kind: 'revalidate'; task: Task; cwd: string; since: number; try: number }
@@ -190,6 +199,7 @@ export type StallRemedy = { key: string; runId: string } & (
 export const APPLIED_HERE: ReadonlySet<StallRemedy['kind']> = new Set([
   'restart',
   'retry-lost',
+  'recover',
   'revalidate',
   'nudge-worker',
   'tell-idle',
@@ -621,10 +631,29 @@ export function stallRemedies(
     const key = seed.dispatch ? `lost:${seed.dispatch.id}` : `untracked:${task.id}`
     const e = seen(key, lostAt)
     if (!due_(e, 0)) continue
-    const lostTimes = s.dispatches.filter((d) => d.taskId === task.id && isLost(d)).length
-    const spent = !driven || lostTimes >= FAILURE_LIMIT || task.consecutiveFailures >= FAILURE_LIMIT
+    // A worker lost because the Host lost sight of it (outcome_unknown: the Host died or jammed) is the machine's failure,
+    // not the work's: it counts toward its own, wider bound, not toward the Task's retries
+    const lost = s.dispatches.filter((d) => d.taskId === task.id && isLost(d))
+    const infraLost = lost.filter(lostToTheMachine).length
+    const lostTimes = lost.length - infraLost
+    // An attempt owed past the breaker: the lost one was lost to the machine, or was itself granted past the breaker
+    const owed = seed.dispatch !== undefined && (lostToTheMachine(seed.dispatch) || seed.dispatch.grantedExtra === true)
+    const tripped = task.consecutiveFailures >= FAILURE_LIMIT && !owed
+    const spent = !driven || lostTimes >= FAILURE_LIMIT || infraLost >= 2 * FAILURE_LIMIT || tripped
+    // T-dup (2026-11-03): no second worker beside a live one. Every earlier session of the Task still alive (a jammed
+    // Host took it for dead, or a worker that reported and waits) is ended before the new one starts
+    const end = probe.alive ? s.dispatches.filter((d) => d.taskId === task.id && !isPlaceholderSessionId(d.sessionId) && probe.alive!(d.sessionId)).map((d) => d.id) : []
     if (!spent && e.step < TRIES) {
-      due.push({ key, runId: run.id, kind: 'retry-lost', task, ...(seed.dispatch ? { dispatch: seed.dispatch } : {}), try: e.step + 1 })
+      due.push({ key, runId: run.id, kind: 'retry-lost', task, ...(seed.dispatch ? { dispatch: seed.dispatch } : {}), try: e.step + 1, ...(owed && task.consecutiveFailures >= FAILURE_LIMIT ? { owed: true } : {}), ...(end.length ? { end } : {}) })
+      stepped(key, e)
+    } else if (driven && handsOffOf(s, job) && (spent ? e.step === 0 : e.step === TRIES)) {
+      // Hands-off: never "raised it to you". A fresh attempt with a stronger model, or, those spent, given up on
+      const why = tripped
+        ? `failed ${task.consecutiveFailures} times in a row`
+        : spent
+          ? `its worker ended without a report ${lostTimes + infraLost} times`
+          : `${TRIES} restarts after its worker ended without a report did not start a new one`
+      due.push({ key, runId: run.id, kind: 'recover', task, why, ...(end.length ? { end } : {}) })
       stepped(key, e)
     } else if (spent ? e.step === 0 : e.step === TRIES)
       escalate(key, e, run.id, {
@@ -843,6 +872,19 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
     return typeof error === 'string' ? error : JSON.stringify(body)
   }
 
+  /** Ends the live sessions `end` names (`worker-release`) before a new worker starts for `task`, so two never run side
+   *  by side. false: one could not be ended, so nothing is started this time (the stall's backoff tries again). */
+  const endLive = async (runId: string, task: Task, end: readonly string[] | undefined): Promise<boolean> => {
+    for (const id of end ?? []) {
+      const reply = await d.handle('worker-release', { dispatch: id })
+      if (reply.status >= 400) {
+        line(runId, `did not start ${task.title} again: its earlier worker ${id} is still alive and could not be ended: ${why(reply.body)}`, task.id)
+        return false
+      }
+      d.log(`run=${runId}: watchdog: ended the still-alive worker ${id} of ${task.id} before starting it again`)
+    }
+    return true
+  }
   const apply = async (r: StallRemedy): Promise<void> => {
     switch (r.kind) {
       case 'restart': {
@@ -856,7 +898,23 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
         )
         return
       }
+      case 'recover': {
+        if (!(await endLive(r.runId, r.task, r.end))) return
+        const reply = await d.handle('task-hands-off-recover', { id: r.task.id })
+        const step = (reply.body as { step?: { kind: string; model?: string; effort?: string } } | null)?.step
+        line(
+          r.runId,
+          reply.status >= 400
+            ? `could not recover ${r.task.title} (${r.why}): ${why(reply.body)}`
+            : step?.kind === 'fresh'
+              ? `${r.task.title} ${r.why}: started a fresh attempt${step.model ? ` on ${step.model}${step.effort ? `/${step.effort}` : ''}` : ''} with a summary of what failed (hands-off, so not asked)`
+              : `${r.task.title} ${r.why}, after its fresh attempt too: marked failed and what waits on it cancelled, so the rest of the plan finishes`,
+          r.task.id
+        )
+        return
+      }
       case 'retry-lost': {
+        if (!(await endLive(r.runId, r.task, r.end))) return
         // As a coordinator retries one: the same account and agent, a new Dispatch linked to the lost one. With no
         // Dispatch on record, as a coordinator starts one: the Task's first account, on that account's agent
         const account = r.dispatch?.accountId ?? r.task.accountIds?.[0] ?? ''
@@ -866,7 +924,7 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           r.task.provider ??
           'claude'
         const start = (on?: string) =>
-          d.handle('worker-start', { task: r.task.id, agent, ...(on ? { account: on } : {}), ...(r.dispatch ? { retryOf: r.dispatch.id } : {}) })
+          d.handle('worker-start', { task: r.task.id, agent, ...(on ? { account: on } : {}), ...(r.dispatch ? { retryOf: r.dispatch.id } : {}), ...(r.owed ? { owed: true } : {}) })
         let reply = await start(account)
         // That account is out of usage (paused until its window resets): any other with room, as worker-start picks
         if (reply.status === 409 && (reply.body as { usagePaused?: unknown })?.usagePaused !== undefined) reply = await start()

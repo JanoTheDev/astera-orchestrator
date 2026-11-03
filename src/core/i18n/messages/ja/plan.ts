@@ -453,4 +453,5 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.consoles.reason.awaiting-retry': '再試行待ち',
   'plan.consoles.reason.closing': '終了中',
   'plan.consoles.reason.none': 'まもなく閉じます',
+  'plan.reason.failureLimitHandsOff': '{failures} 回連続で失敗 · おまかせ: Astera が自分で新しく試し直します',
 }

@@ -89,7 +89,7 @@ export function reasonText(
     case 'gate':
       return { key: 'plan.reason.gate', params: { question: reason.question } }
     case 'failure-limit':
-      return { key: 'plan.reason.failureLimit', params: { failures: reason.failures } }
+      return { key: reason.handsOff ? 'plan.reason.failureLimitHandsOff' : 'plan.reason.failureLimit', params: { failures: reason.failures } }
     case 'failed-retry':
       // T10: "Failed · retrying in 4 min (attempt 2 of 3)": a hands-off plan retries it itself
       if (reason.retryAt !== undefined) {
@@ -400,7 +400,9 @@ export function taskColumnOf(task: JobTask, session?: LiveSession, asked = false
   const c = categoryOf(task)
   if (c === 'done' || c === 'cancelled') return 'done'
   if (c === 'failed' || asked || session?.prompt !== undefined || task.gate !== undefined) return 'needs-you'
-  if (task.board?.reason && NEEDS_YOU_REASONS.has(task.board.reason.kind)) return 'needs-you'
+  // A hands-off Task past its breaker is Astera's to move (exec/handsOffRecovery.ts), not the owner's
+  const astera = task.board?.reason?.kind === 'failure-limit' && task.board.reason.handsOff === true
+  if (task.board?.reason && !astera && NEEDS_YOU_REASONS.has(task.board.reason.kind)) return 'needs-you'
   if (c === 'awaiting-review') return 'review'
   if (c === 'running') return 'working'
   return 'planned'

@@ -601,6 +601,18 @@ const SESSION = {
       { name: 'reason', value: '<text>', about: 'accept: why its work counts as done (its gaps)' }
     ]
   },
+  'task-start-retry': {
+    summary: "Astera's own: a hands-off Task's worker could not be started; its next start waits out a backoff, then it is held",
+    detail: 'Refused from an agent session and an MCP client, and for a Task outside a hands-off plan. Opens no Gate.',
+    flags: [req('id', '<taskId>', 'the Task'), req('reason', '<text>', 'why the start failed')]
+  },
+  'task-hands-off-recover': {
+    summary: "Astera's own: a hands-off Task whose circuit breaker tripped gets a fresh attempt (a stronger model), or is given up on",
+    detail:
+      'Refused from an agent session and an MCP client. Once its fresh attempts failed too, the Task is marked failed and what ' +
+      'waits on it is cancelled, so the plan finishes.',
+    flags: [req('id', '<taskId>', 'the failed or lost Task')]
+  },
   'run-failed-ask': {
     summary: "Astera's own: ask the owner about each failed Task a stalled Run waits on, once per failure",
     detail: 'Refused from an agent session and an MCP client. Answers whether the Run is stalled and what it asked.',
