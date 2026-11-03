@@ -7728,6 +7728,27 @@ async function handleCommandInner(
       const delivery = { ...pushTarget, message: deliveryMessage(jobNameOf(job), deliveryIssuesOf(s, run)), checks: deliveryChecksOf(s, id) }
       const r = await offChain(deps, () => deps.deliverPush!(delivery))
       const at = deps.now?.() ?? now
+      // 2026-11-03: an earlier attempt of this Run, which held the branch's delivery lock while this one waited, landed
+      // it meanwhile: this attempt's stop is not the Run's, and its delivery stands
+      const landedMeanwhile = deps.getState().runs.find((x) => x.id === id)?.delivery
+      if (!r.ok && landedMeanwhile?.sha !== undefined)
+        return okBody({ delivery: route, branch: landedMeanwhile.branch ?? null, sha: landedMeanwhile.sha, pushed: false, deliveryState: progressOf(deps.getState()) })
+      // 2026-11-03: another delivery to the same branch still held it: nothing was touched, so no attempt is counted and
+      // nobody is asked; tried again in a minute, when it takes its place in line again (exec/deliveryLock.ts)
+      if (!r.ok && r.code === 'delivery-busy') {
+        const prev = progressOf(deps.getState())
+        const again: DeliveryProgress = {
+          ...(prev ?? { attempts: 0 }),
+          state: run.deliveryState?.state === 'needs-owner' ? 'needs-owner' : 'retrying',
+          attempts: prev?.attempts ?? 0,
+          lastError: r.reason,
+          lastCode: r.code,
+          lastAttemptAt: at,
+          nextRetryAt: new Date(Date.parse(at) + 60_000).toISOString()
+        }
+        await deps.setState(withProgress(deps.getState(), again))
+        return { status: 409, body: { error: r.reason, code: r.code, ...(r.branch ? { branch: r.branch } : {}), deliveryState: again } }
+      }
       // T3: recorded quietly: the owner is asked once, after the last automatic attempt (settle)
       const recorded = recordDelivery(
         deps.getState(),

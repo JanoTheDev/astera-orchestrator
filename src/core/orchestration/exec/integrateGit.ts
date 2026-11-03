@@ -19,6 +19,7 @@ import { inCheckoutSlot } from '../../worktrees/checkoutLimit'
 import { workerBaseFailure } from '../../worktrees/base'
 import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, fetchSerially, GIT_WRITE_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
+import { deliveryLockKey, withDeliveryLock } from './deliveryLock'
 import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup, type InstallTurn } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
 import type { WorktreeStore } from '../../worktrees/registry'
@@ -1064,6 +1065,32 @@ async function recheckTips(
   return i === -1 ? null : `${a.list[i]} moved to ${heads[i]?.slice(0, 7) ?? 'an unreadable HEAD'}`
 }
 
+/** The files both `git diff --name-only` answers name; null when either could not be read (unknown is not "none"). */
+function sharedFiles(a: GitResult | null, b: GitResult | null): string[] | null {
+  if (a === null || b === null || !a.ok || !b.ok) return null
+  const mine = new Set(a.stdout.split('\n').map((x) => x.trim()).filter((x) => x !== ''))
+  return [...new Set(b.stdout.split('\n').map((x) => x.trim()).filter((x) => mine.has(x)))]
+}
+
+/** Whether a plan's delivery has nothing left to do in `cwd`: every worktree readable, clean (untracked files too: a
+ *  merge worker would commit them) and its HEAD already in HEAD (`base`), which is origin's tip (`landedRef`; null for
+ *  a local delivery, which pushes nothing). No worktree, or any doubt, is no. */
+async function alreadyLanded(worktrees: string[], base: string, landedRef: string | null, cwd: string, run: typeof realGit): Promise<boolean> {
+  if (worktrees.length === 0) return false
+  if (landedRef !== null) {
+    const tip = await run(['rev-parse', landedRef], { cwd })
+    if (!tip.ok || tip.stdout !== base) return false
+  }
+  for (const wt of worktrees) {
+    const head = await run(['rev-parse', 'HEAD'], { cwd: wt })
+    if (!head.ok || head.stdout === '') return false
+    const clean = await run(['status', '--porcelain'], { cwd: wt })
+    if (!clean.ok || clean.stdout !== '') return false
+    if (!(await run(['merge-base', '--is-ancestor', head.stdout, base], { cwd })).ok) return false
+  }
+  return true
+}
+
 /** The worktrees whose HEAD no other one in the list already holds: merging those brings everything. A worktree whose
  *  HEAD cannot be read is kept, so nothing is dropped on a guess; T19: but one gone or half removed (sortFolders) is
  *  dropped, as mergeWorktrees drops it: refreshing it can only fail. */
@@ -1124,6 +1151,8 @@ export interface PushContext {
   gitOp?: IntegrateContext['gitOp']
   /** Test seam for the retry's `.git` link check and which worktrees are there (tipsOf); defaults to the action-lane check (worktrees/presence.ts). */
   presence?: PresenceCheck
+  /** Test seam: how long a delivery waits for the one before it on the same branch (DELIVERY_LOCK_WAIT_MS). */
+  lockWaitMs?: number
 }
 
 /** T3: why a push delivery stopped part-way, for the caller to tell a retry from an integration Task: `fetch-failed`
@@ -1149,6 +1178,9 @@ export type PushStop =
   | 'unmerged-work'
   /** git gave no answer while merging (a timeout, a check that did not come back): nothing landed, tried again later. */
   | 'git-busy'
+  /** Another delivery to the same branch of the repository still held it (deliveryLock.ts) past the wait: nothing was
+   *  touched; tried again soon, and not counted as a failed attempt. */
+  | 'delivery-busy'
 
 /** The end of a git command's output, both streams: a pre-push hook prints its report on stdout, git its own line
  *  ("failed to push some refs") on stderr, and the report is what says why. */
@@ -1164,17 +1196,18 @@ export const PRE_PUSH_GATE_TIMEOUT_MS = 15 * 60 * 1000
  *  for `git push origin <branch>`: git's arguments (`origin <url>`) and its stdin line, from a temp file. The hook is
  *  found the way git finds it (`rev-parse --git-path`, which honours core.hooksPath); none, or no answer, is no gate
  *  (git push still runs whatever hook there is). `git hook run --to-stdin` when this git has it, else the hook file
- *  through git's own sh. Failed: the end of its output (200 lines), for the fix Task to quote. */
+ *  through git's own sh. Failed: the end of its output (200 lines), for the fix Task to quote. `ran`: a hook was found
+ *  and passed, so the push that follows skips it (`--no-verify`): the same hook on the same content, run once. */
 export async function runPrePushGate(
   cwd: string,
   branch: string,
   run: typeof realGit,
   log: (m: string) => void
-): Promise<{ ok: true } | { ok: false; output: string }> {
+): Promise<{ ok: true; ran: boolean } | { ok: false; output: string }> {
   const where = await run(['rev-parse', '--git-path', 'hooks/pre-push'], { cwd })
-  if (!where.ok || where.stdout === '') return { ok: true }
+  if (!where.ok || where.stdout === '') return { ok: true, ran: false }
   const hook = path.resolve(cwd, where.stdout)
-  if (!(await fs.stat(hook).then((s) => s.isFile(), () => false))) return { ok: true }
+  if (!(await fs.stat(hook).then((s) => s.isFile(), () => false))) return { ok: true, ran: false }
   const url = await run(['remote', 'get-url', '--push', 'origin'], { cwd })
   const local = await run(['rev-parse', 'HEAD'], { cwd })
   const remote = await run(['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`], { cwd })
@@ -1190,7 +1223,7 @@ export async function runPrePushGate(
     const r = /--to-stdin/.test(help.stdout + help.stderr)
       ? await run(['hook', 'run', '--ignore-missing', `--to-stdin=${stdin}`, 'pre-push', '--', ...args], { cwd, timeoutMs: PRE_PUSH_GATE_TIMEOUT_MS, trim: false })
       : await runHookFile(hook, args, line, cwd, run)
-    if (r.ok) return { ok: true }
+    if (r.ok) return { ok: true, ran: true }
     const out = [r.stdout, r.stderr].map((x) => x.trim()).filter((x) => x !== '').join('\n')
     const why = r.timedOut ? `the hook ran past ${PRE_PUSH_GATE_TIMEOUT_MS / 60_000} minutes and was stopped` : `exit ${r.exitCode ?? '?'}`
     return { ok: false, output: `${out.split('\n').slice(-200).join('\n')}\n(${why})` }
@@ -1258,21 +1291,23 @@ export type PushResult =
  *    last failure undoes the merges as 5 does;
  * 5. the validation runs on the merged folder, after an install when the merges changed package.json or a lockfile; a failure resets to the commit recorded before 4, which undoes only
  *    Astera's merges (the folder was clean at 2);
- * 6. `push origin <branch>`, **never forced**; a rejected push fetches, and when origin moved on merges it in and runs
- *    the validation again, then pushes; up to `PUSH_ROUNDS` times. T3: every stop here (a conflict with origin, a
+ * 6. the repository's pre-push hook (`runPrePushGate`), then `push origin <branch>` (`--no-verify` once that hook ran
+ *    and passed: it is not run twice), **never forced**; a rejected push fetches, and when origin moved on merges it in;
+ *    only when origin's new commits touch a file this delivery changes (or that cannot be told) are the validation and
+ *    the hook run again; then it pushes; up to `PUSH_ROUNDS` times. T3: every stop here (a conflict with origin, a
  *    failed fetch, a push still rejected, a failed second validation) undoes the merges as 5 does, so no half
  *    delivery sits unpushed on the owner's branch. T1: a push refused while origin has not moved (a pre-push hook)
  *    stops after that one fetch as `push-refused`, the hook's output in the reason.
  * The undo resets only while the folder is still on `branch` with no tracked change Astera did not make.
+ * 2026-11-03: steps 2 to 6 hold the repository and branch's delivery lock (deliveryLock.ts): a second delivery waits,
+ * then starts from 2 on the branch as the first left it; one that waited past DELIVERY_LOCK_WAIT_MS is `delivery-busy`.
  * T6 `local` (a `merge` delivery) skips 3 and 6: it ends after the validation, the merges left on the folder's branch.
  */
 export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<PushResult> {
   const run = ctx.git ?? realGit
   const cwd = a.cwd
-  const w = { cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS }
   // A fetch is network only: its own, shorter deadline (GIT_FETCH_TIMEOUT_MS)
   const net = { cwd, timeoutMs: GIT_FETCH_TIMEOUT_MS }
-  const why = gitWhy
 
   // 1.
   let branch = a.branch
@@ -1321,6 +1356,40 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     return { ok: true, branch, sha: tip.ok ? tip.stdout : '', merged: [], validated: 0 }
   }
 
+  // 2026-11-03: one delivery per repository and branch, merge to push (deliveryLock.ts). A delivery that waits starts
+  // on the branch as the one before it left it: fetched again, and its merge judged against that new tip
+  const key = await deliveryLockKey(cwd, branch, run)
+  const label = a.message.split('\n')[0]?.trim() || a.worktrees[0] || cwd
+  const target = branch
+  const held = await withDeliveryLock(key, label, () => landOnBranch(a, ctx, target), {
+    log: ctx.log,
+    ...(ctx.lockWaitMs !== undefined ? { waitMs: ctx.lockWaitMs } : {})
+  })
+  if (held.ok) return held.value
+  return fail(
+    `another delivery to ${branch} of this repository (${held.holder}) has been running for ${Math.round(held.heldMs / 60_000)} minutes; this one waits for it and is tried again`,
+    'delivery-busy'
+  )
+}
+
+/** `deliverByPush` from step 2 on, under the repository and branch's delivery lock. */
+async function landOnBranch(a: PushDelivery, ctx: PushContext, branch: string): Promise<PushResult> {
+  const run = ctx.git ?? realGit
+  const cwd = a.cwd
+  const w = { cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS }
+  const net = { cwd, timeoutMs: GIT_FETCH_TIMEOUT_MS }
+  const why = gitWhy
+  const landed = a.local ? branch : `origin/${branch}`
+  const failWith = (reason: string, code?: PushStop, conflictWith?: string, worktrees?: { path: string; branch: string | null }[]): PushResult => ({
+    ok: false,
+    reason,
+    branch,
+    ...(code ? { code } : {}),
+    ...(conflictWith ? { conflictWith } : {}),
+    ...(worktrees && worktrees.length > 0 ? { worktrees } : {})
+  })
+  const fail = (reason: string, code?: PushStop, conflictWith?: string): PushResult => failWith(reason, code, conflictWith)
+
   // 2.
   const on = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd })
   if (!on.ok) return fail(`your folder ${cwd} is not on a branch (detached HEAD); put it on ${branch}`)
@@ -1342,6 +1411,13 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const before = await run(['rev-parse', 'HEAD'], { cwd })
   if (!before.ok) return fail(`could not read HEAD in ${cwd}: ${why(before)}`)
   let base = before.stdout
+  // An earlier attempt of this same plan, which waited ahead of this one under the lock (the loop gave up waiting for
+  // it), may have landed it: every worktree clean and its HEAD already on the branch, which is origin's tip. Nothing
+  // to merge, validate or push
+  if (await alreadyLanded(a.worktrees, base, a.local ? null : landed, cwd, run)) {
+    ctx.log(`delivery: every worktree of this plan is already on ${branch} (${base.slice(0, 7)}); nothing to merge or push`)
+    return { ok: true, branch, sha: base, merged: [], validated: 0 }
+  }
   /** Back to `base` before merging again; null once there, else why not. Only Astera's own merges are above `base` (the
    *  folder was clean at 2), as in `undo` below. */
   const backToBase = async (): Promise<string | null> => {
@@ -1472,15 +1548,22 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   // merges undone, and a hands-off plan's fix Task quotes the output
   const gate = await runPrePushGate(cwd, branch, run, ctx.log)
   if (!gate.ok) return undo(`the pre-push hook failed on the merged ${branch}, so nothing was pushed:\n${gate.output}\n`, 'push-refused')
+  // 2026-11-03: the hook ran here, so `git push` does not run it a second time (a monorepo's typecheck and lint, minutes
+  // each time, and again on every rejected round). With no hook found here git push runs whatever hook it finds
+  let hookRan = gate.ran
+  const push = (): ReturnType<typeof run> => run(['push', ...(hookRan ? ['--no-verify'] : []), 'origin', branch], w)
 
   // 6. Origin can move on while the validation runs (another plan's delivery, a teammate's push). Its commits are merged
-  // in, the result validated again (a clean merge can still clash, e.g. two migrations taking one number), then pushed;
-  // never forced
-  let pushed = await run(['push', 'origin', branch], w)
+  // in; when they touch a file this delivery changes, the result is validated and the hook run again (a clean merge can
+  // still clash, e.g. two migrations taking one number), else the checks that passed on this delivery's content stand.
+  // Then pushed; never forced
+  let pushed = await push()
   let validated = checked.ran
   const ident = pushed.ok ? [] : await mergeIdentityArgs(cwd, run)
   for (let round = 1; !pushed.ok && round <= PUSH_ROUNDS; round++) {
     ctx.log(`delivery: push of ${branch} was rejected (${why(pushed)}), fetching (round ${round} of ${PUSH_ROUNDS})`)
+    // origin's tip this delivery last stood on, and so what it adds on top of it, before the fetch moves the ref
+    const tipBefore = await run(['rev-parse', `origin/${branch}`], { cwd })
     const refetched = await fetchSerially(['fetch', 'origin', branch], net, run)
     if (!refetched.ok)
       return undo(`git push origin ${branch} was rejected (${why(pushed)}), and fetching origin to catch up failed: ${why(refetched)}.`, 'fetch-failed')
@@ -1490,6 +1573,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     if (!behind && !/^fatal:/m.test(pushed.stderr))
       return undo(`git push origin ${branch} was refused, and origin/${branch} has not moved, so pushing again would not help:\n${why(pushed)}\n`, 'push-refused')
     if (behind) {
+      const ours = tipBefore.ok ? await run(['diff', '--name-only', tipBefore.stdout, 'HEAD'], { cwd }) : null
       // T3: a merge commit needs an identity (none on a fresh machine), and the app's git watcher is told it is Astera's
       const op = ctx.gitOp ? await ctx.gitOp.begin('job-merge', cwd) : null
       let caught: Awaited<ReturnType<typeof run>>
@@ -1507,15 +1591,36 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
           tip.ok ? tip.stdout : undefined
         )
       }
-      const rechecked = await validateMerged()
-      if (!rechecked.ok)
-        return undo(
-          `the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`,
-          rechecked.busy ? undefined : 'validation-failed'
+      const incoming = tipBefore.ok ? await run(['diff', '--name-only', tipBefore.stdout, `origin/${branch}`], { cwd }) : null
+      const shared = sharedFiles(ours, incoming)
+      if (shared !== null && shared.length === 0) {
+        ctx.log(
+          `delivery: origin/${branch} moved on with changes to none of the files this delivery changes; ` +
+            `the checks and the pre-push hook that passed on it stand, pushing again (round ${round})`
         )
-      validated = rechecked.ran
+      } else {
+        ctx.log(
+          shared === null
+            ? `delivery: could not tell which files origin/${branch}'s new commits change; validating and running the pre-push hook again`
+            : `delivery: origin/${branch}'s new commits change ${shared.length} file(s) this delivery changes too (${shared.slice(0, 5).join(', ')}${shared.length > 5 ? ', …' : ''}); validating and running the pre-push hook again`
+        )
+        const rechecked = await validateMerged()
+        if (!rechecked.ok)
+          return undo(
+            `the validation failed after merging origin/${branch}, which moved on during the delivery: ${rechecked.reason}`,
+            rechecked.busy ? undefined : 'validation-failed'
+          )
+        validated = rechecked.ran
+        const regate = await runPrePushGate(cwd, branch, run, ctx.log)
+        if (!regate.ok)
+          return undo(
+            `the pre-push hook failed after merging origin/${branch}, which moved on during the delivery, so nothing was pushed:\n${regate.output}\n`,
+            'push-refused'
+          )
+        hookRan = regate.ran
+      }
     }
-    pushed = await run(['push', 'origin', branch], w)
+    pushed = await push()
   }
   if (!pushed.ok) return undo(`git push origin ${branch} was rejected: ${why(pushed)}.`, 'rejected')
   // W8-A: the notes ref goes next to the branch; a rejected notes push costs the delivery nothing

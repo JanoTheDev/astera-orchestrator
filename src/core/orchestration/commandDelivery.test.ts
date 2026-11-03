@@ -678,6 +678,46 @@ describe('T1: main that cannot fast-forward is retried by itself and clears once
   })
 })
 
+describe('2026-11-03: a delivery that waited for another one on the same branch', () => {
+  it('delivery-busy counts no attempt and never asks the owner; it is due again in a minute', async () => {
+    const o: Parameters<typeof setup>[0] = {
+      project: { delivery: 'push' },
+      push: { ok: false, branch: 'main', reason: 'another delivery to main of this repository (Deliver plan: A) has been running for 15 minutes', code: 'delivery-busy' }
+    }
+    const h = setup(o)
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    for (let i = 1; i <= 7; i++) {
+      const run = h.state().runs[0]
+      h.state().runs[0] = { ...run, deliveryState: { ...run.deliveryState!, nextRetryAt: NOW } }
+      expect((await h.call('run-deliver', { run: 'r1', auto: true })).body).toMatchObject({ code: 'delivery-busy' })
+    }
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'retrying', attempts: 0, lastCode: 'delivery-busy', nextRetryAt: '2026-10-18T00:01:00.000Z' })
+    expect(h.state().messages.filter((m) => m.type === 'escalation')).toEqual([])
+    o.push = { ok: true, branch: 'main', sha: 'landed1', merged: [], validated: 0 }
+    const run = h.state().runs[0]
+    h.state().runs[0] = { ...run, deliveryState: { ...run.deliveryState!, nextRetryAt: NOW } }
+    expect((await h.call('run-deliver', { run: 'r1', auto: true })).status).toBe(200)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered', attempts: 1 })
+  })
+
+  it("a stop after an earlier attempt of the same Run landed it meanwhile leaves that delivery standing", async () => {
+    const h = setup({ project: { delivery: 'push' }, push: { ok: false, branch: 'main', reason: 'merging the worktrees failed: not reachable', code: 'git-busy' } })
+    await h.call('run-deliver', { run: 'r1', pending: true })
+    // The earlier attempt finishes while this one waited for the branch: it records the delivery first
+    const inner = h.deps.deliverPush!
+    h.deps.deliverPush = async (a) => {
+      const r = await inner(a)
+      h.state().runs[0] = { ...h.state().runs[0], delivery: { at: NOW, branch: 'main', sha: 'first11' }, deliveryState: { state: 'delivered', attempts: 1 } }
+      return r
+    }
+    const r = await h.call('run-deliver', { run: 'r1', auto: true })
+    expect(r.status).toBe(200)
+    expect(r.body).toMatchObject({ sha: 'first11', branch: 'main' })
+    expect(h.state().runs[0].delivery).toEqual({ at: NOW, branch: 'main', sha: 'first11' })
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+  })
+})
+
 describe('T5: a hands-free plan mends a failed delivery validation with fix Tasks', () => {
   const failed: PushResult = { ok: false, branch: 'main', reason: 'the validation failed on the merged main: npm test exited 1', code: 'validation-failed' }
   const fixTask = (n: number): Task => task({ id: `fx${n}`, parentId: 't2', spec: `${DELIVERY_FIX_MARK} (fix ${n} of 3)` })

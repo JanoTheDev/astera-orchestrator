@@ -106,6 +106,23 @@ export const ORCH_FIRE_TICK_MS = 15_000
 /** T7: how long a background job of the pass (a delivery, a plan-branch push, an origin sync, a refresh) may run before
  *  it is abandoned and its Run is due again. */
 export const BACKGROUND_JOB_LIMIT_MS = 20 * 60_000
+
+/** The heads a delivery attempt is judged against (delivery.ts `deliveryDue`): the plan worktree's HEAD and origin's tip
+ *  of the delivery branch, as this computer's refs have it (every delivery's fetch and push moves them). With no branch
+ *  given, origin's default (`refs/remotes/origin/HEAD`), as `deliverByPush` picks it. Unreadable ones are left out. */
+export async function readDeliveryHeads(a: { worktree: string; projectCwd: string; branch?: string }, run: typeof realGit = realGit): Promise<DeliveryHeads> {
+  const sha = async (cwd: string, ref: string): Promise<string | undefined> => {
+    const r = await run(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd })
+    return r.ok && r.stdout.trim() !== '' ? r.stdout.trim() : undefined
+  }
+  let branch = a.branch
+  if (branch === undefined) {
+    const d = await run(['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'], { cwd: a.projectCwd })
+    if (d.ok && d.stdout.trim().startsWith('origin/')) branch = d.stdout.trim().slice('origin/'.length)
+  }
+  const [head, origin] = await Promise.all([sha(a.worktree, 'HEAD'), branch === undefined ? undefined : sha(a.projectCwd, `refs/remotes/origin/${branch}`)])
+  return { ...(head !== undefined ? { head } : {}), ...(origin !== undefined ? { origin } : {}) }
+}
 /** 코디네이터를 깨우기 전에 기다리는 시간.
  *
  *  **짧으면** `check --wait` 안에서 정상적으로 기다리는 코디네이터를 찌른다 — 그 호출은 서버에서
@@ -975,15 +992,13 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   /** The plan branch head and origin's tip for a Run's delivery (one `git rev-parse` each); empty when unreadable. */
   const headsOf = async (run: JobRun, job: Job): Promise<DeliveryHeads> => {
     if (run.worktree === undefined) return {}
-    const a = { worktree: run.worktree, projectCwd: job.cwd, ...(deliveryBranchOf(c.getState(), job) !== undefined ? { branch: deliveryBranchOf(c.getState(), job) } : {}) }
+    // 2026-11-03: a plan with no delivery branch of its own lands on the one its last attempt named, else origin's
+    // default: without it origin's tip was never read, and a failed delivery waited out its backoff after the branch moved
+    const branch = deliveryBranchOf(c.getState(), job) ?? run.delivery?.branch
+    const a = { worktree: run.worktree, projectCwd: job.cwd, ...(branch !== undefined ? { branch } : {}) }
     try {
       if (c.deliveryHeads) return await c.deliveryHeads(a)
-      const sha = async (cwd: string, ref: string): Promise<string | undefined> => {
-        const r = await realGit(['rev-parse', '--verify', '--quiet', `${ref}^{commit}`], { cwd })
-        return r.ok && r.stdout.trim() !== '' ? r.stdout.trim() : undefined
-      }
-      const [head, origin] = await Promise.all([sha(a.worktree, 'HEAD'), a.branch === undefined ? undefined : sha(a.projectCwd, `refs/remotes/origin/${a.branch}`)])
-      return { ...(head !== undefined ? { head } : {}), ...(origin !== undefined ? { origin } : {}) }
+      return await readDeliveryHeads(a)
     } catch {
       return {}
     }
