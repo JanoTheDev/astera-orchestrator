@@ -32,6 +32,9 @@ export interface RetryState {
   /** T5a: the accounts in rankAccounts order (accounts/autoAccountOrder.ts). When present, pickAvailable takes the
    *  first usable one in this order instead of walking the round robin; ids it does not list come after, round robin. */
   order?: readonly string[]
+  /** Accounts at or over the high-water mark but under the threshold (rankAccounts' `near-full`): still usable, so not
+   *  blocked, but taken only after every other account, listed or not. */
+  last?: readonly string[]
 }
 
 /** T5a: the accounts' latest usage as a roll judges it (the usage guard's last refresh, kept fresh by readingsFresh). */
@@ -48,7 +51,7 @@ export function usageRetryOf(
   accountIds: readonly string[],
   usage: AccountUsage,
   now: number
-): { blocks: (BlockRecord | null)[]; order: string[] } {
+): { blocks: (BlockRecord | null)[]; order: string[]; last: string[] } {
   const ranked = rankAccounts({
     accounts: accountIds.map((id) => ({ id })),
     readings: usage.readings,
@@ -60,7 +63,9 @@ export function usageRetryOf(
     blocks: accountIds.map((id) => usageBlockOf(usage.readings.get(id), usage.pauseAt, now)),
     // Only the usable ones are ranked: the rest (unknown, stale) keep the round robin behind them, so a chain with no
     // readings at all (codex) rolls exactly as before.
-    order: ranked.usable.map((x) => x.id)
+    order: ranked.usable.map((x) => x.id),
+    // A nearly spent account goes after the unknown ones too: they may have room, it is known to have little
+    last: ranked.unusable.filter((x) => x.reason === 'near-full').map((x) => x.account.id)
   }
 }
 
@@ -95,10 +100,15 @@ export function laterBlock(a: BlockRecord | null, b: BlockRecord | null): BlockR
 export function pickAvailable(state: RetryState, fromIndex: number, now: number): number | null {
   const n = state.accountIds.length
   const walk = Array.from({ length: n }, (_, k) => (fromIndex + k) % n)
-  if (state.order) {
+  if (state.order || state.last?.length) {
+    const order = state.order ?? []
+    const last = state.last ?? []
     const rank = (idx: number): number => {
-      const at = state.order!.indexOf(state.accountIds[idx])
-      return at < 0 ? state.order!.length : at
+      const id = state.accountIds[idx]
+      const at = order.indexOf(id)
+      if (at >= 0) return at
+      const late = last.indexOf(id)
+      return late < 0 ? order.length : order.length + 1 + late
     }
     walk.sort((x, y) => rank(x) - rank(y)) // stable: unlisted ids keep the round robin
   }

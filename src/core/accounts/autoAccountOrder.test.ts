@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import type { Account, Provider } from '../types'
 import type { AccountReading } from '../orchestration/usageGuard'
-import { autoAccountOrder, rankAccounts, withAutoOrder, READING_MAX_AGE_MS } from './autoAccountOrder'
+import {
+  autoAccountOrder,
+  highWaterOf,
+  HIGH_WATER_PCT,
+  rankAccounts,
+  rankedIds,
+  usedPercentOf,
+  withAutoOrder,
+  READING_MAX_AGE_MS
+} from './autoAccountOrder'
 import { rollChainFor } from './dispatchAccount'
 import { GHOST_ID_PREFIX } from './ghostId'
 
@@ -77,6 +86,46 @@ describe('rankAccounts', () => {
     })
     expect(ids(out)).toEqual(['b'])
     expect(out.unusable.map((x) => [x.account.id, x.reason])).toEqual([['a', 'at-cap'], ['c', 'logged-out']])
+  })
+})
+
+describe('rankAccounts: the high-water mark', () => {
+  const rank100 = (accounts: Account[], readings: Record<string, AccountReading>) =>
+    rankAccounts({ accounts, readings: new Map(Object.entries(readings)), threshold: 100, nowMs: NOW })
+  const old = NOW - 2 * 86_400_000
+
+  it('an account at 99% under a threshold of 100 is near-full, not usable', () => {
+    const out = rank100([acct('a'), acct('b')], { a: { ...r(10, 99), at: NOW }, b: { ...r(10, 40), at: NOW } })
+    expect(out.usable.map((x) => x.id)).toEqual(['b'])
+    expect(out.unusable).toEqual([{ account: acct('a'), reason: 'near-full' }])
+    expect(highWaterOf(100)).toBe(HIGH_WATER_PCT)
+    expect(highWaterOf(90)).toBe(90)
+  })
+
+  // The owner's accounts on 2026-11-03: 99% read now, one never read, 93% and 100% read two days ago
+  it('ranks unknown and stale accounts before the nearly spent one, and full ones last', () => {
+    const out = rank100([acct('a'), acct('b'), acct('c'), acct('d')], {
+      a: { ...r(null, 99), at: NOW },
+      c: { ...r(null, 93), at: old },
+      d: { ...r(null, 100), at: old }
+    })
+    expect(rankedIds(out)).toEqual(['b', 'c', 'a', 'd'])
+    expect(out.unusable.map((x) => x.reason)).toEqual(['unknown', 'unknown', 'near-full', 'weekly-full'])
+  })
+
+  it('a stale reading over the mark stays near-full (a window only fills until its reset)', () => {
+    expect(rank100([acct('a')], { a: { ...r(10, 97), at: old } }).unusable[0].reason).toBe('near-full')
+  })
+
+  it('near-full ones order least used first', () => {
+    const out = rank100([acct('a'), acct('b')], { a: { ...r(10, 99), at: NOW }, b: { ...r(10, 96), at: NOW } })
+    expect(rankedIds(out)).toEqual(['b', 'a'])
+  })
+
+  it('usedPercentOf: the higher window, one past its reset counting 0', () => {
+    expect(usedPercentOf(r(20, 97), NOW)).toBe(97)
+    expect(usedPercentOf(r(20, 97, PAST), NOW)).toBe(0)
+    expect(usedPercentOf(r(null, null), NOW)).toBeNull()
   })
 })
 

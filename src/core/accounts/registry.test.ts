@@ -26,6 +26,24 @@ describe('AccountRegistry', () => {
     expect(registry.list().map((a) => a.id)).toEqual([account.id])
   })
 
+  // 2026-11-03: a tab Astera started stopped on the project-MCP and bypass-mode prompts with nobody there
+  it('a claude account added or imported gets the unattended settings; a codex one is left alone', async () => {
+    const account = await registry.create({ label: 'fresh' })
+    expect(JSON.parse(await fs.readFile(path.join(account.configDir, 'settings.json'), 'utf8'))).toMatchObject({
+      enableAllProjectMcpServers: true,
+      skipDangerousModePermissionPrompt: true
+    })
+    const dir = path.join(tmp, 'imported')
+    await fs.mkdir(dir)
+    await fs.writeFile(path.join(dir, 'settings.json'), '{"model":"opus"}', 'utf8')
+    await fs.writeFile(path.join(dir, '.claude.json'), '{"oauthAccount":{}}', 'utf8')
+    await registry.import({ label: 'imp', configDir: dir })
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toMatchObject({ model: 'opus', enableAllProjectMcpServers: true })
+    expect(JSON.parse(await fs.readFile(path.join(dir, '.claude.json'), 'utf8'))).toEqual({ oauthAccount: {}, bypassPermissionsModeAccepted: true })
+    const codex = await registry.create({ label: 'cx', provider: 'codex' })
+    expect(await fs.readdir(codex.configDir)).toEqual([])
+  })
+
   it('같은 라벨로 두 번 만들면 config dir이 겹치지 않는다', async () => {
     const a = await registry.create({ label: 'work' })
     const b = await registry.create({ label: 'work' })

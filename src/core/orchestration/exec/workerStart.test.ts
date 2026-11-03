@@ -492,6 +492,54 @@ describe('chooseStartAccount (T5b)', () => {
     }
   })
 
+  // 2026-11-03, usagePauseAt 100: the account at 99% weekly was the only "usable" one, so every planner, worker and
+  // reviewer started on it while the others (one never read, two read two days ago) were never tried.
+  describe('the high-water mark (usagePauseAt 100)', () => {
+    const now = Date.parse(NOW)
+    const highGuard = (readings: Record<string, { weekly: number; at?: number }>) =>
+      createUsageGuard({
+        readings: async () =>
+          new Map(Object.entries(readings).map(([id, r]) => [id, { weekly: win(r.weekly), session: null, ...(r.at === undefined ? {} : { at: r.at }) }])),
+        pauseAt: async () => 100,
+        autoAccounts: async () => true,
+        nowMs: () => now
+      })
+    const owner = { a1: { weekly: 99, at: now }, a3: { weekly: 93, at: now - 2 * 86_400_000 }, a4: { weekly: 100, at: now - 2 * 86_400_000 } }
+
+    // What the Host itself held: the fetch failed for the three idle accounts (expired access tokens), so only the 99%
+    // one had a reading at all, and "a last reading that was not full goes first" (T25) picked it
+    it('with no reading of the others at all, still starts on one of them', async () => {
+      const p = await chooseStartAccount(ctxOf(highGuard({ a1: { weekly: 99, at: now } })), { preferred: 'a1', purpose: 'planner', nowMs: now })
+      expect(p).toMatchObject({ ok: true, accountId: 'a2' })
+      expect(p.ok && p.chain.at(-1)).toBe('a1')
+    })
+
+    it('never starts on the 99% account while another is not known to be nearly spent; the named one is a preference', async () => {
+      const logs: string[] = []
+      const p = await chooseStartAccount(ctxOf(highGuard(owner), four, logs), { preferred: 'a1', purpose: 'planner', nowMs: now })
+      expect(p).toMatchObject({ ok: true, accountId: 'a3', switched: expect.stringMatching(/95%/) })
+      // the 99% one stays in the chain behind the ones with room; the full one last
+      expect(p.ok && p.chain).toEqual(['a3', 'a2', 'a1', 'a4'])
+      const auto = await chooseStartAccount(ctxOf(highGuard(owner)), { provider: 'claude', purpose: 'worker', nowMs: now })
+      expect(auto.ok && auto.accountId).not.toBe('a1')
+    })
+
+    it('an account last read well under the mark goes first', async () => {
+      const p = await chooseStartAccount(ctxOf(highGuard({ ...owner, a2: { weekly: 40, at: now } })), { preferred: 'a1', purpose: 'reviewer', nowMs: now })
+      expect(p).toMatchObject({ ok: true, accountId: 'a2' })
+    })
+
+    it('with every account at or over the mark but under the limit, starts on the least used rather than waiting', async () => {
+      const g = highGuard({ a1: { weekly: 99, at: now }, a2: { weekly: 96, at: now }, a3: { weekly: 97, at: now }, a4: { weekly: 100, at: now } })
+      expect(await chooseStartAccount(ctxOf(g), { preferred: 'a1', purpose: 'worker', nowMs: now })).toMatchObject({ ok: true, accountId: 'a2' })
+    })
+
+    it('with every account at its limit, the start waits for the earliest reset', async () => {
+      const g = highGuard({ a1: { weekly: 100, at: now }, a2: { weekly: 100, at: now }, a3: { weekly: 100, at: now }, a4: { weekly: 100, at: now } })
+      expect(await chooseStartAccount(ctxOf(g), { preferred: 'a1', purpose: 'worker', nowMs: now })).toMatchObject({ ok: false, why: expect.stringMatching(/no claude account has room.*earliest limit resets/) })
+    })
+  })
+
   it('the app path (startCoordinatorSession with the app context) and the Host path (autoStartChain) choose the same on one fixture', async () => {
     const readings = { ...allEmpty, a1: [100, 5], a2: [50, 50], a3: [20, 30] } as Record<string, [number, number]>
     const host = await autoStartChain(ctxOf(realGuard({ readings })), 'a1')

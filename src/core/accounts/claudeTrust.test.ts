@@ -7,7 +7,13 @@ import {
   claudeConfigFileFor,
   claudeProjectKey,
   markClaudeProjectTrusted,
-  upsertClaudeTrust
+  upsertClaudeTrust,
+  upsertClaudeAccountSettings,
+  upsertClaudeAccountState,
+  prepareClaudeAccountDir,
+  ensureClaudeAccountState,
+  CLAUDE_UNATTENDED_SETTINGS,
+  CLAUDE_UNATTENDED_STATE
 } from './claudeTrust'
 
 describe('claudeProjectKey', () => {
@@ -193,6 +199,46 @@ describe('markClaudeProjectTrusted', () => {
     await fs.writeFile(file, JSON.stringify({ projects: { 'D:/a': { hasTrustDialogAccepted: true } } }), 'utf8')
     await markClaudeProjectTrusted(file, 'D:/a')
     await expect(fs.readFile(file + '.bak', 'utf8')).rejects.toThrow()
+  })
+})
+
+// 2026-11-03: Astera-started tabs stopped on "enable this project's MCP servers?" and "accept bypass permissions mode?"
+describe('the unattended presets', () => {
+  it('settings.json gets the theme and both answers, keeping every other key', () => {
+    const out = JSON.parse(upsertClaudeAccountSettings('{\n  "model": "opus",\n  "theme": "light"\n}\n'))
+    expect(out).toEqual({ model: 'opus', theme: 'light', enableAllProjectMcpServers: true, skipDangerousModePermissionPrompt: true })
+    expect(JSON.parse(upsertClaudeAccountSettings(''))).toEqual({ theme: 'dark', ...CLAUDE_UNATTENDED_SETTINGS })
+  })
+
+  it('is the same string when the file already says so', () => {
+    const done = JSON.stringify({ theme: 'dark', ...CLAUDE_UNATTENDED_SETTINGS }, null, 2)
+    expect(upsertClaudeAccountSettings(done)).toBe(done)
+    const state = '{"oauthAccount":{},"bypassPermissionsModeAccepted":true}'
+    expect(upsertClaudeAccountState(state)).toBe(state)
+  })
+
+  it('.claude.json gets bypassPermissionsModeAccepted, keeping the rest and its one-line shape', () => {
+    const out = upsertClaudeAccountState('{"oauthAccount":{"emailAddress":"x@y.z"},"projects":{}}')
+    expect(out).not.toContain('\n')
+    expect(JSON.parse(out)).toEqual({ oauthAccount: { emailAddress: 'x@y.z' }, projects: {}, bypassPermissionsModeAccepted: true })
+  })
+
+  it('prepareClaudeAccountDir writes both files atomically, with a .bak, and leaves an absent state file to claude', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-claude-prep-'))
+    await fs.writeFile(path.join(dir, 'settings.json'), '{"model":"opus"}', 'utf8')
+    await prepareClaudeAccountDir(dir)
+    expect(JSON.parse(await fs.readFile(path.join(dir, 'settings.json'), 'utf8'))).toMatchObject({ model: 'opus', ...CLAUDE_UNATTENDED_SETTINGS })
+    expect(await fs.readFile(path.join(dir, 'settings.json.bak'), 'utf8')).toBe('{"model":"opus"}')
+    await expect(fs.access(path.join(dir, '.claude.json'))).rejects.toThrow()
+    await fs.writeFile(path.join(dir, '.claude.json'), '{"oauthAccount":{}}', 'utf8')
+    await prepareClaudeAccountDir(dir)
+    expect(JSON.parse(await fs.readFile(path.join(dir, '.claude.json'), 'utf8'))).toEqual({ oauthAccount: {}, bypassPermissionsModeAccepted: true })
+  })
+
+  it('ensureClaudeAccountState creates the file before a spawn, as the trust preset does', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'astera-claude-prep-'))
+    await ensureClaudeAccountState(path.join(dir, '.claude.json'))
+    expect(JSON.parse(await fs.readFile(path.join(dir, '.claude.json'), 'utf8'))).toEqual(CLAUDE_UNATTENDED_STATE)
   })
 })
 
