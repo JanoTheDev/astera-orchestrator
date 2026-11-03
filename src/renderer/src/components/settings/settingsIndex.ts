@@ -48,6 +48,7 @@ export const SETTINGS_ROWS: readonly SettingsRow[] = [
   { anchor: 'heavyJobs', group: 'agents', labelKey: 'settings.heavyJobs.label', descKey: 'settings.heavyJobs.hint', level: 'advanced' },
   { anchor: 'approvalDefault', group: 'agents', labelKey: 'settings.approvalDefault.label', descKey: 'settings.approvalDefault.hint', level: 'advanced' },
   { anchor: 'freshCoordinator', group: 'agents', labelKey: 'settings.freshCoordinator.label', descKey: 'settings.freshCoordinator.hint', level: 'advanced' },
+  { anchor: 'idleTabClose', group: 'agents', labelKey: 'settings.idleTabClose.label', descKey: 'settings.idleTabClose.hint', level: 'advanced' },
   { anchor: 'stallWatch', group: 'agents', labelKey: 'settings.stallWatch.label', descKey: 'settings.stallWatch.hint', level: 'advanced' },
   { anchor: 'startAtLogin', group: 'agents', labelKey: 'settings.startAtLogin.label', descKey: 'settings.startAtLogin.hint', level: 'advanced' },
   { anchor: 'autoAnswer', group: 'agents', labelKey: 'settings.autoAnswer.label', descKey: 'settings.autoAnswer.hint', level: 'advanced' },

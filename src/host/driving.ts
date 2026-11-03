@@ -78,6 +78,7 @@ import { readAutoAnswerOn } from '../core/orchestration/exec/autoAnswer'
 import { readHealthSnapshot } from '../core/settings/autoLimits'
 import { extractStatusLineSession, parseStatusLinePayload } from '../core/usage/statusline'
 import { readWorkerSilentMinutes } from '../core/settings/workerSilentMinutes'
+import { readIdleTabCloseMinutes } from '../core/settings/idleTabClose'
 import { readFileTail } from '../core/connections/notifier'
 import { extractLastTurnAssistantText } from '../core/connections/transcript'
 import { rangeCommits } from '../core/github/taskLinks'
@@ -510,7 +511,14 @@ export function createHostDriving(d: {
       return payload ? (parseStatusLinePayload(payload)?.context?.usedPercent ?? null) : null
     },
     freshCoordinatorPct: () => readFreshCoordinatorPct(settingsPath),
-    silentMinutes: () => readWorkerSilentMinutes(settingsPath),
+    idleCloseMinutes: () => readIdleTabCloseMinutes(settingsPath),
+    // An idle tab Astera started for a Dispatch the state no longer holds is named by its roll prompt (exec/adopt.ts)
+    liveSessions: () =>
+      (d.registry.liveEntries?.() ?? []).flatMap((e) => {
+        if (e.meta?.kind !== 'session') return []
+        const spec = e.meta.restore.rollPrompt
+        return [{ id: e.meta.id, ...(typeof spec === 'string' ? { spec } : {}) }]
+      }),
     // #117: a hands-off plan's decision, appended to its Job (the feed derives its line from the commit)
     recordDecision: (jobId, decision) => d.orch.internalDeps().setState(addDecision(d.orch.state(), jobId, decision)),
     // A merged Task recorded in the same step as its merge, as a decision is: not queued behind a long command

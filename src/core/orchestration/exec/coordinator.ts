@@ -406,6 +406,14 @@ export const WORKER_WORK_FAST = `
 - Never hand the final check to a subagent. You verify what they return.
 `
 
+/** Both spec files' rule on ending a turn (2026-11-03: a reviewer whose report Astera refused as an unknown dispatch
+ *  ended its turn asking the owner which dispatch to use, in its terminal, and sat there; nobody reads a worker's tab). */
+export const NO_OWNER_QUESTIONS = `Never end your turn on a question or a list of choices for the owner written in this terminal: nobody
+reads it, and the task stalls until the session is closed. If a decision truly needs a person, use
+\`astera ask\` (it blocks until the answer arrives). If \`astera send\` answers that this dispatch is unknown or
+no longer exists, do not report under another dispatch id and do not ask anyone: end your turn. Astera
+closes this session and starts the task again if it still needs work.`
+
 export function buildSpecFile(a: {
   title: string
   spec: string
@@ -534,6 +542,8 @@ device), do not report failed and do not retry it: report succeeded with
 
 After reporting, end your turn and wait at the agent prompt. Do not start more work and do not close
 the terminal yourself. If the orchestrator reuses this terminal, new instructions arrive as input.
+
+${NO_OWNER_QUESTIONS}
 
 ### When stuck — ask (blocking)
 
@@ -776,6 +786,12 @@ session.
   EOF
 
 Use \`--outcome failed\` instead when it is not satisfied, and put what is missing in the body.
+
+${NO_OWNER_QUESTIONS}
+If a judgement call truly needs a person, ask it (it blocks until an answer arrives):
+
+  astera ask --task-id ${a.taskId} --dispatch-id ${a.dispatchId} \\
+    --question - --options "<choice1,choice2>" --json
 `, a.ownerInstructions)
 }
 

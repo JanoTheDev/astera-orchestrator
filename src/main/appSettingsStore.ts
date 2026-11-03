@@ -41,6 +41,7 @@ import { approvalDefaultOf, type ApprovalMode } from '../core/settings/approvalD
 import { FRESH_COORDINATOR_DEFAULT_PCT, freshCoordinatorPctOf } from '../core/settings/freshCoordinator'
 import { stallWatchOnOf } from '../core/settings/stallWatch'
 import { WORKER_SILENT_DEFAULT_MINUTES, workerSilentMinutesOf } from '../core/settings/workerSilentMinutes'
+import { IDLE_TAB_CLOSE_DEFAULT_MINUTES, idleTabCloseMinutesOf } from '../core/settings/idleTabClose'
 import { windowDiagnosticOf } from '../core/settings/windowDiagnostic'
 import { crashReportsOf, type CrashReportsSetting } from '../core/crash/report' // T27
 import { startAtLoginOf } from '../core/settings/startAtLogin'
@@ -164,6 +165,9 @@ export class AppSettingsStore {
   /** T12 (orchestration/exec/stallWatch.ts): minutes without activity before a worker is nudged. Written only when it
    *  is not the default; the Host reads the file itself. */
   private workerSilentMinutes = WORKER_SILENT_DEFAULT_MINUTES
+  /** Idle tabs (orchestration/exec/coordinatorRotate.ts): minutes an Astera-started tab with nothing left to do may idle
+   *  before it is closed. Written only when it is not the default; the Host reads the file itself. */
+  private idleTabCloseMinutes = IDLE_TAB_CLOSE_DEFAULT_MINUTES
   /** Windows window diagnostic (host/windowDiagnostic.ts): off by default; only an explicit true turns it on. */
   private windowDiagnostic = false
   /** T27 crash reports (core/crash): 'ask' by default; only an explicit 'never' turns the prompt off. */
@@ -302,6 +306,7 @@ export class AppSettingsStore {
       this.approvalDefault = approvalDefaultOf((parsed as { approvalDefault?: unknown }).approvalDefault)
       this.stallWatch = stallWatchOnOf((parsed as { stallWatch?: unknown }).stallWatch)
       this.workerSilentMinutes = workerSilentMinutesOf((parsed as { workerSilentMinutes?: unknown }).workerSilentMinutes)
+      this.idleTabCloseMinutes = idleTabCloseMinutesOf((parsed as { idleTabCloseMinutes?: unknown }).idleTabCloseMinutes)
       this.windowDiagnostic = windowDiagnosticOf((parsed as { windowDiagnostic?: unknown }).windowDiagnostic)
       this.crashReports = crashReportsOf((parsed as { crashReports?: unknown }).crashReports) // T27
       this.startAtLogin = startAtLoginOf((parsed as { startAtLogin?: unknown }).startAtLogin)
@@ -396,6 +401,7 @@ export class AppSettingsStore {
         this.approvalDefault = undefined
         this.stallWatch = true
         this.workerSilentMinutes = WORKER_SILENT_DEFAULT_MINUTES
+        this.idleTabCloseMinutes = IDLE_TAB_CLOSE_DEFAULT_MINUTES
         this.windowDiagnostic = false
         this.crashReports = 'ask'
         this.startAtLogin = true
@@ -454,6 +460,7 @@ export class AppSettingsStore {
       this.approvalDefault = undefined
       this.stallWatch = true
       this.workerSilentMinutes = WORKER_SILENT_DEFAULT_MINUTES
+      this.idleTabCloseMinutes = IDLE_TAB_CLOSE_DEFAULT_MINUTES
       this.windowDiagnostic = false
       this.crashReports = 'ask'
       this.startAtLogin = true
@@ -800,6 +807,16 @@ export class AppSettingsStore {
     return this.freshCoordinatorContextPct
   }
 
+  getIdleTabCloseMinutes(): number {
+    return this.idleTabCloseMinutes
+  }
+
+  /** Narrowed like the file: the value arrives from the renderer. */
+  async setIdleTabCloseMinutes(n: number): Promise<void> {
+    this.idleTabCloseMinutes = idleTabCloseMinutesOf(n)
+    await this.persist()
+  }
+
   /** Narrowed like the file: the value arrives from the renderer. */
   async setFreshCoordinatorContextPct(n: number): Promise<void> {
     this.freshCoordinatorContextPct = freshCoordinatorPctOf(n)
@@ -1086,6 +1103,7 @@ export class AppSettingsStore {
       approvalDefault?: ApprovalMode
       stallWatch?: false
       workerSilentMinutes?: number
+      idleTabCloseMinutes?: number
       windowDiagnostic?: true
       crashReports?: 'never' // T27
       startAtLogin?: false
@@ -1147,6 +1165,7 @@ export class AppSettingsStore {
     if (this.approvalDefault !== undefined) data.approvalDefault = this.approvalDefault
     if (!this.stallWatch) data.stallWatch = false
     if (this.workerSilentMinutes !== WORKER_SILENT_DEFAULT_MINUTES) data.workerSilentMinutes = this.workerSilentMinutes
+    if (this.idleTabCloseMinutes !== IDLE_TAB_CLOSE_DEFAULT_MINUTES) data.idleTabCloseMinutes = this.idleTabCloseMinutes
     if (this.windowDiagnostic) data.windowDiagnostic = true
     if (this.crashReports === 'never') data.crashReports = 'never' // T27
     if (!this.startAtLogin) data.startAtLogin = false

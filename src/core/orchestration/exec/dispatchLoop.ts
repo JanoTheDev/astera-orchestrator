@@ -266,8 +266,12 @@ export interface DispatchLoopContext {
   sessionContextPct?(sessionId: string): number | null | Promise<number | null>
   /** Coordinator rotation: the "Fresh coordinator at context (%)" setting, 0 for off. */
   freshCoordinatorPct?(): number | Promise<number>
-  /** The "workerSilentMinutes" setting: an idle console with no reason closes after 2 × this (coordinatorRotate.ts). */
-  silentMinutes?(): number | Promise<number>
+  /** The "idleTabCloseMinutes" setting: an idle console with no reason closes after this (coordinatorRotate.ts).
+   *  Optional: without it the default (1 minute). */
+  idleCloseMinutes?(): number | Promise<number>
+  /** The live agent sessions and the text naming their spec (their roll prompt), for closing an idle tab Astera started
+   *  for a Dispatch the state no longer holds (coordinatorRotate.ts). Optional: without it none is closed. */
+  liveSessions?(): ReadonlyArray<{ id: string; spec?: string }>
   /** Stall watchdog (stallWatch.ts): the "Watch for stalled plans" setting. Optional: without it there is no watchdog
    *  (the Host wires it; the app's own loop has none). */
   stallWatch?(): boolean | Promise<boolean>
@@ -1498,7 +1502,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
     activity: (runId, taskId, reason) => c.activity?.(watchdogActivity(c.getState(), runId, reason, taskId)),
     sessionContextPct: (id) => c.sessionContextPct?.(id) ?? null,
     freshCoordinatorPct: () => c.freshCoordinatorPct?.() ?? 0,
-    ...(c.silentMinutes ? { silentMinutes: () => c.silentMinutes!() } : {}),
+    ...(c.idleCloseMinutes ? { idleCloseMinutes: () => c.idleCloseMinutes!() } : {}),
+    ...(c.liveSessions ? { liveSessions: () => c.liveSessions!() } : {}),
     mayStart: () => c.mayStart(),
     log,
     nowMs: () => c.nowMs()

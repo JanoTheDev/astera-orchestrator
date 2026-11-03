@@ -31,6 +31,7 @@ import type { DesktopNotifier } from './desktopNotifier'
 import { startActivityNotices } from './activityNotices'
 import { approvalDefaultOf } from '../core/settings/approvalDefault'
 import { ACTIVITY_DIGEST_MAX_MINUTES } from '../core/settings/activityDigest'
+import { IDLE_TAB_CLOSE_MAX_MINUTES, IDLE_TAB_CLOSE_MIN_MINUTES } from '../core/settings/idleTabClose'
 import type { SessionSignalForwarder } from './sessionSignals'
 import type { DesktopNotifySettings } from '../core/notify/settings'
 import type { AttentionState, Attention } from '../core/sessions/attention'
@@ -3556,6 +3557,7 @@ export function registerIpc(
       // Coordinator rotation: a claude coordinator's statusLine context reading, and the setting
       sessionContextPct: async (id) => (await core.usageSession(id).catch(() => null))?.context?.usedPercent ?? null,
       freshCoordinatorPct: () => core.appSettings.getFreshCoordinatorContextPct(),
+      idleCloseMinutes: () => core.appSettings.getIdleTabCloseMinutes(),
       // 앱에서 "운전해도 되는가" 는 서버가 서 있고, dispatch 를 알리는 Host 가 몰지 않는가다(§4.2, N8).
       // 슬롯마다 다시 묻으므로, 한 바퀴 도중에 그런 Host 가 붙으면 그 자리에서 멈춘다.
       mayStart: () => orch !== null && !hostDrives(),
@@ -4751,6 +4753,13 @@ export function registerIpc(
     if (typeof n !== 'number' || !Number.isInteger(n) || n < 0 || n > 100)
       throw new Error(`INVALID_FRESH_COORDINATOR_CONTEXT_PCT: ${String(n)}`)
     await core.appSettings.setFreshCoordinatorContextPct(n)
+  })
+  // Idle tabs: the minutes an Astera-started tab with nothing left to do may idle before it is closed
+  ipcMain.handle('settings.getIdleTabCloseMinutes', () => core.appSettings.getIdleTabCloseMinutes())
+  ipcMain.handle('settings.setIdleTabCloseMinutes', async (_e, n: unknown) => {
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < IDLE_TAB_CLOSE_MIN_MINUTES || n > IDLE_TAB_CLOSE_MAX_MINUTES)
+      throw new Error(`INVALID_IDLE_TAB_CLOSE_MINUTES: ${String(n)}`)
+    await core.appSettings.setIdleTabCloseMinutes(n)
   })
   // The approval setting's global default (core/settings/approvalDefault.ts): a mode, or null for none
   ipcMain.handle('settings.getApprovalDefault', () => core.appSettings.getApprovalDefault() ?? null)

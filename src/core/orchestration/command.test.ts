@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
-import { handleCommand, handleExit, PENDING_START_WINDOW_MS, type HostSession, type OrchServerDeps, type SessionScreen } from './command'
+import { handleCommand, handleExit, PENDING_START_WINDOW_MS, unknownDispatchReport, type HostSession, type OrchServerDeps, type SessionScreen } from './command'
 import { jobNameOf } from './jobName'
 import { SPAWN_DEADLINE_MS } from '../host/unresponsive'
 import { APP_CALLER, HOST_CALLER } from '../host/driver'
@@ -7651,7 +7651,20 @@ describe('없는 id 는 404 — 순수 층의 거절을 내보내던 자리들',
   it('없는 Dispatch 의 worker_done 은 404 다', async () => {
     const { deps, taskId } = await seedDispatch()
     const r = await call(deps, 'send', done(taskId, 'dsp_nope'))
-    expect(r).toEqual({ status: 404, body: { error: 'unknown dispatch: dsp_nope' } })
+    expect(r).toEqual({ status: 404, body: { error: unknownDispatchReport('dsp_nope') } })
+  })
+
+  // 2026-11-03: a reviewer told only "unknown dispatch" asked the owner which dispatch to report under and sat idle
+  it('없는 Dispatch 의 worker_done 은 에이전트에게 다음 할 일을 말한다 (멈추고, 남의 id 로 보고하지 말고, 묻지 말 것)', async () => {
+    const { deps, taskId } = await seedDispatch()
+    const r = await call(deps, 'send', done(taskId, 'dsp_nope'), 'sess-orphan')
+    const error = (r.body as { error: string }).error
+    expect(r.status).toBe(404)
+    expect(error.startsWith('unknown dispatch: dsp_nope')).toBe(true)
+    expect(error).toContain('end your turn now')
+    expect(error).toContain('not ask the owner')
+    expect(error).toContain('another dispatch id is not allowed')
+    expect(error).toContain('starts the task again')
   })
 
   // 적은 --task-id 가 그 Dispatch 의 Task 와 같은데 그 Task 가 없다 — 적은 id 가 없는 것이다

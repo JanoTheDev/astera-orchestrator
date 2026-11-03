@@ -62,6 +62,10 @@ export const LOST_STALL_MS = 2 * 60_000
 /** T12: a worker with no activity this long with its Dispatch open (no `worker-done`): it is nudged, and this long after
  *  that its last turn is read. The default of the `workerSilentMinutes` setting (StallProbe.silentMs). */
 export const IDLE_STALL_MS = WORKER_SILENT_DEFAULT_MINUTES * 60_000
+/** A worker idle at its prompt (its turn ended, not busy) this long with its Dispatch open is nudged without waiting the
+ *  whole silent window (2026-11-03: a reviewer ended its turn on a plain-text question to the owner, which nobody reads,
+ *  and sat). A worker mid-command is busy and waits the silent window as before. */
+export const PROMPT_IDLE_NUDGE_MS = 2 * 60_000
 /** A Task `validating` this long with no check of it running (its run's exit lost, or its start never reached a
  *  validator): its validation is started again, as the resume sweep restarts one. */
 export const VALIDATE_STALL_MS = 5 * 60_000
@@ -194,9 +198,10 @@ export const APPLIED_HERE: ReadonlySet<StallRemedy['kind']> = new Set([
 ])
 
 /** What a worker silent `minutes` without a report is typed, once. English: workers read English (spec files). */
-export const idleNudge = (minutes: number): string =>
+export const idleNudge = (minutes: number, d?: Pick<Dispatch, 'id' | 'taskId'>): string =>
   `Astera has not seen activity from you for ${minutes} minutes. Report your result now with the astera CLI ` +
-  '(`astera send --type worker_done …`), or say what blocks you (`astera ask …`).'
+  `(\`astera send --type worker_done ${d ? `--task-id ${d.taskId} --dispatch-id ${d.id} ` : ''}…\`), or say what blocks you (\`astera ask …\`). ` +
+  'Nobody reads this terminal: do not end your turn on a question to the owner.'
 
 /** T12: the subject of a report Astera recorded from a silent worker's last turn. */
 export const CAPTURED_SUBJECT = 'Recorded from its last turn'
@@ -652,7 +657,9 @@ export function stallRemedies(
     next.set(key, e)
     const quiet = nowMs - Math.max(e.since, e.at)
     const handsOff = handsOffOf(s, job)
-    if (e.step === 0 && quiet >= silentMs) due.push({ key, runId: run.id, kind: 'nudge-worker', task, dispatch: d, since: e.since })
+    // Idle at its prompt: its turn ended without a report, so it is nudged sooner (PROMPT_IDLE_NUDGE_MS)
+    const nudgeAfter = probe.busy(d.sessionId) === false ? Math.min(silentMs, PROMPT_IDLE_NUDGE_MS) : silentMs
+    if (e.step === 0 && quiet >= nudgeAfter) due.push({ key, runId: run.id, kind: 'nudge-worker', task, dispatch: d, since: e.since })
     else if (e.step === 1 && quiet >= silentMs)
       due.push({ key, runId: run.id, kind: handsOff ? 'capture-worker' : 'tell-idle', task, dispatch: d, since: e.since })
     else if (e.step === 2 && quiet >= backoffOf(2)) {
@@ -840,7 +847,7 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
       }
       case 'nudge-worker': {
         const quiet = mins(d.nowMs() - r.since)
-        d.typeInto(r.dispatch.sessionId, idleNudge(quiet))
+        d.typeInto(r.dispatch.sessionId, idleNudge(quiet, r.dispatch))
         // Enter in the same burst as the text only adds a line (dispatchLoop.ts nudgePass)
         await wait(ENTER_DELAY_MS)
         d.typeInto(r.dispatch.sessionId, '\r')

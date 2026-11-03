@@ -1051,6 +1051,12 @@ const listReply = (key: string, rows: readonly object[], args: Record<string, un
  *  "그런 id 가 없다"(exit 4)를 구별할 수 있어야 한다(공개 CLI 설계 §8). 그 전에는 둘 다 400 이라
  *  부르는 쪽이 문구를 읽어야 알 수 있었다. */
 const notFound = (msg: string): Reply => ({ status: 404, body: { error: msg } })
+/** What a `worker_done` for a Dispatch the state does not hold is answered: the refusal, and the agent's next step, so it
+ *  neither reports under another id nor asks the owner (nobody reads its terminal). */
+export const unknownDispatchReport = (dispatchId: string): string =>
+  `unknown dispatch: ${dispatchId}. This dispatch no longer exists in Astera (it ended, was replaced or was lost), so ` +
+  'no report under it is taken, and reporting under another dispatch id is not allowed either. Do not retry and do ' +
+  'not ask the owner: end your turn now. Astera closes this session and starts the task again if it still needs work.'
 /** A pure-layer refusal handed straight to the caller: 404 when it is marked `missing` (the id the
  *  caller named is not there — state.ts marks it where it refuses), 400 otherwise. For the cases that
  *  do not go through `commit()`; the same fact must not exit 4 from one command and 2 from another. */
@@ -6015,6 +6021,11 @@ async function handleCommandInner(
         if (isWorker && !myDispatchIds.has(dispatchId))
           return denied('cannot report for another dispatch')
         const reporting = s.dispatches.find((d) => d.id === dispatchId)
+        // 2026-11-03: a reviewer whose Dispatch the state had lost (so its session held none) was told only "unknown
+        // dispatch", listed the Task's other dispatches, refused to report under one, asked the owner which to use in
+        // plain text and sat at its prompt for good. The answer says what to do instead: stop, and let the Task's own
+        // path take over (coordinatorRotate.ts closes the tab).
+        if (!reporting) return notFound(unknownDispatchReport(dispatchId))
         // Limit probe — only when outcome is failed. handleExit alone is not enough: a claude TUI
         // that hit a limit does not die, it prints a notice and then stops, so there are sessions
         // that close only through this path, where the worker reports worker_done --outcome failed
