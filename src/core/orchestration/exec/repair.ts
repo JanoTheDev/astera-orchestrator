@@ -46,6 +46,17 @@ export function repairTargetFor(s: OrchState, taskId: string, isAlive: (id: stri
     : { kind: 'fresh', ...base }
 }
 
+/** The ended attempt a fresh repair `d` may resume: the one it retries (else the Task's latest other attempt), with a
+ *  recorded provider conversation, in the same folder, provider and account, launched on the model and effort the Task
+ *  wants now. undefined when there is none. */
+export function resumableAttempt(s: OrchState, task: Task, d: Dispatch): (Dispatch & { nativeSessionId: string }) | undefined {
+  const attempts = s.dispatches.filter((x) => x.taskId === task.id && !x.review && x.id !== d.id)
+  const prior = (d.retryOf !== undefined ? attempts.find((x) => x.id === d.retryOf) : undefined) ?? attempts.at(-1)
+  if (!prior?.nativeSessionId || prior.endedAt === undefined) return undefined
+  if (!isSamePath(prior.cwd, d.cwd) || prior.provider !== d.provider || prior.accountId !== d.accountId || !sessionFitsTask(task, prior)) return undefined
+  return prior as Dispatch & { nativeSessionId: string }
+}
+
 /** spec 의 "## Repair request" 절 재료. **인자 넷 모두 같은 state 조각에서 읽어야 한다** — repairCountOf 와
  *  policyOf 가 그 state 기준으로 세고, task.checks·task.reviewIssues 가 다른 스냅샷의 것이면 숫자와 본문이
  *  서로 다른 시점을 말하게 된다(리뷰 fix 1차, Important 3 인접). */
@@ -124,8 +135,12 @@ export async function performRepair(deps: RepairDeps, a: { dispatchId: string })
   // The session's own attempt says what it was launched on; a Task raised since then needs a fresh start
   const ranOn = s.dispatches.filter((x) => x.sessionId === d.sessionId && x.id !== d.id).at(-1)
   const same = !isPlaceholderSessionId(d.sessionId) && deps.isAlive(d.sessionId) && (!ranOn || sessionFitsTask(task, ranOn))
-  try {
-    const started = await deps.startWorker({
+  // **A fresh repair resumes the worker's own conversation** where the provider recorded one (2026-11-03: a finished
+  // worker's tab is closed while its Task is in review, so the repair rarely finds it alive): the attempt it repairs,
+  // in the same folder, provider and account, launched on what the Task wants now.
+  const resumable = same ? undefined : resumableAttempt(s, task, d)
+  const start = (resume: boolean): ReturnType<RepairDeps['startWorker']> =>
+    deps.startWorker({
       dispatchId: d.id,
       taskId: task.id,
       title: task.title,
@@ -138,8 +153,20 @@ export async function performRepair(deps: RepairDeps, a: { dispatchId: string })
       worktree: d.cwd,
       ...(same
         ? { terminal: d.sessionId, terminalCwd: d.cwd, terminalProvider: d.provider, terminalAccountId: d.accountId, launchPhrase: repairWorkerPrompt('{specPath}') }
-        : {})
+        : resume && resumable?.nativeSessionId !== undefined
+          ? { resume: { nativeSessionId: resumable.nativeSessionId } }
+          : {})
     })
+  try {
+    let started: Awaited<ReturnType<RepairDeps['startWorker']>>
+    try {
+      started = await start(true)
+    } catch (e) {
+      // A conversation that cannot be resumed (gone from the provider's store) is no reason to give the repair up
+      if (resumable === undefined) throw e
+      deps.log(`repair: task=${task.id} dispatch=${d.id} could not resume ${resumable.nativeSessionId} (${e instanceof Error ? e.message : String(e)}); starting it fresh`)
+      started = await start(false)
+    }
     // 다시 읽고, 세 자리(sessionId·cwd·specPath)만 patch 한다 — startWorker 를 기다리는 동안 다른
     // 흐름(예: 이례적으로 빨리 도착한 worker_done)이 이 Dispatch 를 이미 닫았을 수 있고, 그 결과를
     // 덮어써서는 안 된다. worker-start 의 서버 분기와 같은 규율이다.

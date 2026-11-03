@@ -345,6 +345,45 @@ describe('finished sessions of a running plan', () => {
       expect(unknown.releaseWorker).not.toHaveBeenCalled()
     })
 
+    // 2026-11-03: session 00ce45e5 (T2 · Value card), its Dispatch succeeded and ended while its Task was in review, sat
+    // open until a script closed it. A repair the review asks for starts fresh (repair.ts performRepair).
+    it('closes a finished worker whose Task is in review once it idled for the window, and keeps one typed into', async () => {
+      for (const status of ['reviewing', 'validating'] as const) {
+        const inReview = (): OrchState => {
+          const s = running(
+            [task({ id: 'tRev', status })],
+            [
+              dispatch({ id: 'dImpl', taskId: 'tRev', sessionId: 'wImpl' }),
+              ...(status === 'reviewing'
+                ? [dispatch({ id: 'dReviewer', taskId: 'tRev', sessionId: 'wReviewer', review: true, endedAt: undefined, outcome: undefined, workerState: 'ready' as const })]
+                : [])
+            ]
+          )
+          s.jobs[0].convergence = {} as never
+          return s
+        }
+        const h = rig(inReview())
+        h.ctx.sessionBusy = (id) => (id === 'wReviewer' ? true : false)
+        let now = NOW_MS
+        h.ctx.nowMs = () => now
+        await h.rotation.releaseFinished()
+        expect(h.releaseWorker, status).not.toHaveBeenCalled()
+        now += IDLE_CONSOLE_CLOSE_MS
+        await h.rotation.releaseFinished()
+        expect(h.releaseWorker.mock.calls.map((c) => c[0].dispatchId), status).toEqual(['dImpl'])
+        expect(h.logs.some((l) => l.includes('wImpl') && l.includes('was released')), status).toBe(true)
+
+        const typed = rig(inReview(), { typed: ['wImpl'], typedAgoMs: 5 * 60_000 })
+        typed.ctx.sessionBusy = () => false
+        let t = NOW_MS
+        typed.ctx.nowMs = () => t
+        await typed.rotation.releaseFinished()
+        t += 2 * IDLE_CONSOLE_CLOSE_MS
+        await typed.rotation.releaseFinished()
+        expect(typed.releaseWorker, status).not.toHaveBeenCalled()
+      }
+    })
+
     it('keeps a console that has a reason: a retained one, a waiting Gate, a failed Task awaiting its retry', async () => {
       const s = running(
         [task({ id: 'tRet', status: 'ready' }), task({ id: 'tGate', status: 'blocked' }), task({ id: 'tFail', status: 'failed' })],

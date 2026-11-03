@@ -608,7 +608,8 @@ export const USAGE: Record<PublicCommand, CommandUsage> = {
     detail:
       'An archived Job is left out of `jobs list` (unless --archived) and the app hides it unless "show archived" is on. No new run, coordinator or worker starts for it; its running workers and coordinator keep running. With --kill-sessions each running run is stopped as `runs stop` stops it first, with the same refusals, and the Job is archived only if all of them went through. `jobs unarchive` takes it back.',
     flags: [
-      ID('<jobId>', 'the Job to archive'),
+      { name: 'id', value: '<jobId>', about: 'the Job to archive (or --ids)' },
+      { name: 'ids', value: '<jobId,jobId,…>', about: 'many Jobs in one command and one commit; answers {archived, refused} (a Job whose stop was refused is left unarchived)' },
       { name: 'kill-sessions', about: "also close its running runs' workers and coordinators (as `runs stop`)" }
     ]
   },

@@ -648,6 +648,8 @@ export function recordDispatchGit(s: OrchState, dispatchId: string, patch: GitRa
 export function setRunWorktree(s: OrchState, id: string, worktree: string): Res<JobRun> {
   const run = s.runs.find((r) => r.id === id)
   if (!run) return gone(`unknown run: ${id}`)
+  // The same folder recorded twice (two starts of one Run that each forked it, 2026-11-03) is that folder: no change
+  if (run.worktree !== undefined && samePlace(run.worktree, worktree)) return ok(s, run)
   if (run.worktree !== undefined)
     return err(`run ${id} already has a worktree: ${run.worktree}`)
   const next = { ...run, worktree }

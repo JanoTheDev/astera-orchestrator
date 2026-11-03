@@ -106,6 +106,36 @@ describe('performRepair', () => {
     expect(a.launchPhrase).toBeUndefined()
     expect(deps.box.state.dispatches.find((d) => d.id === repair.id)?.sessionId).toBe('sess-new')
   })
+  // 2026-11-03: the finished worker's tab is closed while its Task is in review, so the repair resumes its conversation
+  it("a fresh repair resumes the closed worker's own conversation, and starts plain when that resume fails", async () => {
+    const { s, taskId, implId } = validating()
+    const withNative: OrchState = { ...s, dispatches: s.dispatches.map((d) => (d.id === implId ? { ...d, nativeSessionId: 'native-1' } : d)) }
+    const judged = unwrap<Task>(applyValidationResult(withNative, { taskId, results: failing, repair: repairTargetFor(withNative, taskId, () => false)! }, NOW) as never)
+    const repair = judged.state.dispatches.find((d) => d.repair)!
+    const deps = makeDeps(judged.state, { isAlive: () => false })
+    await performRepair(deps, { dispatchId: repair.id })
+    expect(deps.started).toHaveLength(1)
+    expect(deps.started[0].resume).toEqual({ nativeSessionId: 'native-1' })
+    expect(deps.started[0].terminal).toBeUndefined()
+    expect(deps.started[0].specFileContent).toContain('## Repair request')
+
+    const failingResume = makeDeps(judged.state, {
+      isAlive: () => false,
+      startWorker: async (a) => {
+        failingResume.started.push(a)
+        if (a.resume) throw new Error('no conversation found')
+        return { sessionId: 'sess-plain', cwd: 'D:/wt', specPath: 'C:/specs/x.md' }
+      }
+    })
+    expect(await performRepair(failingResume, { dispatchId: repair.id })).toEqual({ ok: true })
+    expect(failingResume.started.map((a) => a.resume !== undefined)).toEqual([true, false])
+    expect(failingResume.box.state.dispatches.find((d) => d.id === repair.id)?.sessionId).toBe('sess-plain')
+
+    // A Task raised to another model since is not resumed on the old one
+    const raised = makeDeps({ ...judged.state, tasks: judged.state.tasks.map((t) => (t.id === taskId ? { ...t, model: 'opus' } : t)) }, { isAlive: () => false })
+    await performRepair(raised, { dispatchId: repair.id })
+    expect(raised.started[0].resume).toBeUndefined()
+  })
   it('a live session that no longer runs what the Task wants is not reused: fresh in the same worktree', async () => {
     const { s, taskId } = validating()
     const judged = unwrap<Task>(applyValidationResult(s, { taskId, results: failing, repair: repairTargetFor(s, taskId, () => true)! }, NOW) as never)

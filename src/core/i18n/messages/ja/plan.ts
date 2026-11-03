@@ -165,6 +165,7 @@ export const plan: Partial<Record<keyof typeof ko, string>> = {
   'plan.reason.hold.origin-sync': 'origin を計画ブランチにマージする統合タスクを待っています',
   'plan.reason.hold.refresh-conflict': '他の計画のデリバリーとの競合を解く統合タスクを待っています',
   'plan.reason.hold.integration': '依存する作業をマージする統合タスクを待っています',
+  'plan.reason.hold.run-worktree': '別の開始が計画のワークツリーを作成中 · できたら始まります',
   'plan.reason.hold.run-root-busy': '計画フォルダでまだワーカーが作業中 · その後マージして始まります',
   'plan.reason.hold.cap': 'ワーカーの空きがない · 空き次第始まります',
   'plan.reason.hold.held': '新しいワーカーの開始は一時停止中',

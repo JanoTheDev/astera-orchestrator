@@ -686,7 +686,7 @@ export type TaskBlockedReason =
   | ({ kind: 'usage-paused' } & UsagePause)
 
 /** T8: why `placeSlot` did not start a ready Task this pass, and since when (ISO). `detail` is the loop's own English line. */
-export type SlotHoldKind = 'usage' | 'detached' | 'install' | 'origin-sync' | 'refresh-conflict' | 'integration' | 'run-root-busy' | 'cap' | 'held'
+export type SlotHoldKind = 'usage' | 'detached' | 'install' | 'origin-sync' | 'refresh-conflict' | 'integration' | 'run-root-busy' | 'cap' | 'held' | 'run-worktree'
 export interface SlotHold {
   hold: SlotHoldKind
   detail: string

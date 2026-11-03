@@ -59,6 +59,7 @@ import {
   resumeSchedule,
   resumeRun,
   setRunWorktree,
+  samePlace,
   recordRunGit,
   resolveRunId,
   recordDispatchGit,
@@ -1460,6 +1461,10 @@ async function answerApproval(deps: OrchServerDeps, msg: Message & { approval: N
 const SESSION_TASK_CMDS = new Set(['session-task-start', 'session-task-complete', 'session-task-cancel'])
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
+/** A list of ids: `a,b,c` from the CLI, or an array of strings; blanks and repeats dropped. */
+const idListArg = (v: unknown): string[] => [
+  ...new Set((Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : []).filter((x): x is string => typeof x === 'string').map((x) => x.trim()).filter((x) => x.length > 0))
+]
 /** W7-A: an on/off flag (`--auto-approve on`); true/false too. null for anything else. */
 const onOff = (v: unknown): boolean | null =>
   v === 'on' || v === true || v === 'true' ? true : v === 'off' || v === false || v === 'false' ? false : null
@@ -2583,6 +2588,39 @@ async function handleCommandInner(
   const endPlanners = async (job: Job, reason: string): Promise<void> => {
     for (const sessionId of job.plannerSessionIds ?? [])
       await deps.stopCoordinator?.(sessionId, reason).catch((e) => deps.log?.(`planner ${sessionId} could not be stopped: ${String(e)}`))
+  }
+
+  /** `jobs archive --kill-sessions` for one Job: null once every session of it was stopped, else the refusal of the
+   *  `runs stop` that did not go through. Every kill runs with the Host's chain handed on (offChain): a kill commits
+   *  nothing, and what commits after it (`runs stop`'s own record, the archive) reads the state again. */
+  const killSessionsOfJob = async (id: string): Promise<Reply | null> => {
+    const s0 = deps.getState()
+    for (const run of s0.runs.filter((r) => r.jobId === id && outcomeOf(s0, r.id) === 'running' && r.paused !== true)) {
+      const stopped = await handleCommand(deps, caller, 'runs-stop', { id: run.id })
+      if (stopped.status !== 200) return stopped
+    }
+    // W5-B (#46): **every** session of the plan, not only the open Dispatches `runs stop` closes. A worker waits after
+    // it reports (the guide's rule), a finished Run keeps its coordinator for the grace, and a planner is no
+    // Dispatch. Each closed Dispatch that is the latest of its session is released (releaseWorker skips a retained
+    // one, as worker-release does); a finished Run's coordinator gets `run-coordinator-stop`.
+    const stopped = deps.getState()
+    const runs = stopped.runs.filter((r) => r.jobId === id)
+    const mine = new Set(stopped.tasks.filter((t) => runs.some((r) => r.id === t.runId)).map((t) => t.id))
+    // Read off the state before the stops, so a Dispatch `runs stop` just closed is not released twice
+    const latestOfSession = new Map(s0.dispatches.map((d) => [d.sessionId, d.id]))
+    const release = s0.dispatches.filter(
+      (d) => mine.has(d.taskId) && (d.outcome || d.endedAt) && latestOfSession.get(d.sessionId) === d.id && releases(d)
+    )
+    if (release.length > 0)
+      await offChain(deps, async () => {
+        for (const d of release) await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
+      })
+    for (const run of runs)
+      if (run.coordinatorSessionId !== undefined && run.coordinatorStopPending === undefined)
+        await handleCommand(deps, caller, 'run-coordinator-stop', { run: run.id })
+    const planned = deps.getState().jobs.find((j) => j.id === id)
+    if (planned && (planned.plannerSessionIds?.length ?? 0) > 0) await offChain(deps, () => endPlanners(planned, 'its plan was archived'))
+    return null
   }
 
   /** Drops a Run's `coordinatorStartingAt`, on the state as it is now (I1), **only when it is the
@@ -3997,40 +4035,48 @@ async function handleCommandInner(
     // when every stop went through: a refusal leaves the Job unarchived (a Run stopped before it stays stopped, as
     // `runs stop` left it). Without it, what runs keeps running and only new work is refused.
     case 'jobs-archive': {
-      const id = str(args.id)
-      if (!id) return bad('--id is required')
-      if (!s.jobs.some((j) => j.id === id)) return notFound(`unknown job: ${id}`)
+      // **`--ids a,b,c`: many Jobs in one command and one commit** (2026-11-03: 75 `jobs archive` in a row froze the
+      // Host). `--id` alone answers the Job as before; `--ids` answers which were archived and which a stop refused.
+      const many = args.ids !== undefined
+      const ids = many ? idListArg(args.ids) : [str(args.id)].filter((x): x is string => x !== null)
+      if (ids.length === 0) return bad(many ? '--ids needs at least one job id' : '--id is required')
+      if (many && args.id !== undefined) return bad('give --id or --ids, not both')
+      const unknown = ids.filter((id) => !s.jobs.some((j) => j.id === id))
+      if (unknown.length > 0) return notFound(`unknown job: ${unknown.join(', ')}`)
+      const refusedOf: Array<{ id: string; error: unknown }> = []
+      const stoppable: string[] = []
       if (args.killSessions === true) {
-        for (const run of s.runs.filter((r) => r.jobId === id && outcomeOf(s, r.id) === 'running' && r.paused !== true)) {
-          const stopped = await handleCommand(deps, caller, 'runs-stop', { id: run.id })
-          if (stopped.status !== 200) return stopped
+        for (const id of ids) {
+          const stopped = await killSessionsOfJob(id)
+          if (stopped === null) stoppable.push(id)
+          else if (!many) return stopped
+          else refusedOf.push({ id, error: (stopped.body as { error?: unknown } | null)?.error ?? stopped.body })
         }
-        // W5-B (#46): **every** session of the plan, not only the open Dispatches `runs stop` closes. A worker waits after
-        // it reports (the guide's rule), a finished Run keeps its coordinator for the grace, and a planner is no
-        // Dispatch. Each closed Dispatch that is the latest of its session is released (releaseWorker skips a retained
-        // one, as worker-release does); a finished Run's coordinator gets `run-coordinator-stop`.
-        const stopped = deps.getState()
-        const runs = stopped.runs.filter((r) => r.jobId === id)
-        const mine = new Set(stopped.tasks.filter((t) => runs.some((r) => r.id === t.runId)).map((t) => t.id))
-        // Read off the state before the stops, so a Dispatch `runs stop` just closed is not released twice
-        const latestOfSession = new Map(s.dispatches.map((d) => [d.sessionId, d.id]))
-        for (const d of s.dispatches)
-          if (mine.has(d.taskId) && (d.outcome || d.endedAt) && latestOfSession.get(d.sessionId) === d.id && releases(d))
-            await deps.releaseWorker({ dispatchId: d.id, closeReason: 'stopped' })
-        for (const run of runs)
-          if (run.coordinatorSessionId !== undefined && run.coordinatorStopPending === undefined)
-            await handleCommand(deps, caller, 'run-coordinator-stop', { run: run.id })
-        const planned = stopped.jobs.find((j) => j.id === id)
-        if (planned) await endPlanners(planned, 'its plan was archived')
+      } else stoppable.push(...ids)
+      if (stoppable.length === 0) return okBody({ archived: [], refused: refusedOf })
+      // **The archived flag is committed on the chain at once, on the state as it is now** (one commit for all of them)
+      let next = deps.getState()
+      for (const id of stoppable) {
+        const r = archiveJob(next, id, now)
+        if (!r.ok) return refused(r)
+        next = r.state
       }
+      await deps.setState(next)
       const after = deps.getState()
-      const r = archiveJob(after, id, now)
-      if (!r.ok) return refused(r)
-      await deps.setState(r.state)
       // T5: an archived plan's finished Runs (a failed or cancelled one included) lose the worktrees whose work is merged
-      // or pushed; the Host says in the feed which it kept. A Run still working keeps all of them.
-      for (const run of r.state.runs.filter((x) => x.jobId === id && outcomeOf(r.state, x.id) !== 'running')) await cleanAfterDelivery(deps, run.id)
-      return okBody(jobView(r.state, r.value, latestRunOf(r.state, r.value)))
+      // or pushed; the Host says in the feed which it kept. A Run still working keeps all of them. **With the chain handed
+      // on** (offChain): the clean-up reads `git status` of every registered worktree, 20 s to 4 min on a busy machine
+      // (host.log 2026-11-03), and commits nothing to the state.
+      const finished = after.runs.filter((x) => stoppable.includes(x.jobId) && outcomeOf(after, x.id) !== 'running').map((x) => x.id)
+      if (finished.length > 0)
+        await offChain(deps, async () => {
+          for (const runId of finished) await cleanAfterDelivery(deps, runId)
+        })
+      if (!many) {
+        const job = after.jobs.find((j) => j.id === ids[0])!
+        return okBody(jobView(after, job, latestRunOf(after, job)))
+      }
+      return okBody({ archived: stoppable, refused: refusedOf })
     }
     // W7-D (#67): how many workers a plan runs at once, changed until it finishes. A lower value only limits new starts
     // (slotsToFill reads Job.concurrency each tick): a running worker is never stopped by it.
@@ -4796,9 +4842,14 @@ async function handleCommandInner(
       //
       // 순수 층의 거절을 여기서 지우지 않는 이유: 이 명령이 유일한 호출자라는 보장이 없고, 그 함수가
       // 조용히 덮어쓰게 되면 이 코드가 지키는 불변식이 이 파일에만 있게 된다.
+      //
+      // **The same folder is success** (2026-11-03: two starts of one Run both forked its worktree, the second's record
+      // was refused and opened a Gate): it answers the Run, changing nothing. Another folder is the 409, naming the one
+      // recorded (`worktree`), so the caller can start in it and remove its own.
       const existing = s.runs.find((r) => r.id === id)?.worktree
+      if (existing !== undefined && samePlace(existing, worktree)) return okBody(s.runs.find((r) => r.id === id))
       if (existing !== undefined)
-        return conflict(`run ${id} already has a worktree: ${existing}`)
+        return { status: 409, body: { error: `run ${id} already has a worktree: ${existing}`, code: 'has-worktree', worktree: existing } }
       return commit(setRunWorktree(s, id, worktree))
     }
     // T5 (decision 5): the worktrees Astera made, what each holds, and removing the ones that are safe to remove. The
@@ -5990,14 +6041,17 @@ async function handleCommandInner(
       if (d) {
         const task = s.tasks.find((t) => t.id === d.taskId)
         const run = task && s.runs.find((r) => r.id === task.runId)
+        // **An attempt that ended may go while its Task is checked or reviewed** (2026-11-03: the owner wants finished tabs
+        // gone, memory is tight): a repair the review asks for starts fresh in the same worktree and resumes the worker's
+        // own conversation where one was recorded (repair.ts performRepair). Refused only while this attempt is still
+        // open, or a repair is open in this very session (the next attempt works in it).
         const converging =
           // A reviewer's session is never the one a repair reuses: its verdict is recorded, so it may go
           !d.review &&
           !!(run && jobOf(s, run)?.convergence) &&
           !!task &&
-          (task.status === 'validating' ||
-            task.status === 'reviewing' ||
-            s.dispatches.some((x) => x.taskId === task.id && x.repair !== undefined && !x.endedAt))
+          ((!d.outcome && !d.endedAt && (task.status === 'validating' || task.status === 'reviewing')) ||
+            s.dispatches.some((x) => x.taskId === task.id && x.repair !== undefined && !x.endedAt && x.sessionId === d.sessionId))
         if (converging) return conflict(`task ${task!.id} is still converging — release after it completes`)
       }
       await deps.releaseWorker({ dispatchId: id, closeReason: 'released' })

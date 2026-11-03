@@ -5294,6 +5294,8 @@ export function registerIpc(
       const v = args[key]
       return typeof v === 'string' && v.length > 0 ? v : null
     }
+    // `jobs archive --ids` names many Jobs at once, which the one-id check below cannot judge: not through a project's door
+    if (cmd === 'jobs-archive' && args.ids !== undefined) return 'jobs-archive --ids is not taken through a project door; archive each Job by --id'
     const owned = idsOfProject(state, project, core.worktrees.list())
     const runBelongs = (id: string): boolean => owned.has(id)
 
