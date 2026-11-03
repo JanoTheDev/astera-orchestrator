@@ -143,15 +143,29 @@ const TAIL_WINDOW = 16 * 1024
 type LatestEvent = { line: string; at: number; lastAction: LastAction } | null
 /** `latestEvent`'s answers by file, kept while the file's size and mtime stay (an append moves both): `sessions list`
  *  with 20 sessions re-reads only the files that changed. One entry per hook-event file this Host has asked about. */
-const tails = new Map<string, { size: number; mtimeMs: number; value: LatestEvent }>()
-async function latestEvent(file: string): Promise<LatestEvent> {
-  const st = await fs.stat(file).catch(() => null)
-  if (!st) return null
+const tails = new Map<string, { size: number; mtimeMs: number; value: LatestEvent; statAt: number }>()
+/** How long an answer is given again without even a stat (2026-11-03: every listing statted every session's file, on
+ *  libuv's 4 shared threads, while 3 pollers listed every few seconds). An event that lands within it is seen by the
+ *  next ask after it: a session's state reads a second late at the most. Only for `listSessions`: one session's own
+ *  asks (`sessionTurn`, `agentSessionOf`) always stat. */
+const TAIL_FRESH_MS = 1_000
+async function latestEvent(file: string, freshMs = 0): Promise<LatestEvent> {
   const hit = tails.get(file)
-  if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) return hit.value
+  if (hit && freshMs > 0 && Date.now() - hit.statAt < freshMs) return hit.value
+  const statAt = Date.now()
+  const st = await fs.stat(file).catch(() => null)
+  if (!st) {
+    // No file is an answer too (a Codex session never has one), kept as long as any other
+    tails.set(file, { size: -1, mtimeMs: -1, value: null, statAt })
+    return null
+  }
+  if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) {
+    hit.statAt = statAt
+    return hit.value
+  }
   const value = await readLatestEvent(file)
   // Keyed by the stat before the read: a write in between makes the next ask read again, never keeps an old answer.
-  tails.set(file, { size: st.size, mtimeMs: st.mtimeMs, value })
+  tails.set(file, { size: st.size, mtimeMs: st.mtimeMs, value, statAt })
   return value
 }
 async function readLatestEvent(file: string): Promise<LatestEvent> {
@@ -203,6 +217,8 @@ export function registrySessions(a: {
   /** How many heavy jobs run at once (heavyJobsAtOnce): the first that many tickets are running, not waiting. Test
    *  injection; the wiring leaves it out and it is read from the Host profile's app-settings.json per listing. */
   heavyJobsAtOnce?: () => Promise<number>
+  /** TAIL_FRESH_MS, how long a listing gives a hook file's answer again without a stat. Test injection. */
+  tailFreshMs?: number
 }): HostSessions & Required<Pick<HostSessions, 'sessionTurn' | 'agentSessionOf' | 'ownerInputAt'>> {
   const mintId = a.mintId ?? (() => `astera-host-${randomUUID()}`)
   // T11: each pty's last output, so a long noisy tool with no hook event reads working (as the app's attention does)
@@ -250,9 +266,9 @@ export function registrySessions(a: {
   /** A live terminal session's state. Only a pty session has hooks at all — and only a Claude one:
    *  Codex runs without the settings file that installs them, so it never has a file. A chat session
    *  is a line process whose status is in its protocol, read by the app's adapter, not in a file. */
-  const stateOf = async (e: PtyEntry): Promise<{ state: SessionState; prompt: Prompt; lastAction: LastAction }> => {
+  const stateOf = async (e: PtyEntry, freshMs = 0): Promise<{ state: SessionState; prompt: Prompt; lastAction: LastAction }> => {
     if (!e.alive) return { state: 'unknown', prompt: null, lastAction: null }
-    const last = await latestEvent(hookEventsFileIn(a.hookEventsDir, e.meta!.id))
+    const last = await latestEvent(hookEventsFileIn(a.hookEventsDir, e.meta!.id), freshMs)
     const state = sessionStateOf({ lastLine: last?.line ?? null, eventAt: last?.at ?? null, lastInputAt: a.ptys.lastWrite(e.id), lastOutputAt: lastOutput.get(e.id) ?? null, now: Date.now() })
     const lastAction = last?.lastAction ?? null
     if (state !== 'waiting' || !last) return { state, prompt: null, lastAction }
@@ -273,7 +289,7 @@ export function registrySessions(a: {
 
   const buildList = async (): Promise<HostSession[]> => {
     const terminals = a.ptys.list().filter((e) => e.meta?.kind === 'session')
-    const [states, accounts] = await Promise.all([Promise.all(terminals.map(stateOf)), a.accounts().catch(() => [] as Account[])])
+    const [states, accounts] = await Promise.all([Promise.all(terminals.map((e) => stateOf(e, a.tailFreshMs ?? TAIL_FRESH_MS))), a.accounts().catch(() => [] as Account[])])
     // An account with no provider field is a Claude account (core/types.ts Account.provider).
     const providers = new Map(accounts.map((x) => [x.id, x.provider ?? 'claude'] as const))
     const rows = await withHeavyWait([

@@ -102,7 +102,8 @@ const harness = (size: { cols: number; rows: number } = { cols: 80, rows: 24 }, 
       meta: { kind: 'chat', id: 'chat-1', restore: { accountId: 'acc2', cwd: 'D:/repo', title: '대화' } }
     })
   openChat('proc-a')
-  return { ptys, procs, agent, shell, openChat, procsMade, sessions: registrySessions({ ptys, procs, hookEventsDir, accounts: async () => accounts }) }
+  // tailFreshMs 0: these tests write an event and list at once, so every listing stats the file
+  return { ptys, procs, agent, shell, openChat, procsMade, sessions: registrySessions({ ptys, procs, hookEventsDir, accounts: async () => accounts, tailFreshMs: 0 }) }
 }
 
 // Performance audit H4: a remote keystroke, resize, stop or facts read names one session; finding it must not build
@@ -221,6 +222,29 @@ describe('registrySessions — list', () => {
     expect(answers).toHaveLength(3)
     answers[2]()
     expect((await fourth).map((x) => x.id)).toEqual(['s1', 's2'])
+  })
+
+  it('a listing gives a hook file’s answer again within tailFreshMs without reading it, and reads it after', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'astera-sessions-fresh-'))
+    try {
+      const ptys = new PtyRegistry({ spawn: fakePty, log: () => {} })
+      const procs = new ProcRegistry({ spawn: fakeProc, log: () => {} })
+      ptys.open({ id: 'pf', file: 'sh', args: [], opts, meta: { kind: 'session', id: 'ses-fresh', restore: {} } })
+      const file = path.join(dir, 'ses-fresh.jsonl')
+      const stop = JSON.stringify({ hook_event_name: 'Stop', session_id: 'x' }) + '\n'
+      const tool = JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', session_id: 'x' }) + '\n'
+      writeFileSync(file, stop)
+      const sessions = registrySessions({ ptys, procs, hookEventsDir: dir, accounts: async () => [], tailFreshMs: 300 })
+      const first = (await sessions.listSessions())[0].state
+      appendFileSync(file, tool)
+      utimesSync(file, new Date(), new Date(Date.now() + 1000))
+      // Within the window: the answer before the append
+      expect((await sessions.listSessions())[0].state).toBe(first)
+      await new Promise((r) => setTimeout(r, 350))
+      expect((await sessions.listSessions())[0].state).not.toBe(first)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   // A note the app wrote is the app's, and nothing forces its keys to be strings.

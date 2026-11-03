@@ -2234,6 +2234,11 @@ async function openMergeTask(
 /** T4: `effect` with the Host's chain handed on (OrchServerDeps.outsideChain); inline where there is no chain. */
 export const offChain = <T>(deps: OrchServerDeps, effect: () => Promise<T>): Promise<T> => (deps.outsideChain ? deps.outsideChain(effect) : effect())
 
+/** What `worker-start` read with the chain handed on before it runs again (its args carry it under WORKER_START_PRE, a
+ *  symbol, so no caller can pass it). */
+type WorkerStartPre = { held: Reply | null; cap: number | null; usageRefreshed: boolean }
+const WORKER_START_PRE = Symbol('worker-start pre-reads')
+
 /** T4: `commit` made from inside `offChain` (a start's `onWait`) takes the chain for itself; inline where there is none. */
 const backOnChain = <T>(deps: OrchServerDeps, commit: () => Promise<T>): Promise<T> => (deps.inChain ? deps.inChain(commit) : commit())
 
@@ -5480,8 +5485,22 @@ async function handleCommandInner(
       // 회차를 찾지 못한다. 그래도 남겨 둔다: orchestration.json 은 손으로 고쳐진다.
       if (runJob?.schedule && run.ordinal === 0)
         return bad(`job ${run.jobId} is a schedule — it does not dispatch its own Tasks; its runs do`)
+      // **The settings and usage reads, with the Host's chain handed on, then this command once more** (2026-11-03: a
+      // start's file reads queued behind a starved machine's thread pool while every other command queued behind the
+      // start): the start hold, the worker cap and the usage refresh are read outside the chain, and the command runs
+      // again from the top on the state as it is then (a fresh `s`), every check above and below asked again, with
+      // those answers in hand. Nothing was committed before, so nothing a command landed meanwhile is lost.
+      const pre = (args as Record<PropertyKey, unknown>)[WORKER_START_PRE] as WorkerStartPre | undefined
+      if (pre === undefined && deps.outsideChain) {
+        const got = await offChain(deps, async (): Promise<WorkerStartPre> => ({
+          held: (await startHeldReply(deps)) ?? null,
+          cap: deps.maxConcurrentWorkers ? await deps.maxConcurrentWorkers() : null,
+          usageRefreshed: deps.usageGuard ? (await deps.usageGuard.refresh(), true) : false
+        }))
+        return handleCommand(deps, caller, cmd, { ...args, [WORKER_START_PRE]: got })
+      }
       // T13: held for the whole profile (a restart, or the owner): no new worker from any placer, the plan's own hold aside
-      const holding = startHeldReply(deps)
+      const holding = pre ? (pre.held ? Promise.resolve(pre.held) : null) : startHeldReply(deps)
       const profileHeld = holding && (await holding)
       if (profileHeld) return profileHeld
       // W5-C: a plan held from launching (`jobs-hold`) gets no new worker from any placer: the app's loop, `tasks
@@ -5545,7 +5564,7 @@ async function handleCommandInner(
       // `atCapacity` tells the app's loop this is a wait, not a reason for a Gate.
       // Awaited only when wired: an `await` on nothing would still yield, and move this command's commit a tick later.
       // W6-C: not set, or not wired, is MAX_CONCURRENT_WORKERS (workerCapOf)
-      const cap = workerCapOf(deps.maxConcurrentWorkers ? await deps.maxConcurrentWorkers() : null)
+      const cap = workerCapOf(pre ? pre.cap : deps.maxConcurrentWorkers ? await deps.maxConcurrentWorkers() : null)
       const busy = workersAgainstCap(s)
       if (busy >= cap)
         return { status: 409, body: { error: `the app-wide worker cap is reached: ${busy} of ${cap} workers are open`, atCapacity: true } }
@@ -5563,7 +5582,7 @@ async function handleCommandInner(
         account = choice.accountId
         release = choice.release
       } else if (deps.usageGuard) {
-        await deps.usageGuard.refresh()
+        if (!pre?.usageRefreshed) await deps.usageGuard.refresh()
         const pause = deps.usageGuard.pauseOf(account)
         if (pause) {
           // T5b: the best usable account of every account of that provider, not only the Task's chain

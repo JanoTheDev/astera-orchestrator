@@ -236,6 +236,8 @@ export interface DispatchLoopContext {
   /** Test seams: setup.ts installPending and installSettled. */
   installPending?(dir: string): boolean
   installSettled?(dir: string): Promise<void> | undefined
+  /** Test seam: SLOT_LAUNCH_WAIT_MS, how long the pass waits for one slot's start before it places the next. */
+  slotLaunchWaitMs?: number
   /** True when the folder is there for sure not (delivery removes a plan's worktree but the Run keeps the path). A
    *  folder that does not answer is not gone. Optional: without it a recorded Run worktree is taken as present. */
   worktreeGone?(p: string): Promise<boolean>
@@ -365,6 +367,24 @@ export const LANDING_STEP_MS = 2 * 60_000
 /** A merge pass older than this no longer holds the next one back (it is abandoned, logged once). */
 export const LANDING_STALE_MS = 5 * 60_000
 const TIMED_OUT = Symbol('timed out')
+/** How long the pass waits for one slot's start (its Dispatch committed, or the start ended) before it places the next
+ *  slot anyway. A start answers in seconds; one that spawns for minutes (a starved machine, a pty supervisor that does
+ *  not answer) must not hold every other ready Task. */
+export const SLOT_LAUNCH_WAIT_MS = 10_000
+/** How often the pass looks for a slot's Dispatch in the state while its start runs. */
+const SLOT_LAUNCH_POLL_MS = 50
+
+/** Resolves when `p` settles or after `ms`, whichever is first; the timer is cleared when `p` wins. */
+const raceFor = (p: Promise<unknown>, ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms)
+    timer.unref?.()
+    const done = (): void => {
+      clearTimeout(timer)
+      resolve()
+    }
+    p.then(done, done)
+  })
 
 /** The module reads every `c.*` at each call, never a copy taken at construction (C5): the app and the
  *  tests replace members after building it. */
@@ -2099,6 +2119,30 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
   }
   /** T7: how many passes asked for during a tidy run one after another before the next waits for a commit or a tick. */
   const RERUNS_AT_MOST = 10
+  /** Resolves once `taskId` has an open Dispatch (its worker-start committed it) or `ended` settled. Looked at every
+   *  SLOT_LAUNCH_POLL_MS, from one poll on, so a start that ends at once ends this the way it always ended the slot. */
+  /** The Tasks whose placement (placeSlot, its Gate or hold included) has not ended, for every pass of this loop. */
+  const inPlacement = new Set<string>()
+  const launchedOrEnded = (taskId: string, ended: Promise<void>): Promise<void> =>
+    new Promise((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      let over = false
+      const finish = (): void => {
+        if (over) return
+        over = true
+        if (timer !== undefined) clearTimeout(timer)
+        resolve()
+      }
+      void ended.then(finish, finish)
+      const look = (): void => {
+        if (over) return
+        if (c.getState().dispatches.some((d) => d.taskId === taskId && !d.review && !d.endedAt && !d.outcome)) return finish()
+        timer = setTimeout(look, SLOT_LAUNCH_POLL_MS)
+        timer.unref?.()
+      }
+      timer = setTimeout(look, SLOT_LAUNCH_POLL_MS)
+      timer.unref?.()
+    })
   /** `again`: T7, a pass asked for while the last one tidied or reaped, run in that one's activation (its attempted set);
    *  `n` counts them in a row. */
   const runScheduler = async (again?: { attempted: Set<string>; n: number }): Promise<void> => {
@@ -2165,7 +2209,9 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           heldProbe = false
         }
         const startHeld = typeof heldProbe === 'boolean' ? heldProbe : await heldProbe.catch(() => false)
-        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers, startHeld }).filter((s) => !attempted.has(s.taskId))
+        // Nor a Task whose placement still runs beside the passes (a start that outlived its lap): its rollback, before
+        // its Gate, would otherwise read as a ready Task to start again
+        const slots = slotsToFill(c.getState(), { maxConcurrentWorkers, startHeld }).filter((s) => !attempted.has(s.taskId) && !inPlacement.has(s.taskId))
         // 띄울 자리가 없으면 계정 조회까지 가지 않는다. 이 함수는 **모든 저장마다** 불리고 그
         // 대부분은 띄울 것이 없는 저장이다 — 아래 조회에 계정마다 파일(macOS 에서는 Keychain)
         // 읽기가 하나씩 붙으므로, 빈 바퀴에 그것을 치르면 상태를 쓰는 모든 명령이 그만큼 느려진다.
@@ -2181,37 +2227,63 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
           accounts.map(async (a) => ((await c.loginStatus(a.id)) ? a.id : null))
         )
         const loggedIn = new Set(loggedInIds.filter((id): id is string => id !== null))
+        /** **A start that hangs does not hold the slots behind it** (2026-11-03: one `worker-start` ran 483 s, a pty
+         *  spawn and worktree checks on a starved machine, while 12 ready Tasks of 5 plans waited behind it in this
+         *  for). Each slot's placement runs on its own: the next one is placed once this one's Dispatch is committed
+         *  (seen in the state), or once it ended, or after SLOT_LAUNCH_WAIT_MS at the most. Each still commits through
+         *  worker-start (the Host's chain, its caps checked on the state as it is then), so this changes only who waits
+         *  for the spawn. A slot of a Run whose earlier slot has not launched yet waits for the next pass: two
+         *  placements of one Run could both fork its missing Run worktree. */
+        const placing: Promise<void>[] = []
+        const launchingRuns = new Map<string, Promise<void>>()
+        let leaving = false
         for (const slot of slots) {
           // **슬롯마다 운전자를 다시 묻는다**(설계 §4.3). 이 for 는 await 를 여럿 지나고(계정 조회, 앞 슬롯의
           // worker-start), 그 사이 운전이 다른 프로세스로 넘어갈 수 있다 — 넘어간 뒤에 띄우는 자리는 두
           // 운전자가 같은 ready Task 를 두고 다투는 자리다. 멈추면 새 운전자의 다음 바퀴가 남은 자리를 본다.
-          if (!c.mayStart()) break
+          if (!c.mayStart() || leaving) break
+          if (launchingRuns.has(slot.runId)) continue
           attempted.add(slot.taskId)
+          inPlacement.add(slot.taskId)
           // 슬롯 하나의 실패는 **그 슬롯에서 멈춘다.** 거절(status >= 400)과 예외는 여기서 같은
           // 뜻이다 — "이 자리는 지금 못 뜬다" — 이므로 같은 곳으로 보낸다. handleCommand 는 실제로
           // 던진다: 그 안의 setState 가 store.save 의 tmp+rename 을 지나고, 디스크가 찼거나
           // Windows 에서 rename 이 잠기면 거부된다. 잡지 않으면 그 예외가 이 for 를 뚫고 나가
           // **남은 슬롯이 통째로 버려진다** — 상관없는 다른 프로젝트의 Run 이 남의 실패 때문에
           // 서 있게 되고, 하나의 문제가 전부를 세우지 않는다는 이 루프의 전제가 거짓이 된다.
-          try {
-            const end = await placeSlot(slot, accounts, loggedIn)
-            noteHold(slot.taskId, end)
-            // **떠나는 Host 의 거절은 Gate 가 아니다**(R15). 물러나는 Host 는 retire 가 온 순간부터 모든
-            // 시작을 거절하고, worker-start 는 그것을 `retry` 를 실은 409 로 답한다 — "이 Task 를 못
-            // 띄운다" 가 아니라 "나중에, 다음 운전자에게 같은 명령을" 이다. **이 활성화를 통째로 멈춘다**
-            // (break 가 아니라 return). 이유는 placeSlot 의 그 자리 주석에 있다.
-            if (end.kind === 'leaving') {
-              log('scheduler: the Host is leaving — no further slot this activation')
-              return
+          const ended = (async (): Promise<void> => {
+            try {
+              const end = await placeSlot(slot, accounts, loggedIn)
+              noteHold(slot.taskId, end)
+              // **떠나는 Host 의 거절은 Gate 가 아니다**(R15). 물러나는 Host 는 retire 가 온 순간부터 모든
+              // 시작을 거절하고, worker-start 는 그것을 `retry` 를 실은 409 로 답한다 — "이 Task 를 못
+              // 띄운다" 가 아니라 "나중에, 다음 운전자에게 같은 명령을" 이다. **이 활성화를 통째로 멈춘다**
+              // (break 가 아니라 return). 이유는 placeSlot 의 그 자리 주석에 있다.
+              if (end.kind === 'leaving') {
+                if (!leaving) log('scheduler: the Host is leaving — no further slot this activation')
+                leaving = true
+                return
+              }
+              if (end.kind === 'gate') await gateSlot(slot.taskId, end.reason)
+              else if (end.kind === 'refused')
+                await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: JSON.stringify(end.reply.body) }))
+            } catch (e) {
+              forgetHold(slot.taskId)
+              await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: String(e) }))
             }
-            if (end.kind === 'gate') await gateSlot(slot.taskId, end.reason)
-            else if (end.kind === 'refused')
-              await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: JSON.stringify(end.reply.body) }))
-          } catch (e) {
-            forgetHold(slot.taskId)
-            await gateSlot(slot.taskId, t(c.lang(), 'jobs.integration.startFailed', { error: String(e) }))
-          }
+          })()
+            .catch((e) => log(`scheduler: task=${slot.taskId}: its placement failed: ${String(e)}`))
+            .finally(() => inPlacement.delete(slot.taskId))
+          placing.push(ended)
+          const launched = launchedOrEnded(slot.taskId, ended)
+          launchingRuns.set(slot.runId, launched)
+          void launched.then(() => launchingRuns.delete(slot.runId))
+          await raceFor(launched, c.slotLaunchWaitMs ?? SLOT_LAUNCH_WAIT_MS)
         }
+        // A lap waits a moment for its starts to end (most answer in well under it), so what they decided (a Gate, a
+        // hold) is there for the next lap; one still spawning goes on beside the next laps and passes.
+        await raceFor(Promise.all(placing), c.slotLaunchWaitMs ?? SLOT_LAUNCH_WAIT_MS)
+        if (leaving) return
       } while (scheduleAgain)
 
       // **끝난 예약 회차의 워크트리를 걷는다.** 발화마다 폴더가 하나씩 쌓이던 것을 막는다.
