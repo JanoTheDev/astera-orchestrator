@@ -261,3 +261,62 @@ describe('the slow-command log', () => {
     expect(lines.filter((l) => l.startsWith('host: slow command'))).toEqual([expect.stringMatching(/^host: slow command sessions-list took \d+ ms \(a read, outside the chain\)$/)])
   })
 })
+
+// 2026-11-03: `jobs archive` held the chain 20 s to 4 min while its worktree clean-up read `git status` of every
+// worktree, and 75 of them in a row froze the Host.
+describe('jobs-archive hands the chain on while it cleans up', () => {
+  /** `plans` finished plans: every Task completed, so archiving one cleans its worktrees. */
+  const seedFinished = async (plans: number): Promise<string[]> => {
+    const { jobIds } = await seed(plans)
+    const file = path.join(dir, 'orchestration.json')
+    const state = JSON.parse(await fs.readFile(file, 'utf8')) as OrchState
+    await fs.writeFile(file, JSON.stringify({ ...state, tasks: state.tasks.map((t) => ({ ...t, status: 'completed' })) }, null, 2), 'utf8')
+    return jobIds
+  }
+
+  it('answers another write while an archive waits on its worktree clean-up, the archive already committed', async () => {
+    const jobIds = await seedFinished(2)
+    let releaseClean: () => void = () => {}
+    let cleaning: () => void = () => {}
+    const cleanStarted = new Promise<void>((r) => (cleaning = r))
+    const cleaned: string[] = []
+    const orch = orchOver({
+      cleanWorktrees: async (runId) => {
+        cleaned.push(runId)
+        cleaning()
+        await new Promise<void>((r) => (releaseClean = r))
+      }
+    })
+    await orch.ready()
+    const archive = orch.call({ cmd: 'jobs-archive', args: { id: jobIds[0] }, sessionId: '' })
+    await cleanStarted
+    // The archived flag is committed before the slow step
+    expect(orch.state().jobs.find((j) => j.id === jobIds[0])?.archivedAt).toBe(NOW)
+    const t0 = Date.now()
+    const other = await rename(orch, jobIds[1], 'renamed while the archive cleans')
+    expect(other.status).toBe(200)
+    expect(Date.now() - t0).toBeLessThan(1000)
+    releaseClean()
+    const r = await archive
+    expect(r.status).toBe(200)
+    expect(cleaned).toHaveLength(1)
+    expect(orch.state().jobs.find((j) => j.id === jobIds[1])?.title).toBe('renamed while the archive cleans')
+  })
+
+  it('archives many Jobs with --ids in one commit', async () => {
+    const jobIds = await seedFinished(3)
+    const cleaned: string[] = []
+    let commits = 0
+    const orch = orchOver({ cleanWorktrees: async (runId) => void cleaned.push(runId), onState: () => void (commits += 1) })
+    await orch.ready()
+    const before = commits
+    const r = await orch.call({ cmd: 'jobs-archive', args: { ids: `${jobIds[0]}, ${jobIds[2]}` }, sessionId: '' })
+    expect(r.status).toBe(200)
+    expect(r.body).toEqual({ archived: [jobIds[0], jobIds[2]], refused: [] })
+    expect(commits - before).toBe(1)
+    expect(orch.state().jobs.filter((j) => j.archivedAt !== undefined).map((j) => j.id)).toEqual([jobIds[0], jobIds[2]])
+    expect(cleaned).toHaveLength(2)
+    expect((await orch.call({ cmd: 'jobs-archive', args: { ids: 'nope' }, sessionId: '' })).status).toBe(404)
+    expect((await orch.call({ cmd: 'jobs-archive', args: { ids: '' }, sessionId: '' })).status).toBe(400)
+  })
+})
