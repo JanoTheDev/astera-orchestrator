@@ -86,6 +86,9 @@ export interface HostChecks {
    *  false. */
   checking(taskId: string): boolean
   resumeSweep(why: string): void
+  /** The review starts lost while this Host stayed up (resumeSweep.ts `redriveLostReviews`), started again. A start of
+   *  this Host's own still under way (`reviewStarts`, the one `checking` reads) is not one, however long it takes. */
+  redriveLostReviews(why: string): void
   /** W6-H: runs these run configurations once, in order, in `cwd` (a push delivery's merged folder), and stops at the
    *  first that does not exit 0. A check past CHECK_TIMEOUT_MS is stopped and fails. `ran`: how many ran. */
   validateTree(cwd: string, configIds: string[]): Promise<{ ok: true; ran: number } | { ok: false; reason: string }>
@@ -517,6 +520,7 @@ export function createHostChecksForTest(d: HostChecksDeps): HostChecks & { _vali
     stopForeignValidations,
     checking: (taskId) =>
       validation.validator.holds(taskId) || reviewStarts.has(taskId) || foreignRunIn(taskId),
-    resumeSweep: (why) => sweep.run(why)
+    resumeSweep: (why) => sweep.run(why),
+    redriveLostReviews: (why) => sweep.redriveLostReviews(why, (taskId) => reviewStarts.has(taskId))
   }
 }

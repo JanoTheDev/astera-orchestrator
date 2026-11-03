@@ -126,7 +126,7 @@ import type { Provider } from '../providers/meta'
 import { isValidRule, type ScheduleRule } from '../scheduler/rule'
 import { parseCheckFlag } from '../workUnit/verification'
 import { isTerminal as taskFinished, outcomeOf, progressOf } from './view'
-import { outcomeOfTasks, runningRunCount, tasksOwnedBy } from './running'
+import { lostReviewStarts, outcomeOfTasks, runningRunCount, tasksOwnedBy } from './running'
 import { FINISHED_RUN_GRACE_MS } from './exec/dispatchLoop'
 // T8 runs doctor, sessions close
 import { diagnoseRuns, doctorRunIds, repairFindings } from './runsDoctor'
@@ -3333,6 +3333,18 @@ export async function handleCommand(
       const resumed = resumeRun(base, id, now)
       const reply = await commit(resumed)
       if (!resumed.ok || reply.status !== 200) return reply
+      // **A reviewing Task whose review start was lost gets its review now** (2026-11-02: `runs stop` + `runs resume`
+      // left four such Tasks as they were). While the Run was stopped nothing could start one (`lostReviewStarts`
+      // leaves a gated Run alone), and resuming is the person saying "go on". The same predicate and the same door as
+      // the Host's tick; a start still in flight is refused at `openReviewDispatch`, so this cannot add a reviewer.
+      if (deps.startReview) {
+        const resumedState = deps.getState()
+        for (const t of lostReviewStarts(resumedState, Date.parse(now)))
+          if (t.runId === id) {
+            deps.log?.(`runs resume ${id}: task=${t.id} has been reviewing since ${t.updatedAt} with no reviewer — starting its review`)
+            deps.startReview({ taskId: t.id })
+          }
+      }
       // **A Run `runs stop` paused gets its coordinator back** (the user's decision, 2026-10-01): the
       // stop ended it, and without one nothing drives a coordinator Job's Run. The same guard and the
       // same hand-over as the ▶ on a Run row (`run-start` given a run id); the new coordinator's TAKE
@@ -4341,7 +4353,7 @@ export async function handleCommand(
       } catch (e) {
         deps.log?.(`runs doctor: the session list could not be read: ${String(e)}`)
       }
-      const findings = diagnoseRuns(s, runIds, sessions)
+      const findings = diagnoseRuns(s, runIds, sessions, Date.parse(now))
       const checkedSessions = sessions !== undefined
       if (args.fix === undefined || args.fix === false) return okBody({ runs: runIds.length, checkedSessions, findings })
       const lang = (await deps.lang?.()) ?? 'en'
@@ -4351,7 +4363,8 @@ export async function handleCommand(
         now: () => deps.now?.() ?? new Date().toISOString(),
         lang,
         sessionExited: (sessionId) => handleExit(deps, { sessionId, exitCode: 1 }),
-        ...(deps.stopCoordinator ? { stopSession: (id: string, reason: string) => deps.stopCoordinator!(id, reason, 'released') } : {})
+        ...(deps.stopCoordinator ? { stopSession: (id: string, reason: string) => deps.stopCoordinator!(id, reason, 'released') } : {}),
+        ...(deps.startReview ? { startReview: (a: { taskId: string }) => deps.startReview!(a) } : {})
       })
       return okBody({ runs: runIds.length, checkedSessions, findings, repairs })
     }

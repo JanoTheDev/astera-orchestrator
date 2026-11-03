@@ -1,5 +1,5 @@
 import type { JobTask, RunOutcome, RunStuck } from '../types'
-import { coordinatorStarting, jobOf, type OrchState } from './state'
+import { coordinatorStarting, jobOf, runGatedForTask, type OrchState } from './state'
 import { FAILURE_LIMIT, type Dispatch, type Gate, type Job, type JobRun, type Task } from './types'
 import { completionSettled, replanOn } from './replan'
 import { jobActive } from './schedule'
@@ -215,11 +215,49 @@ export function stuckIndexOf(s: OrchState): StuckIndex {
 }
 
 /** Whether a Task's latest Dispatch is a reviewer that has ended: a stopped reviewer, which leaves its Task `reviewing`
- *  with nothing to finish it (T8). A review start in flight has no review Dispatch yet, so it does not read so. */
+ *  with nothing to finish it (T8). A review start in flight has no review Dispatch yet, so it does not read so — and
+ *  one that stays so past its grace is a lost start (`reviewStartLost`, below). */
 export function reviewerEnded(dispatches: readonly Dispatch[], taskId: string): boolean {
   let last: Dispatch | undefined
   for (const d of dispatches) if (d.taskId === taskId && (last === undefined || d.startedAt.localeCompare(last.startedAt) >= 0)) last = d
   return last?.review === true && (last.endedAt !== undefined || last.outcome !== undefined)
+}
+
+/** How long a Task may read "review start in flight" before it reads as a start that was lost (2026-11-02). A real
+ *  start opens its review Dispatch after the account, login and path reads (review.ts), seconds even on a slow Host;
+ *  two minutes is well past that, and short against a reviewing Task that would otherwise wait for a restart. */
+export const REVIEW_START_GRACE_MS = 2 * 60_000
+
+/** **The other half of `reviewerEnded`'s "a review start in flight has no review Dispatch yet"**: a start that never
+ *  lands reads exactly the same, forever. Measured 2026-11-02: four Tasks went `reviewing`, their reviewers started and
+ *  logged `review started`, and a concurrent whole-state write then dropped their review Dispatches. Each Task was
+ *  left `reviewing` with no Dispatch at all, which every reader here took for a start in flight: `runs doctor` found
+ *  nothing, `runningRunCount` kept the Run running, and only the next Host's load (`interruptedResumes`) re-drove them,
+ *  eight hours later.
+ *
+ *  So past `graceMs` since the Task last moved (its `updatedAt`, set as it went `reviewing`) "in flight" is read as
+ *  "lost": `reviewing`, no open Dispatch, and its reviewer not one that ran and ended (that is `reviewerEnded`, a
+ *  different repair). One predicate, read by the Host's tick (exec/resumeSweep.ts `redriveLostReviews`), by
+ *  `runs doctor` and by `runs resume`; the re-drive is the ordinary review start, whose `openReviewDispatch` refuses a
+ *  second reviewer (`dispatch already open`, ruling F37), so a start that was only slow costs nothing. */
+export function reviewStartLost(
+  dispatches: readonly Dispatch[],
+  task: Pick<Task, 'id' | 'status' | 'updatedAt'>,
+  nowMs: number,
+  graceMs: number = REVIEW_START_GRACE_MS
+): boolean {
+  if (task.status !== 'reviewing') return false
+  if (dispatches.some((d) => d.taskId === task.id && !d.outcome && !d.endedAt)) return false
+  if (reviewerEnded(dispatches, task.id)) return false
+  const since = Date.parse(task.updatedAt)
+  return Number.isFinite(since) && nowMs - since >= graceMs
+}
+
+/** The Tasks whose review start was lost (`reviewStartLost`) and that a review may start on now: a Run a person
+ *  stopped, or a paused Job, is left alone (`runGatedForTask`, the gate every other starter asks), and its Tasks are
+ *  picked up by `runs resume`. */
+export function lostReviewStarts(s: OrchState, nowMs: number, graceMs: number = REVIEW_START_GRACE_MS): Task[] {
+  return s.tasks.filter((t) => reviewStartLost(s.dispatches, t, nowMs, graceMs) && !runGatedForTask(s, t))
 }
 
 /** 지금 일이 도는 Task 의 개수. 사이드바의 `+N` 과 두 화면(JobsView·RunDetail)의 머리 숫자가

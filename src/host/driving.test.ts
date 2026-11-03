@@ -258,6 +258,7 @@ async function rig(o: RigOpts = {}) {
     return orch.handle(cmd, args)
   })
   const resumeSweep = vi.fn()
+  const redriveLostReviews = vi.fn()
   /** HostChecks.stopForeignValidations (Task 14 round 2): resolves at once unless a test holds it. */
   const foreign = { hold: null as Promise<number> | null }
   const stopForeignValidations = vi.fn(() => foreign.hold ?? Promise.resolve(0))
@@ -301,7 +302,7 @@ async function rig(o: RigOpts = {}) {
       },
       isRegistered: (p) => childWorktrees().includes(p)
     },
-    checks: { resumeSweep, stopForeignValidations, checking, accounts: async () => [ACCOUNT], loginStatus: async () => true, langNow: () => langNow, lang },
+    checks: { resumeSweep, redriveLostReviews, stopForeignValidations, checking, accounts: async () => [ACCOUNT], loginStatus: async () => true, langNow: () => langNow, lang },
     startRepair,
     registry: {
       sessionPty: (id) => (o.sleepingCoordinator && id === 'coord-1' ? 'pty-coord' : null),
@@ -362,6 +363,7 @@ async function rig(o: RigOpts = {}) {
     spawner,
     logs,
     resumeSweep,
+    redriveLostReviews,
     stopForeignValidations,
     foreign,
     startRepair,
@@ -458,6 +460,19 @@ describe('createHostDriving', () => {
     expect(h.workerStarts()).toBe(0)
     await h.tickNow()
     await vi.waitFor(() => expect(h.workerStarts()).toBe(1))
+  })
+  // 2026-11-02: a review start lost while the Host stayed up was re-driven by nothing but the next Host's load
+  it('a tick that drives sweeps the lost review starts, and a throw there costs the tick nothing', async () => {
+    const h = await rig({ readyTasks: 0 })
+    await h.load()
+    await h.tickNow()
+    await vi.waitFor(() => expect(h.redriveLostReviews).toHaveBeenCalledWith('a tick'))
+    h.redriveLostReviews.mockImplementationOnce(() => {
+      throw new Error('boom')
+    })
+    await h.tickNow()
+    await vi.waitFor(() => expect(h.logs.some((l) => l.includes('the lost-review sweep failed'))).toBe(true))
+    expect(h.logs.some((l) => l.startsWith('tick failed'))).toBe(false)
   })
   // Audit OR-5: every commit's kick read the settings twice and ran a whole pass of its own, so a burst of commits ran
   // that many passes side by side; and a tick that took longer than the interval overlapped the next one.

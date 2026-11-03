@@ -228,14 +228,32 @@ export function createReviewStarter(c: ReviewContext): (a: { taskId: string }) =
       // 코디네이터를 기다리는 동안 그 Dispatch 에 다른 변경이 내려앉았을 수 있고, 넘겨줄 것은
       // 이 세 필드뿐이다(worker-start 의 같은 주석 참고).
       const latest = c.getState()
-      await c.setState({
-        ...latest,
-        dispatches: latest.dispatches.map((d) =>
-          d.id === opened.value.id
-            ? { ...d, sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath, ...dispatchModelFields(started) }
-            : d
+      const fill = { sessionId: started.sessionId, cwd: started.cwd, specPath: started.specPath, ...dispatchModelFields(started) }
+      // **The Dispatch committed above may be gone by now** (2026-11-02, four Tasks at once on a Host that had been
+      // blocked for minutes). A whole-state write built on a state read before that commit lands over it, and this
+      // patch then maps over a list without it: nothing is patched, `review started` is logged, and the Task is left
+      // `reviewing` with no review Dispatch, which every reader takes for a start in flight. The reviewer is running
+      // and its spec names this Dispatch, so when nothing has taken this Task's place it is put back, filled; a Task
+      // that moved on, or that has another open Dispatch, is left to whatever moved it, and the reviewer, whose report
+      // nothing will accept now, is said aloud.
+      if (!latest.dispatches.some((d) => d.id === opened.value.id)) {
+        const current = latest.tasks.find((t) => t.id === taskId)
+        const taken = latest.dispatches.some((d) => d.taskId === taskId && !d.outcome && !d.endedAt)
+        if (current?.status !== 'reviewing' || taken) {
+          c.log(
+            `review task=${taskId}: its dispatch=${opened.value.id} was dropped from the state while the reviewer started, and the task ${current ? `is ${current.status}${taken ? ' with another open dispatch' : ''}` : 'is gone'} — reviewer session ${started.sessionId} reports to nothing`
+          )
+          return
+        }
+        await c.setState({ ...latest, dispatches: [...latest.dispatches, { ...opened.value, ...fill }] })
+        c.log(
+          `review task=${taskId}: its dispatch=${opened.value.id} was dropped from the state while the reviewer started (a write built on an older state) — put back`
         )
-      })
+      } else
+        await c.setState({
+          ...latest,
+          dispatches: latest.dispatches.map((d) => (d.id === opened.value.id ? { ...d, ...fill } : d))
+        })
       c.log(
         `review started task=${taskId} provider=${picked.provider} dispatch=${opened.value.id}`
       )

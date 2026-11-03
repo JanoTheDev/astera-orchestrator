@@ -255,6 +255,51 @@ describe('runs doctor — the command', () => {
   })
 })
 
+// 2026-11-02: reviewing with no review Dispatch at all read as a start in flight, so doctor found nothing
+describe('runs doctor — a review start that was lost', () => {
+  const WAITED = '2026-10-22T00:05:00.000Z'
+  const lostReview = (over: Partial<JobRun> = {}): OrchState => ({
+    ...emptyState(),
+    jobs: [job('j')],
+    runs: [run('r', 'j', over)],
+    tasks: [task('t', 'r', { status: 'reviewing' })],
+    dispatches: [dispatch('d_impl', 't', { outcome: 'succeeded', endedAt: NOW, workerState: 'stopped' })]
+  })
+
+  it('reports it past the grace, and not inside it, without a clock, or on a stopped Run', () => {
+    expect(kinds(diagnoseRuns(lostReview(), ['r'], [], Date.parse(WAITED)))).toEqual(['review-not-started:r'])
+    expect(diagnoseRuns(lostReview(), ['r'], [], Date.parse('2026-10-22T00:00:30.000Z'))).toEqual([])
+    expect(diagnoseRuns(lostReview(), ['r'], [])).toEqual([])
+    expect(diagnoseRuns(lostReview({ paused: true }), ['r'], [], Date.parse(WAITED))).toEqual([])
+  })
+
+  it('--fix starts the review again, and leaves it when nothing here starts one', async () => {
+    const s = lostReview()
+    const startReview = vi.fn()
+    const found = diagnoseRuns(s, ['r'], [], Date.parse(WAITED))
+    const base = { getState: () => s, setState: async () => {}, now: () => WAITED, lang: 'en' as const, sessionExited: async () => {} }
+    expect(await repairFindings(found, { ...base, startReview })).toEqual([expect.objectContaining({ fixed: true })])
+    expect(startReview).toHaveBeenCalledWith({ taskId: 't' })
+    expect(await repairFindings(found, base)).toEqual([expect.objectContaining({ fixed: false, did: 'nothing here starts a reviewer' })])
+  })
+
+  it('the command reads its clock, and --fix goes through deps.startReview', async () => {
+    const startReview = vi.fn()
+    const deps = makeDeps(lostReview(), { now: () => WAITED, startReview })
+    const r = await handleCommand(deps, { sessionId: '' }, 'runs-doctor', { fix: true })
+    expect((r.body as { findings: DoctorFinding[] }).findings.map((f) => f.kind)).toEqual(['review-not-started'])
+    expect(startReview).toHaveBeenCalledWith({ taskId: 't' })
+  })
+
+  it('runs resume starts the review of a stopped Run’s Task that never got one', async () => {
+    const startReview = vi.fn()
+    const deps = makeDeps(lostReview({ paused: true }), { now: () => WAITED, startReview })
+    const r = await handleCommand(deps, { sessionId: '' }, 'runs-resume', { id: 'r' })
+    expect(r.status).toBe(200)
+    expect(startReview).toHaveBeenCalledWith({ taskId: 't' })
+  })
+})
+
 describe('sessions close', () => {
   const state = (): OrchState => ({
     ...emptyState(),
