@@ -113,3 +113,55 @@ describe('createResumeSweep', () => {
     expect(log).not.toHaveBeenCalled()
   })
 })
+
+// 2026-11-02: a reviewing Task whose review start was lost while the Host stayed up waited for the next Host's load.
+describe('createResumeSweep — redriveLostReviews', () => {
+  const LATE = '2026-09-22T00:05:00.000Z'
+  const sweepAt = (state: OrchState, now: string) => {
+    const startReview = vi.fn()
+    const log = vi.fn()
+    const sweep = createResumeSweep({ getState: () => state, startValidation: vi.fn(), startReview, now: () => now, log })
+    return { sweep, startReview, log }
+  }
+  const lost = (over: Partial<OrchState> = {}): OrchState => ({
+    ...stateWith([task({ id: 'tsk_r', status: 'reviewing' })], [dispatch({ id: 'dsp_impl', taskId: 'tsk_r', endedAt: NOW, outcome: 'succeeded' })]),
+    ...over
+  })
+
+  it('starts the review again once the Task has waited past the grace with no reviewer', () => {
+    const { sweep, startReview, log } = sweepAt(lost(), LATE)
+    sweep.redriveLostReviews('a tick')
+    expect(startReview).toHaveBeenCalledWith({ taskId: 'tsk_r' })
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('never got a reviewer'))
+  })
+
+  it('leaves a start inside the grace, and one this process still has in flight', () => {
+    const early = sweepAt(lost(), '2026-09-22T00:00:30.000Z')
+    early.sweep.redriveLostReviews('a tick')
+    expect(early.startReview).not.toHaveBeenCalled()
+    const late = sweepAt(lost(), LATE)
+    late.sweep.redriveLostReviews('a tick', (id) => id === 'tsk_r')
+    expect(late.startReview).not.toHaveBeenCalled()
+  })
+
+  it('leaves a live reviewer, an ended one (stopped-reviewer, its own repair) and a stopped Run', () => {
+    const base = lost()
+    const live = sweepAt({ ...base, dispatches: [...base.dispatches, dispatch({ id: 'dsp_rev', taskId: 'tsk_r', review: true, startedAt: LATE })] }, LATE)
+    live.sweep.redriveLostReviews('a tick')
+    const ended = sweepAt(
+      { ...base, dispatches: [...base.dispatches, dispatch({ id: 'dsp_rev', taskId: 'tsk_r', review: true, startedAt: LATE, endedAt: LATE })] },
+      LATE
+    )
+    ended.sweep.redriveLostReviews('a tick')
+    const paused = sweepAt({ ...base, runs: base.runs.map((r) => ({ ...r, paused: true })) }, LATE)
+    paused.sweep.redriveLostReviews('a tick')
+    for (const x of [live, ended, paused]) expect(x.startReview).not.toHaveBeenCalled()
+  })
+
+  it('re-drives a Run with no convergence policy too: the lost start is the same', () => {
+    const base = lost()
+    const { sweep, startReview } = sweepAt({ ...base, jobs: base.jobs.map(({ convergence: _c, ...j }) => j) }, LATE)
+    sweep.redriveLostReviews('a tick')
+    expect(startReview).toHaveBeenCalledWith({ taskId: 'tsk_r' })
+  })
+})

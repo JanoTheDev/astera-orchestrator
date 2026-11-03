@@ -148,7 +148,7 @@ export function createHostDriving(d: {
   worktrees: Pick<HostWorktrees, 'fork' | 'integrate' | 'reap' | 'isRegistered'>
   /** B3: the loop's accounts, login and sync lang come from the checks. */
   checks: Pick<HostChecks, 'resumeSweep' | 'stopForeignValidations' | 'checking' | 'accounts' | 'loginStatus' | 'langNow' | 'lang'> &
-    Partial<Pick<HostChecks, 'startValidation' | 'startReview'>>
+    Partial<Pick<HostChecks, 'startValidation' | 'startReview' | 'redriveLostReviews'>>
   /** The handover belt (N1): starts one open repair Dispatch that has no spec yet. */
   startRepair(a: { dispatchId: string }): void
   /** `sessionExitCode` answers the loop's `sessionGone` (limits pass L1); optional for the test fakes. */
@@ -770,6 +770,17 @@ export function createHostDriving(d: {
       // tick, `STALL_CONFIRM_MS` on at the least, as before.
       await gateStalled()
       if (mayStart()) armStalled('a tick')
+      // A review start lost while this Host stays up (running.ts `reviewStartLost`, 2026-11-02): a Task `reviewing` past
+      // the grace with no reviewer. Nothing above re-drives it — the resume sweep runs at a change of drive, and the
+      // restart Gate leaves a reviewing Task with no review Dispatch to the start it takes for in flight — so it waited
+      // for the next Host's load. Its own catch: a throw costs the tick nothing else.
+      if (mayStart()) {
+        try {
+          d.checks.redriveLostReviews?.('a tick')
+        } catch (err) {
+          log(`the lost-review sweep failed: ${String(err)}`)
+        }
+      }
       if (mayStart()) await doctorSweep()
       // Last round (a): steps a same-pid app kept, once app.pid shows it gone.
       if (mayStart()) grace.tick()

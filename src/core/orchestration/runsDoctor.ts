@@ -1,6 +1,6 @@
 // `astera runs doctor` (T8, decision 8): every Run whose stored state disagrees with what is really going on, and the
 // repair each one already has elsewhere. Nothing here is a new rule: "nothing can move" is running.ts `stuckOf`, a
-// stopped reviewer is `reviewerEnded`, a Run stalled on a failed Task is replan.ts `stallOf` (T36), a lost worker is lostGate.ts `lostWithNobody`, a stray session is runEnd.ts
+// stopped reviewer is `reviewerEnded`, a review start that never landed is `reviewStartLost`, a Run stalled on a failed Task is replan.ts `stallOf` (T36), a lost worker is lostGate.ts `lostWithNobody`, a stray session is runEnd.ts
 // `runEndSessions`, and the repairs are the load's restart Gate (`interruptStalledTask`), the session-exit path
 // (`handleExit`, which closes a Dispatch whose process is gone), the Run-end sweep's stop, and a Gate.
 //
@@ -8,16 +8,24 @@
 // "nothing validates it" cannot be told from the state (host/driving.ts `unchecked`). Nor a pending delivery: the Run
 // carries no retry schedule on this branch (T2 adds one).
 import { t, type Lang } from '../i18n'
-import { createGate, jobOf, type OrchState } from './state'
+import { createGate, jobOf, runGatedForTask, type OrchState } from './state'
 import { interruptStalledTask } from './state'
 import { FAILURE_LIMIT, isPlaceholderSessionId, newId, type JobRun } from './types'
-import { isTerminal, lostTasksOutcome, outcomeOf, reviewerEnded, stuckOf, tasksOwnedBy } from './running'
+import { isTerminal, lostTasksOutcome, outcomeOf, reviewerEnded, reviewStartLost, stuckOf, tasksOwnedBy } from './running'
 import { lostWithNobody } from './lostGate'
 import { runEndSessions } from './exec/runEnd'
 import { failedWaitAsked, failedWaitQuestion, stallOf } from './replan'
 import type { RunStuck } from '../types'
 
-export type DoctorKind = 'stuck' | 'stalled' | 'stopped-reviewer' | 'lost-worker' | 'dead-dispatch' | 'stray-session' | 'lost-tasks'
+export type DoctorKind =
+  | 'stuck'
+  | 'stalled'
+  | 'stopped-reviewer'
+  | 'review-not-started'
+  | 'lost-worker'
+  | 'dead-dispatch'
+  | 'stray-session'
+  | 'lost-tasks'
 
 export interface DoctorFinding {
   kind: DoctorKind
@@ -41,8 +49,16 @@ export interface DoctorSession {
 /** Every mismatch in the Runs named. `sessions` absent: no session list (no Host), so the two checks that read
  *  processes (a dead Dispatch, a stray session) are skipped. A Dispatch is dead only when the Host lists its session
  *  as not alive: one it does not list may run elsewhere (another runtime, a Host restarted since), and closing a live
- *  worker's Dispatch would start a second one in its worktree. */
-export function diagnoseRuns(s: OrchState, runIds: readonly string[], sessions?: readonly DoctorSession[]): DoctorFinding[] {
+ *  worker's Dispatch would start a second one in its worktree.
+ *
+ *  `nowMs` absent: no clock, so the one check that reads one (a review start that was lost, running.ts
+ *  `reviewStartLost`) is skipped, as the session checks are without `sessions`. */
+export function diagnoseRuns(
+  s: OrchState,
+  runIds: readonly string[],
+  sessions?: readonly DoctorSession[],
+  nowMs?: number
+): DoctorFinding[] {
   const out: DoctorFinding[] = []
   const wanted = new Set(runIds)
   const runs = s.runs.filter((r) => wanted.has(r.id))
@@ -79,6 +95,15 @@ export function diagnoseRuns(s: OrchState, runIds: readonly string[], sessions?:
     for (const task of tasks) {
       if (task.status === 'reviewing' && reviewerEnded(s.dispatches, task.id))
         out.push({ kind: 'stopped-reviewer', runId: run.id, taskId: task.id, detail: `${task.id} is reviewing, and its reviewer ended` })
+      // 2026-11-02: reviewing with no review Dispatch at all reads as a start in flight to `reviewerEnded`, and past its
+      // grace it is a start that was lost. A stopped Run's Task is not one (`lostReviewStarts`): `runs resume` takes it.
+      else if (nowMs !== undefined && reviewStartLost(s.dispatches, task, nowMs) && !runGatedForTask(s, task))
+        out.push({
+          kind: 'review-not-started',
+          runId: run.id,
+          taskId: task.id,
+          detail: `${task.id} has been reviewing since ${task.updatedAt}, and no reviewer was ever put on it`
+        })
     }
     for (const seed of lost)
       if (seed.runId === run.id)
@@ -135,6 +160,9 @@ export interface DoctorFixContext {
   sessionExited(sessionId: string): Promise<void>
   /** Ends a session (the Run-end sweep's stop). Absent: no one holds sessions, a stray one is left. */
   stopSession?(sessionId: string, reason: string): Promise<void>
+  /** OrchServerDeps.startReview: the ordinary review start, fire-and-forget. Absent: nothing here starts a reviewer,
+   *  and a lost review start is left. */
+  startReview?(a: { taskId: string }): void
 }
 
 export interface DoctorRepair {
@@ -193,6 +221,17 @@ async function repairOne(f: DoctorFinding, c: DoctorFixContext): Promise<{ fixed
       if (!r.interrupted) return { fixed: false, did: r.resume ? `left to its convergence Run, which reruns the ${r.resume}` : 'the restart Gate was refused' }
       await c.setState(r.state)
       return { fixed: true, did: 'opened the restart Gate (the review ended unreported)' }
+    }
+    case 'review-not-started': {
+      // The review itself, not a Gate: nothing was decided or lost but the start, and the start is idempotent
+      // (`openReviewDispatch` refuses a second reviewer). Asked again on the state as it is now, with the same grace.
+      const s = c.getState()
+      const task = s.tasks.find((x) => x.id === f.taskId)
+      if (!task || !reviewStartLost(s.dispatches, task, Date.parse(c.now())) || runGatedForTask(s, task))
+        return { fixed: false, did: 'no longer waiting on a reviewer' }
+      if (!c.startReview) return { fixed: false, did: 'nothing here starts a reviewer' }
+      c.startReview({ taskId: task.id })
+      return { fixed: true, did: 'started its review again (the first start was lost)' }
     }
     case 'lost-worker': {
       const s = c.getState()

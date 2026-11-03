@@ -43,6 +43,8 @@ interface RigOpts {
   convergenceNull?: boolean
   runPaused?: boolean
   startFails?: string
+  /** What another writer does to the state while the reviewer starts (a whole-state write built on an older state). */
+  duringStart?: (s: OrchState, dispatchId: string) => OrchState
 }
 
 type StartArgs = Parameters<ReviewContext['startWorker']>[0]
@@ -95,6 +97,7 @@ function rig(o: RigOpts) {
   const startWorker = vi.fn(async (a: StartArgs): ReturnType<ReviewContext['startWorker']> => {
     committed = state.dispatches.some((x) => x.id === a.dispatchId)
     specFileContent = a.specFileContent
+    if (o.duringStart) state = o.duringStart(state, a.dispatchId)
     if (o.startFails !== undefined) throw new Error(o.startFails)
     return { sessionId: 's-review', cwd: a.runCwd, specPath: path.join(specsDir, 'x.md') }
   })
@@ -256,5 +259,34 @@ describe('createReviewStarter', () => {
     await h.start({ taskId: h.taskId })
     expect(h.task().status).toBe('blocked')
     expect(h.state().dispatches.filter((d) => d.review && !d.endedAt)).toHaveLength(0)
+  })
+})
+
+// 2026-11-02: four reviews logged `review started` and their Dispatches were not in the state — a whole-state write
+// built on an older state landed between the open commit and the patch, and the patch mapped over a list without them.
+describe('createReviewStarter — a Dispatch dropped while the reviewer starts', () => {
+  const dropped = (s: OrchState, id: string): OrchState => ({ ...s, dispatches: s.dispatches.filter((d) => d.id !== id) })
+
+  it('puts it back, filled, when the Task is still reviewing with nothing else open', async () => {
+    const h = rig({ accounts: [claude('c1'), codex('x1')], loggedIn: ['c1', 'x1'], duringStart: dropped })
+    await h.start({ taskId: h.taskId })
+    const id = h.startWorker.mock.calls[0][0].dispatchId
+    const back = h.state().dispatches.find((d) => d.id === id)
+    expect(back).toMatchObject({ review: true, taskId: h.taskId, sessionId: 's-review' })
+    expect(back?.outcome).toBeUndefined()
+    expect(h.task().status).toBe('reviewing')
+    expect(h.logs.some((l) => l.includes('was dropped from the state') && l.includes('put back'))).toBe(true)
+  })
+
+  it('leaves it gone, and says so, when the Task moved on meanwhile', async () => {
+    const h = rig({
+      accounts: [claude('c1'), codex('x1')],
+      loggedIn: ['c1', 'x1'],
+      duringStart: (s, id) => ({ ...dropped(s, id), tasks: s.tasks.map((t) => ({ ...t, status: 'completed' as const })) })
+    })
+    await h.start({ taskId: h.taskId })
+    const id = h.startWorker.mock.calls[0][0].dispatchId
+    expect(h.state().dispatches.some((d) => d.id === id)).toBe(false)
+    expect(h.logs.some((l) => l.includes('reports to nothing'))).toBe(true)
   })
 })

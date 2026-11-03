@@ -13,6 +13,7 @@
 // `store.load` also calls — one function, because two copies would drift and the drifted copy would
 // leave a Task stuck with nothing on screen to say why.
 import { interruptedResumes } from '../store'
+import { lostReviewStarts } from '../running'
 import type { OrchState } from '../state'
 
 export interface ResumeSweep {
@@ -29,6 +30,14 @@ export interface ResumeSweep {
    * cheaply: the runner answers `'skip'` once the Task has left `validating`.
    */
   run(why: string): void
+  /**
+   * Re-drives the review starts that were lost **while the process stayed up** (running.ts `reviewStartLost`):
+   * a Task `reviewing` past its grace with no reviewer and none that ended. `run` above cannot see them, and should
+   * not: its predicate is the restart's, and a restart is the one moment every such Task is certainly interrupted.
+   * `inFlight` names the starts this process still has under way, which are left alone however long they take.
+   * Safe to call again for `run`'s reason: a second drive of one Task is refused by `openReviewDispatch`.
+   */
+  redriveLostReviews(why: string, inFlight?: (taskId: string) => boolean): void
 }
 
 export function createResumeSweep(a: {
@@ -51,6 +60,18 @@ export function createResumeSweep(a: {
       a.log(
         `restart cleanup (${why}) — restarted ${revalidate.length} interrupted validation(s) and ${rereview.length} interrupted review(s)`
       )
+    },
+    redriveLostReviews: (why, inFlight) => {
+      const state = a.getState()
+      if (!state) return
+      const nowMs = Date.parse(a.now())
+      for (const t of lostReviewStarts(state, nowMs)) {
+        if (inFlight?.(t.id) === true) continue
+        a.log(
+          `review of task=${t.id} never got a reviewer: reviewing since ${t.updatedAt} with no review dispatch (${why}) — starting it again`
+        )
+        a.startReview({ taskId: t.id })
+      }
     }
   }
 }
