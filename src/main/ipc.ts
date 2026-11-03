@@ -112,6 +112,7 @@ import { copyTranscript, samePath } from '../core/rolling/transcript'
 import { sanitizeResumePrompt } from '../core/sessions/commands'
 import type { OrchLoadResult } from '../core/orchestration/store'
 import { createMirrorStore } from './orchestration/mirrorStore'
+import { createMovedSignal, createRefill } from './orchestration/resync'
 import { handleWithRetry } from './orchestration/commandRetry'
 import { createResumeSweep, type ResumeSweep } from '../core/orchestration/exec/resumeSweep'
 import { createOrchCommitHook } from './orchestration/commitHook'
@@ -462,6 +463,8 @@ const UI_CALLER = APP_CALLER
  *  than HOST_UNRESPONSIVE_MS before the form calls them failed (the Host still runs one that arrives late). */
 const PERSON_WAITS_LONGER = new Set(['jobs-create', 'jobs-create-from-issue', 'jobs-create-from-source', 'jobs-set', 'projects-set'])
 const PERSON_COMMAND_DEADLINE_MS = 120_000
+/** The refill after a handshake waits this long for the whole state: a Host just restarted is at its slowest. */
+const STATE_REFILL_DEADLINE_MS = 60_000
 
 /** http:/https:/mailto: 만 허용하는 스킴 화이트리스트. 통과하면 파싱된 URL 을 돌려준다 —
  *  new URL 은 탭·개행을 스스로 걷어내므로, 호출자는 원래 문자열이 아니라 이 반환값의
@@ -1459,7 +1462,10 @@ export function registerIpc(
    *  store-shaped facade it builds over this, and `startHostClient` fills it from every `orch-state`
    *  push. Constructed unconditionally, because the pushes arrive whether or not the Jobs feature is
    *  switched on in this app, and an empty mirror costs nothing. */
-  const orchMirror = createMirrorStore({ call: orchCall })
+  // 'orch:moved': the window's lists read again at once when the mirror moves (a push, a refill after a restart, a
+  // write), instead of at their next poll (main/orchestration/resync.ts)
+  const orchMoved = createMovedSignal({ send: (generation) => send('orch:moved', generation) })
+  const orchMirror = createMirrorStore({ call: orchCall, onMoved: (generation) => orchMoved.moved(generation) })
   /** Refills the mirror from the Host after a handshake, so a commit pushed while the socket was down
    *  is not simply missed. Null until `bootOrch` has run — the first handshake needs no refill,
    *  because `bootOrch` fills the mirror itself and waits for that handshake to do it. */
@@ -3113,39 +3119,55 @@ export function registerIpc(
     // Refills the mirror after a later handshake. A commit the Host made while the socket was down
     // was pushed to nobody, and nothing else would ever correct it. `boot` is deliberately not asked
     // for: those findings belong to the next app start, not to a reconnect.
-    remirrorOrchState = () => {
-      void orchCall({ cmd: 'state-get', args: {}, sessionId: '' })
-        .then((r) => {
-          if (r.status !== 200) throw new Error(`the Host answered state-get with ${r.status}`)
-          const refill = r.body as { state: OrchState; version?: number }
-          const state = refill.state
-          const before = orchMirror.loaded() ? orchMirror.getState() : state
-          orchMirror.accept(state, refill.version)
-          // **The same hook a push pays, and for the same reason** (ruling F54, reached again through
-          // this path). A refill carries every commit the Host made while the socket was down, and a
-          // worker report among them leaves the next Task at `ready` unless the scheduler runs — the
-          // F54 symptom exactly, met after a Host restart or a dropped connection rather than in
-          // steady state. `pushOrchState` is inside the hook, so the sidebar is still told.
-          //
-          // `catchingUp` is the one thing that differs, and it is an argument rather than a second
-          // copy of the list: the git checkpoints describe a moment that has already passed by the
-          // time a refill sees it (the reason is written where the hook skips them).
+    // A refill that fails is tried again with backoff (main/orchestration/resync.ts): a Host that just restarted is at
+    // its slowest, and one timed-out `state-get` used to leave the mirror, and every list the window reads, on the state
+    // from before the restart until some later commit happened to push. Its deadline is longer than an ordinary call's
+    // for the same reason: the answer is the whole state.
+    const orchRefill = createRefill<{ state: OrchState; version?: number }>({
+      fetch: async () => {
+        const r = await orchCall({ cmd: 'state-get', args: {}, sessionId: '', timeoutMs: STATE_REFILL_DEADLINE_MS })
+        if (r.status !== 200) throw new Error(`the Host answered state-get with ${r.status}`)
+        return r.body as { state: OrchState; version?: number }
+      },
+      log: orchLog,
+      apply: (refill) => {
+        const state = refill.state
+        const before = orchMirror.loaded() ? orchMirror.getState() : state
+        orchMirror.accept(state, refill.version)
+        // **The same hook a push pays, and for the same reason** (ruling F54, reached again through
+        // this path). A refill carries every commit the Host made while the socket was down, and a
+        // worker report among them leaves the next Task at `ready` unless the scheduler runs — the
+        // F54 symptom exactly, met after a Host restart or a dropped connection rather than in
+        // steady state. `pushOrchState` is inside the hook, so the sidebar is still told.
+        //
+        // `catchingUp` is the one thing that differs, and it is an argument rather than a second
+        // copy of the list: the git checkpoints describe a moment that has already passed by the
+        // time a refill sees it (the reason is written where the hook skips them).
+        // Caught: the mirror has the state, and a throw here would only have the refill fetch it all again
+        try {
           if (onOrchCommit) onOrchCommit({ prev: before, next: state, catchingUp: true })
           else pushOrchState(state)
-          // **And here, on the refilled mirror, not on the one this handshake replaced.** A Host that
-          // just came back may be a different Host holding the same file, and the Tasks a restart
-          // left mid-validation are found in the state, not in `boot` — which this deliberately does
-          // not ask for. Doing nothing until the refill has landed is the whole reason this is inside
-          // the `then`.
-          //
-          // After the hook, not before: the sweep drives the Tasks nothing else will, and the hook's
-          // scheduler drives the ones the state already makes ready. Running the sweep first would
-          // have it decide against a mirror the hook is about to act on.
+        } catch (e) {
+          orchLog(`the refill's commit hook failed: ${String(e)}`)
+        }
+        // **And here, on the refilled mirror, not on the one this handshake replaced.** A Host that
+        // just came back may be a different Host holding the same file, and the Tasks a restart
+        // left mid-validation are found in the state, not in `boot` — which this deliberately does
+        // not ask for. Doing nothing until the refill has landed is the whole reason this is inside
+        // the `then`.
+        //
+        // After the hook, not before: the sweep drives the Tasks nothing else will, and the hook's
+        // scheduler drives the ones the state already makes ready. Running the sweep first would
+        // have it decide against a mirror the hook is about to act on.
+        try {
           if (!hostDrives()) resumeSweep?.run('the Host attached')
           else orchLog('resume sweep — the Host drives dispatch and runs its own after it attaches')
-        })
-        .catch((e) => orchLog(`could not refill the orchestration mirror after reconnecting: ${String(e)}`))
-    }
+        } catch (e) {
+          orchLog(`the refill's follow-up failed: ${String(e)}`)
+        }
+      }
+    })
+    remirrorOrchState = () => void orchRefill.run()
     // **Which of two silences this boot is, said out loud.** "The Host loaded and found nothing to
     // clean up" and "the Host's findings went to an earlier app" leave exactly the same trace in the
     // state, and every line below is conditional on `loaded` — so without this, a person looking for
@@ -4604,6 +4626,10 @@ export function registerIpc(
     return null
   }
   ipcMain.handle('worktrees.list', () => listWithStatus(core.worktrees, (p) => worktreePresence.refresh(p)))
+  // The workspace tree needs only where each worktree is and its repository: the registry as held, with none of
+  // `list`'s git listing, folder probes, prune and Host writes, which took minutes behind a busy Host and held every
+  // refresh of the tree (and its Needs you cards) until they ended.
+  ipcMain.handle('worktrees.paths', () => core.worktrees.list().map((w) => ({ path: w.path, repoPath: w.repoPath })))
   // W9-J: the Worktrees page. Rows carry the plan that owns each folder and whether the clean-up rule holds; the
   // clean-up reads them again here and never takes a path or a verdict from the renderer.
   const worktreeRowsNow = async (): Promise<Awaited<ReturnType<typeof worktreeRows>>> =>
@@ -5565,6 +5591,9 @@ export function registerIpc(
     orchRequest++
     orchPushes.unwatch()
   })
+  // The window's cheap check before it reads every list again: the mirror's generation moves whenever its state does
+  // (mirrorStore.ts), so an unmoved one means the lists it read last are still what main holds.
+  ipcMain.handle('orch.generation', () => orchMirror.generation())
 
   // How It Works: understanding.json persistence. Unlike OrchestrationStore above (built inside
   // bootOrch, which only runs if the server comes up), this has nothing to do with agent

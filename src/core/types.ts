@@ -1190,6 +1190,10 @@ export interface CoreEvents {
    *  one** — see `OrchHostGate` for what carrying it in the snapshot cost. Sent whenever it moves;
    *  `orch.hostGate` answers the same value for a window that mounts after the change. */
   'orch:host': OrchHostGate | null
+  /** Main's copy of the orchestration state moved (a Host push, its refill after a reconnect, a write), with its new
+   *  generation (orch.generation): the window's lists read again now instead of at their next poll. At most one per
+   *  two seconds (main/orchestration/resync.ts), always the newest. */
+  'orch:moved': number
   /** Who drives Jobs, as the Host last said it (limits L3), or null when nothing is known: no Host, a
    *  connection that went, or a Host too old to say. The Jobs sidebar reads it with the Host status to
    *  say why nothing moves (jobsStall). `host.driver` answers the same value for a window that mounts later. */
@@ -1651,6 +1655,8 @@ export interface CoreApi {
   worktrees: {
     // Splitting a session off into a git worktree.
     list(): Promise<WorktreeListItem[]>
+    /** Where each registered worktree is and which repository it came from, as held: none of `list`'s git work. */
+    paths(): Promise<Array<{ path: string; repoPath: string }>>
     create(opts: {
       repoPath: string
       name?: string
@@ -2582,6 +2588,9 @@ export interface OrchApi {
     runtimeId?: string
   ): Promise<{ status: number; body: unknown }>
   unwatch(): Promise<void>
+  /** The generation of main's copy of the state: it moves whenever that copy does (a push, a refill, a write), and
+   *  'orch:moved' carries it. Equal to the last one read means every list read from that copy is unchanged. */
+  generation(): Promise<number>
 }
 
 /** Settings › Remote Runtimes and the Jobs view's runtime and project selectors (remote runtime design Phase 6). */

@@ -62,6 +62,7 @@ const EVENT_CHANNELS = [
   'terminal:created',
   'orch:state',
   'orch:host',
+  'orch:moved',
   'host:driver',
   'workspace:event',
   'mcpHttp:state',
@@ -127,6 +128,7 @@ const api = {
   },
   worktrees: {
     list: invoke('worktrees.list'),
+    paths: invoke('worktrees.paths'),
     create: invoke('worktrees.create'),
     cancelCreate: invoke('worktrees.cancelCreate'),
     listBranches: invoke('worktrees.listBranches'),
@@ -489,7 +491,8 @@ const api = {
     // W3-A: the activity feed, a page after a cursor, and its summary since a time
     activity: invoke('orch.activity'),
     activitySummary: invoke('orch.activitySummary'),
-    unwatch: invoke('orch.unwatch')
+    unwatch: invoke('orch.unwatch'),
+    generation: invoke('orch.generation')
   },
   plugins: {
     list: invoke('plugins.list'),
