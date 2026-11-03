@@ -104,6 +104,12 @@ export const PLANNER_IDLE_MS = 20 * 60_000
 /** ... restarted with the same brief this long after the nudge, and raised to the owner once after a restart that
  *  stays as idle as long as `PLANNER_IDLE_MS`. */
 export const PLANNER_RESTART_MS = 10 * 60_000
+/** 2026-11-03: a plan still planning whose latest planner session is gone (its pty died with the pty supervisor, it
+ *  exited, its start never settled) this long is started again at once: nobody is planning it, chat or auto, so the
+ *  20-minute idle wait above does not apply. Long enough for a roll's new pty and a start in flight to land. */
+export const PLANNER_GONE_MS = 2 * 60_000
+/** How many times a gone planner is started again before the owner is told; the first resumes its conversation. */
+export const PLANNER_GONE_RESTARTS = 2
 
 /** The wait before try `step` (1-based count of tries made). */
 const backoffOf = (step: number): number => BACKOFF_MS[Math.min(Math.max(step, 1) - 1, BACKOFF_MS.length - 1)]
@@ -131,6 +137,9 @@ export interface StallProbe {
   cap?: number | null
   /** Whether a session is alive: a Run driven by a live external coordinator gets no restart. Absent: it is. */
   alive?(sessionId: string): boolean
+  /** Whether a session start is in flight (HostSpawner.inFlight): a planner being started has no id on its Job yet, so a
+   *  gone planner is not started again meanwhile. Absent: none is. */
+  spawning?(): boolean
   /** Whether a check of this Task is queued or running (HostChecks.checking). Absent: a `validating` Task is never
    *  taken for a lost validation. */
   checking?(taskId: string): boolean
@@ -172,7 +181,8 @@ export type StallRemedy = { key: string; runId: string } & (
   /** T11: a planner gone or idle without handing over: nudged, restarted with its brief (`account`: one not paused, or
    *  none known), then raised. `runId` is the Job's id: a plan still planning has no Run. */
   | { kind: 'nudge-planner'; jobId: string; sessionId: string; since: number }
-  | { kind: 'restart-planner'; jobId: string; sessionId: string; alive: boolean; account?: string }
+  /** `resume`: the gone planner's own conversation goes on (`jobs-plan --resume`), so a chat with the person is kept */
+  | { kind: 'restart-planner'; jobId: string; sessionId: string; alive: boolean; account?: string; resume?: true }
   | { kind: 'raise-planner'; jobId: string; reason: string }
 )
 
@@ -502,12 +512,53 @@ export function stallRemedies(
   // whose latest planner is gone, or idle `PLANNER_IDLE_MS` without handing the plan over (Job.planReadyAt): nudged,
   // restarted with the same brief `PLANNER_RESTART_MS` later, then raised once. The entry lives while the plan plans,
   // so a planner that works a while and stops again goes on from where it was, never from the start.
+  // 2026-11-03: a planner whose session is gone is no idle planner: the plan read "planning" with nobody planning it (the
+  // pty supervisor died and took four planners with it; the idle path below would have waited 20 min, and a chat plan
+  // forever). Gone, chat or auto, it is started again after `PLANNER_GONE_MS` (its conversation resumed the first time),
+  // at most `PLANNER_GONE_RESTARTS` times per planning stretch, then raised to the owner once.
   for (const job of s.jobs) {
     const sessionId = job.plannerSessionIds?.at(-1)
-    if (sessionId === undefined || job.pendingStart !== true || !isJobActive(job) || job.planReadyAt !== undefined || (job.planning ?? (handsOffOf(s, job) ? 'auto' : 'chat')) === 'chat')
-      continue
+    if (sessionId === undefined || job.pendingStart !== true || !isJobActive(job) || job.planReadyAt !== undefined) continue
     const alive = probe.alive?.(sessionId) ?? true
-    const busy = alive ? probe.busy(sessionId) : false
+    // The restarts of gone planners, kept while the plan plans: `step` restarts made, `at` the last
+    const goneCountKey = `planner-gone:${job.id}`
+    const gone = seen(goneCountKey, nowMs)
+    if (!alive) {
+      // A start held for an account with room (startWait) is waiting, not gone; a start in flight has no id here yet.
+      // T19: while new starts are held (startHeld) nothing is started; the gone planner is, once the hold lifts.
+      if (job.startWait !== undefined) continue
+      const lost = seen(`planner-gone:${job.id}:${sessionId}`, nowMs)
+      if (probe.startHeld || probe.spawning?.() === true || gone.step > PLANNER_GONE_RESTARTS || nowMs - lost.since < PLANNER_GONE_MS) continue
+      if (gone.step > 0 && nowMs - gone.at < backoffOf(gone.step)) continue
+      const key = `planner:${job.id}`
+      if (gone.step < PLANNER_GONE_RESTARTS) {
+        const preferred = job.plannerAccountId ?? job.coordinatorAccountId
+        due.push({
+          key,
+          runId: job.id,
+          kind: 'restart-planner',
+          jobId: job.id,
+          sessionId,
+          alive: false,
+          ...(preferred !== undefined && probe.paused?.(preferred) !== true ? { account: preferred } : {}),
+          ...(gone.step === 0 ? { resume: true as const } : {})
+        })
+      } else
+        due.push({
+          key,
+          runId: job.id,
+          kind: 'raise-planner',
+          jobId: job.id,
+          reason:
+            `the planner of ${jobNameOf(job)} ended without handing its plan over, and ${PLANNER_GONE_RESTARTS} restarts did not keep ` +
+            'one running, so nobody is planning it. Plan it again, or reject the plan.'
+        })
+      stepped(goneCountKey, gone)
+      continue
+    }
+    // Alive: a chat planner waits on the person, so only an auto planner is nudged and restarted for being idle
+    if ((job.planning ?? (handsOffOf(s, job) ? 'auto' : 'chat')) === 'chat') continue
+    const busy = probe.busy(sessionId)
     if (busy === null) continue
     const key = `planner:${job.id}`
     let e = seen(key, nowMs)
@@ -519,14 +570,9 @@ export function stallRemedies(
     }
     const quiet = nowMs - e.since
     if (e.step === 0 && quiet >= PLANNER_IDLE_MS) {
-      if (alive) {
-        due.push({ key, runId: job.id, kind: 'nudge-planner', jobId: job.id, sessionId, since: e.since })
-        stepped(key, e)
-        continue
-      }
-      e = { ...e, step: 1, at: nowMs - PLANNER_RESTART_MS } // gone: nothing to nudge, restart now
-    }
-    if (e.step === 1 && quiet >= PLANNER_RESTART_MS && nowMs - e.at >= PLANNER_RESTART_MS && !probe.startHeld) {
+      due.push({ key, runId: job.id, kind: 'nudge-planner', jobId: job.id, sessionId, since: e.since })
+      stepped(key, e)
+    } else if (e.step === 1 && quiet >= PLANNER_RESTART_MS && nowMs - e.at >= PLANNER_RESTART_MS && !probe.startHeld) {
       const preferred = job.plannerAccountId ?? job.coordinatorAccountId
       due.push({
         key,
@@ -534,7 +580,7 @@ export function stallRemedies(
         kind: 'restart-planner',
         jobId: job.id,
         sessionId,
-        alive,
+        alive: true,
         ...(preferred !== undefined && probe.paused?.(preferred) !== true ? { account: preferred } : {})
       })
       stepped(key, e)
@@ -736,6 +782,11 @@ export interface StallWatchDeps {
   cap(): number | null | Promise<number | null>
   busy(sessionId: string): boolean | null
   alive(sessionId: string): boolean
+  /** Whether a session start is in flight (HostSpawner.inFlight > 0), for StallProbe.spawning. Absent: none is. */
+  spawning?(): boolean
+  /** The agent CLI's own conversation id a session had (OrchDeps.agentSessionOf): a gone planner resumes it. Absent:
+   *  a gone planner starts fresh. */
+  agentSessionOf?(sessionId: string): Promise<string | null>
   isRegistered(p: string): boolean
   paused?(accountId: string): boolean
   /** T1: "Pick accounts automatically" (UsageGuard.autoAccounts) and the login check, for stallPauseProbe. Absent: off. */
@@ -967,6 +1018,13 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
         return
       }
       case 'restart-planner': {
+        // A gone planner: only while it is still the plan's latest, still gone and the plan still planning (the owner, a
+        // session restore or a feedback round may have started one since the check)
+        if (!r.alive) {
+          const job = d.getState().jobs.find((j) => j.id === r.jobId)
+          if (!job || job.pendingStart !== true || job.planReadyAt !== undefined || job.plannerSessionIds?.at(-1) !== r.sessionId || d.alive(r.sessionId))
+            return
+        }
         // The old planner goes first, so two never plan one Job; a close that fails is said and the start goes on
         if (r.alive) {
           const closed = await d.handle('sessions-close', { id: r.sessionId, reason: 'planner restarted by the watchdog' })
@@ -975,12 +1033,24 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
         // A usable account: the plan's own when it is not paused, else the first of the profile's that is not
         const account =
           r.account ?? (await Promise.resolve(d.accounts?.() ?? [])).find((a) => d.paused?.(a.id) !== true)?.id
-        const reply = await d.handle('jobs-plan', { id: r.jobId, ...(account !== undefined ? { account } : {}) })
+        const args = { id: r.jobId, ...(account !== undefined ? { account } : {}) }
+        // A gone planner's own conversation goes on the first time (as the crash restore does), so what it read and what
+        // the person said in a chat plan are kept; a resume refused, or no conversation on record, starts a fresh one
+        const native = r.resume ? await Promise.resolve(d.agentSessionOf?.(r.sessionId) ?? null).catch(() => null) : null
+        let reply = native ? await d.handle('jobs-plan', { ...args, resume: native }) : null
+        if (reply && reply.status >= 400) d.log(`job=${r.jobId}: watchdog: the gone planner's conversation ${native} could not be resumed (${why(reply.body)}); starting a fresh one`)
+        const resumed = reply !== null && reply.status < 400
+        if (!resumed) reply = await d.handle('jobs-plan', args)
+        const on = account !== undefined ? ` on ${account}` : ''
         planLine(
           r.jobId,
-          reply.status < 400
-            ? `restarted the planner with the same brief${account !== undefined ? ` on ${account}` : ''}: it stopped without handing the plan over`
-            : `the planner stopped without handing the plan over and could not be restarted: ${why(reply.body)}`
+          r.alive
+            ? reply!.status < 400
+              ? `restarted the planner with the same brief${on}: it stopped without handing the plan over`
+              : `the planner stopped without handing the plan over and could not be restarted: ${why(reply!.body)}`
+            : reply!.status < 400
+              ? `${resumed ? 'resumed the planner in its own conversation' : 'started the planner again with the same brief'}${on}: its session had ended without handing the plan over`
+              : `the planner's session ended without handing the plan over and it could not be started again: ${why(reply!.body)}`
         )
         return
       }
@@ -1073,6 +1143,7 @@ export function createStallWatch(d: StallWatchDeps): { adopt(): Promise<void>; w
           ...usage,
           cap,
           alive: (id) => d.alive(id),
+          ...(d.spawning ? { spawning: () => d.spawning!() } : {}),
           ...(d.checking && d.startValidation ? { checking: (id: string) => d.checking!(id) } : {}),
           ...(d.startHeld?.() === true ? { startHeld: true } : {}),
           ...(d.lastActivityAt ? { lastActivityAt: (x: Dispatch) => activity.get(x.id) ?? null } : {}),
