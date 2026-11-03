@@ -58,3 +58,22 @@ its window. Every detached start in those two processes is listed below, so that
 Not covered: `shell.openPath` / `openExternal` (they open folders, media and URLs; `resolveLink.ts`
 refuses to hand `openPath` a file), and libraries that start processes inside their own code
 (electron-updater, node-pty's helper above).
+
+## 2026-11-03: the windows that were left, and why the diagnostic missed them
+
+The 15 s window diagnostic logged "0 visible windows" while node.exe windows kept flashing. Two reasons: the windows
+live well under a second, and on Windows 11 a console program given a NEW visible console is handed off to Windows
+Terminal (OpenConsole.exe -Embedding, started through COM), so the window belongs to WindowsTerminal.exe, never to a
+Host descendant. `src/host/windowDiagnostic.ts` is now a watcher (EnumWindows every 100 ms in one hidden PowerShell,
+the owner's parent chain read when the window appears). The handed-off console's `PseudoConsoleWindow` is owned by the
+program that got the console, so its chain names who started it.
+
+Measured with it on the owner's machine: Astera's own starts (hooks, statusLine, CLI, MCP server, git, the Host) open
+no window: Claude Code starts hook and tool shells with a hidden console of their own, and their children inherit it.
+The windows titled `C:\Program Files\nodejs\node.exe` came from a project's own Claude hook (Gameful-Monorepo
+`tools/hooks/typecheck-edited.ts`, PostToolUse on Edit|Write): `spawn(tsc, …, { detached: true })` with no
+`windowsHide`. Detached is DETACHED_PROCESS on win32, so the tsc.exe shim holds no console and the node it starts gets a
+new visible one, after every edit in every session. Fixed there (`detached` off win32, `windowsHide: true`), not here.
+
+The scan also reads node scripts held in strings that `require('child_process')` (the statusLine capture script Claude
+Code runs), so a start inside an installed script needs `windowsHide` too.

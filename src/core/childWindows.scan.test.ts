@@ -377,6 +377,50 @@ describe('every child-process start passes windowsHide (win32 console windows)',
   })
 })
 
+/**
+ * Node scripts held in template literals that start a child (`require('child_process')` in the text): the statusLine
+ * and hook scripts Astera installs and Claude Code runs under the Host runtime, outside every runtime guard. Each
+ * literal's text, as it would be written to disk with its `${…}` parts left in. A literal nested inside a `${…}` is not
+ * separated out; none of these scripts has one.
+ */
+function startingScripts(src: string): Array<{ line: number; text: string }> {
+  const out: Array<{ line: number; text: string }> = []
+  for (const m of src.matchAll(/`((?:\\[\s\S]|[^`\\])*)`/g)) {
+    if (!/require\(\s*['"](?:node:)?child_process['"]\s*\)/.test(m[1])) continue
+    // Undo the one escape level the literal adds, so the scan reads the script's own quotes and parentheses.
+    out.push({ line: src.slice(0, m.index).split('\n').length, text: m[1].replace(/\\([\\`$'"])/g, '$1') })
+  }
+  return out
+}
+
+describe('a script Astera installs for Claude Code to run starts its children hidden too', () => {
+  const scripts = ROOTS.flatMap((root) =>
+    sources(path.join(SRC, root)).flatMap((abs) => {
+      const file = path.relative(path.join(SRC, '..'), abs).split(path.sep).join('/')
+      return startingScripts(readFileSync(abs, 'utf8')).map((s) => ({ file, ...s }))
+    })
+  )
+
+  it('finds the statusLine capture script, which chains the account’s own statusLine', () => {
+    expect(scripts.some((s) => s.file === 'src/core/sessions/statusline.ts')).toBe(true)
+  })
+
+  it('every start inside such a script passes windowsHide', () => {
+    const bare = scripts.flatMap((s) =>
+      findChildCalls(s.text)
+        .filter((c) => !c.hidden)
+        .map((c) => `${s.file}:${s.line + c.line - 1} ${c.fn}: ${squash(c.text).slice(0, 140)}`)
+    )
+    expect(bare).toEqual([])
+  })
+
+  it('sees a bare start in a script string', () => {
+    const src = 'const S = `const cp = require(\'child_process\')\ncp.spawn(orig, { shell: true })\n`'
+    const [s] = startingScripts(src)
+    expect(findChildCalls(s.text).map((c) => c.hidden)).toEqual([false])
+  })
+})
+
 describe('a detached start is win32-guarded or allowlisted (win32: no console, so its console children open new windows)', () => {
   const starts = ROOTS.flatMap((root) =>
     sources(path.join(SRC, root)).flatMap((abs) => {
