@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { git as realGit, type GitResult } from '../../worktrees/git'
+import { git as realGit, type GitResult, GIT_FETCH_TIMEOUT_MS, GIT_WRITE_TIMEOUT_MS } from '../../worktrees/git'
 import { deliverByPush, type PushContext } from './integrateGit'
 import type { PresenceCheck } from '../../worktrees/presence'
 import { createJob, createTask, emptyState, startJobRun, type OrchState } from '../state'
@@ -91,7 +91,7 @@ function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | '
       { cwd: '/repo', worktrees: ['/wt-a', '/wt-b'], message: 'Deliver plan: P\n\nFixes #7', ...(branch ? { branch } : {}), ...(defaultBranch ? { defaultBranch } : {}), ...(local ? { local } : {}) },
       ctx
     )
-  return { ...g, merges, validated, events, logs, go }
+  return { ...g, ctx, merges, validated, events, logs, go }
 }
 
 const forced = (calls: string[][]): boolean => calls.some((a) => a.some((x) => x === '--force' || x.startsWith('--force-with-lease') || x === '-f' || x.startsWith('+')))
@@ -107,6 +107,23 @@ describe('deliverByPush (W6-H)', () => {
     expect(order.indexOf('fetch origin main')).toBeLessThan(order.indexOf('merge --ff-only origin/main'))
     expect(order).toContain('push origin main')
     expect(forced(h.calls)).toBe(false)
+  })
+
+  // 2026-11-03: a flaky network (stalled fetches, "Could not resolve host github.com") kept a delivery going for 12 minutes
+  it("a delivery's fetch has the network deadline, not the 10 minutes a merge gets", async () => {
+    const h = setup()
+    const deadlines: Array<[string, number | undefined]> = []
+    const inner = h.git
+    const timed = (async (args: string[], opts?: { cwd?: string; timeoutMs?: number }) => {
+      deadlines.push([args.join(' '), opts?.timeoutMs])
+      return inner(args, opts)
+    }) as typeof inner
+    const r = await deliverByPush({ cwd: '/repo', worktrees: ['/wt-a'], message: 'm' }, { ...h.ctx, git: timed })
+    expect(r.ok).toBe(true)
+    const fetches = deadlines.filter(([k]) => k.startsWith('fetch origin'))
+    expect(fetches.length).toBeGreaterThan(0)
+    for (const [, ms] of fetches) expect(ms).toBe(GIT_FETCH_TIMEOUT_MS)
+    expect(GIT_FETCH_TIMEOUT_MS).toBeLessThan(GIT_WRITE_TIMEOUT_MS)
   })
 
   it('installs before the validation when the merges changed a lockfile', async () => {

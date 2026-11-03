@@ -36,9 +36,10 @@ import { pluginRefusal } from '../core/host/pluginGate'
 import { sanitizeForController } from '../core/remote/sanitize'
 import type { GatewayState } from '../core/remote/gatewayState'
 import type { ControllerRegistry } from './controllers'
-import { readMcpAccess } from '../core/settings/mcpAccess'
-import { readMcpSessions } from '../core/settings/mcpSessions'
-import { readMcpGithubWrite } from '../core/settings/mcpGithubWrite'
+import { mcpAccessOf } from '../core/settings/mcpAccess'
+import { mcpSessionsOf } from '../core/settings/mcpSessions'
+import { mcpGithubWriteOf } from '../core/settings/mcpGithubWrite'
+import { readAppSettingsObject } from '../core/settings/settingsObject'
 import { APP_CALLER, HOST_CALLER, type Driver } from '../core/host/driver'
 import { createHeldQueue, createOwnerHold } from '../core/sessions/ownerHold'
 import { hostOrchDeps } from './orchDeps'
@@ -924,20 +925,22 @@ export function createHostOrch(a: {
    * and a holder hands it on while it waits on a spawn or a screen (`outsideChain`). A command that fails or throws
    * releases it all the same.
    */
-  type Holder = { running: boolean; release: () => void; cmd: string }
+  /** `heldMs`, `heldSince`: how long this holder has held the chain, its time outside it (`outsideChain`) left out, so
+   *  a slow command's log line tells a command that held every other one up from one that only took long. */
+  type Holder = { running: boolean; release: () => void; cmd: string; heldMs: number; heldSince: number }
   const holding = new AsyncLocalStorage<Holder>()
   let chainTail: Promise<void> = Promise.resolve()
   /** The command holding the chain now, or null: what a slow command's log line says it waited behind. */
   let chainHolder: string | null = null
   const slowMs = a.slowCommandMs ?? SLOW_COMMAND_MS
   /** `chained` is null for a read answered outside the chain. */
-  const logIfSlow = (cmd: string, startedAt: number, chained: { ranAt: number; behind: string | null } | null): void => {
+  const logIfSlow = (cmd: string, startedAt: number, chained: { ranAt: number; behind: string | null; heldMs: number } | null): void => {
     const end = Date.now()
     if (end - startedAt <= slowMs) return
     a.log(
       chained === null
         ? `host: slow command ${cmd} took ${end - startedAt} ms (a read, outside the chain)`
-        : `host: slow command ${cmd} took ${end - startedAt} ms (waited ${chained.ranAt - startedAt} ms behind ${chained.behind ?? 'nothing'}, ran ${end - chained.ranAt} ms)`
+        : `host: slow command ${cmd} took ${end - startedAt} ms (waited ${chained.ranAt - startedAt} ms behind ${chained.behind ?? 'nothing'}, ran ${end - chained.ranAt} ms, held the chain ${chained.heldMs} ms)`
     )
   }
   /** Waits for every earlier taker to hand the chain on, and answers how to hand it on in turn. */
@@ -962,16 +965,18 @@ export function createHostOrch(a: {
       }
     }
     const behind = chainHolder
-    const holder: Holder = { running: true, release: await takeChain(), cmd }
+    const holder: Holder = { running: true, release: await takeChain(), cmd, heldMs: 0, heldSince: 0 }
     chainHolder = cmd
     const ranAt = Date.now()
+    holder.heldSince = ranAt
     try {
       return await holding.run(holder, run)
     } finally {
       holder.running = false
+      holder.heldMs += Date.now() - holder.heldSince
       chainHolder = null
       holder.release()
-      logIfSlow(cmd, startedAt, { ranAt, behind })
+      logIfSlow(cmd, startedAt, { ranAt, behind, heldMs: holder.heldMs })
     }
   }
   /** A slow effect the holder awaits with the chain handed on, taken back before the command goes on. Only for effects
@@ -980,6 +985,7 @@ export function createHostOrch(a: {
     const holder = holding.getStore()
     if (!holder?.running) return effect()
     holder.running = false
+    holder.heldMs += Date.now() - holder.heldSince
     chainHolder = null
     holder.release()
     try {
@@ -987,6 +993,7 @@ export function createHostOrch(a: {
     } finally {
       holder.release = await takeChain()
       chainHolder = holder.cmd
+      holder.heldSince = Date.now()
       holder.running = true
     }
   }
@@ -2070,12 +2077,14 @@ export function createHostOrch(a: {
         // `app js` reads its toggle: the app may change it while the Host runs. A settings file that
         // cannot be read refuses (readMcpAccess throws; the catch below answers 500 with its message).
         if (from?.role === 'mcp') {
-          const settingsFile = path.join(a.profileDir, 'app-settings.json')
+          // One read of the file for the three settings, not three: every MCP call pays it, on the same libuv threads
+          // every other file read in the Host waits for. The rules are the three readers' own (`…Of`).
+          const settings = await readAppSettingsObject(path.join(a.profileDir, 'app-settings.json'))
           const refused = mcpRefusal(
             cmd,
-            await readMcpAccess(settingsFile),
-            await readMcpSessions(settingsFile),
-            await readMcpGithubWrite(settingsFile),
+            mcpAccessOf(settings?.mcpAccess),
+            mcpSessionsOf(settings?.mcpSessions),
+            mcpGithubWriteOf(settings?.mcpGithubWrite),
             args
           )
           if (refused) return refused

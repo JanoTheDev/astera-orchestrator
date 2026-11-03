@@ -1764,6 +1764,70 @@ async function notProvableOfReport(
   }
 }
 
+/** What a `worker_done` reads before it commits, every part of it slow I/O (files, a socket, git). */
+type ReportReads = {
+  limitResetsAt: number | null
+  /** A review report's: the structured verdict, or 'malformed', or undefined (no file, or no convergence) */
+  issues: ReviewIssueInput[] | 'malformed' | undefined
+  repairTarget: RepairTarget | undefined
+  gateLang: Lang
+  /** An implementation report's (T12) */
+  notProvable: { note: string; converted: boolean } | null
+}
+
+/** The reads a `worker_done` makes before its commit, in the order they were always made, for `send` to await with the
+ *  Host's chain handed on (offChain). **Reads only**: the state is read here but nothing is built on it for a commit;
+ *  `send` builds its commit on `deps.getState()` read after this answers. Never throws: each read's failure is the
+ *  value its own call site always gave it. */
+async function reportReads(
+  deps: OrchServerDeps,
+  a: { taskId: string; dispatchId: string; outcome: 'succeeded' | 'failed'; reporting: Dispatch | undefined; args: Record<string, unknown> }
+): Promise<ReportReads> {
+  let limitResetsAt: number | null = null
+  if (a.outcome === 'failed' && deps.probeLimit && a.reporting) {
+    // The probe reads files — a failure there must not block handling the worker's report.
+    try {
+      limitResetsAt = await deps.probeLimit(a.reporting)
+    } catch (err) {
+      deps.log?.(`limit probe failed dispatch=${a.reporting.id}: ${String(err)}`)
+    }
+  }
+  if (a.reporting?.review) {
+    // 구조화된 판정(설계 §8.2). 파일이 없으면 undefined(outcome 으로 해석), 깨졌거나 읽을 수 없으면 'malformed'(Gate).
+    // **convergence 가 없는 Run 은 읽지 않는다.** suffix(`.review.json`)를 붙이는 자리는 여기 하나뿐이다.
+    const st = deps.getState()
+    const reviewTask = st.tasks.find((t) => t.id === a.taskId)
+    const reviewRun = reviewTask && st.runs.find((r) => r.id === reviewTask.runId)
+    const reviewJob = reviewRun && jobOf(st, reviewRun)
+    let issues: ReviewIssueInput[] | 'malformed' | undefined
+    if (reviewJob?.convergence && deps.readReviewFile && a.reporting.specPath) {
+      try {
+        const text = await deps.readReviewFile(`${a.reporting.specPath}.review.json`)
+        if (text !== null) {
+          const parsed = parseReviewFile(text)
+          if (parsed.ok) {
+            issues = parsed.issues
+          } else {
+            issues = 'malformed'
+            deps.log?.(`review.json for dispatch=${a.dispatchId} is malformed: ${parsed.error}`)
+          }
+        }
+      } catch (e) {
+        issues = 'malformed'
+        deps.log?.(`review.json for dispatch=${a.dispatchId} could not be read: ${String(e)}`)
+      }
+    }
+    // repairTargetFor and lang may cross a socket (their declarations): awaited here, before the state `send` commits on
+    const repairTarget = deps.repairTargetFor ? ((await deps.repairTargetFor(a.taskId)) ?? undefined) : undefined
+    const gateLang = (await deps.lang?.()) ?? 'en'
+    return { limitResetsAt, issues, repairTarget, gateLang, notProvable: null }
+  }
+  // T12: what this machine cannot run. Not a report that ended at a usage limit: that is the limit's, not the machine's.
+  const notProvable =
+    limitResetsAt === null ? await notProvableOfReport(deps, deps.getState(), { taskId: a.taskId, dispatch: a.reporting, outcome: a.outcome, args: a.args }) : null
+  return { limitResetsAt, issues: undefined, repairTarget: undefined, gateLang: 'en', notProvable }
+}
+
 /** T12: the state after an accepted `worker_done`, with the Task's `notProvable` set from the report (a later report
  *  without one clears an earlier one's, as `gaps`), and in a hands-off plan the decision that accepted it, unless the
  *  attempt acts on a Gate answer, whose own decision already said so (autoAnswer.ts `notProvableReviewStepOf`). */
@@ -2880,7 +2944,11 @@ async function handleCommandInner(
       let cwd = given
       if (deps.resolveProjectRoot) {
         try {
-          cwd = await deps.resolveProjectRoot(given)
+          // With the Host's chain handed on: the Host's resolver walks every account's transcript folders and runs git
+          // (host/projectRoots.ts), the 24.8 s `jobs-create` of 2026-11-03 that held every other command. Nothing is
+          // committed before it, and the commit below is built on the state read after it (`latest`).
+          const resolve = deps.resolveProjectRoot
+          cwd = await offChain(deps, () => resolve(given))
         } catch (err) {
           deps.log?.(`project root resolution failed cwd=${given}: ${String(err)}`)
         }
@@ -3217,9 +3285,13 @@ async function handleCommandInner(
       if (named && intake.attach.length > 0) notice = `Using the ${intake.attach.length} attached files; the names in the text were not looked up`
       else if (named) {
         if (!deps.listPromptFiles || !deps.readIntakeText) return conflict('prompt names are looked up on the Astera Host, and this caller is not one')
-        let root = str(args.cwd) ?? process.cwd()
-        if (deps.resolveProjectRoot) root = await deps.resolveProjectRoot(root).catch(() => root)
-        byName = await promptsByName(deps, s, root, source)
+        const given = str(args.cwd) ?? process.cwd()
+        // Reads only (the project root, the prompts folder), with the Host's chain handed on as run-create's own
+        // resolve below: nothing is committed from them, and run-create reads the state again
+        byName = await offChain(deps, async () => {
+          const root = deps.resolveProjectRoot ? await deps.resolveProjectRoot(given).catch(() => given) : given
+          return promptsByName(deps, deps.getState(), root, source)
+        })
         const { resolution: r } = byName
         if (args.dryRun === true) return okBody({ names: true, dir: byName.dir ?? null, detected: byName.detected, ...r })
         if (r.problems.length > 0) return bad(`prompt names: ${r.problems.join('; ')}`)
@@ -6024,15 +6096,16 @@ async function handleCommandInner(
         // 못하고, 코디네이터는 "검토자가 일을 반려했다"만 읽는다 — 멀쩡한 작업에 구현자를 다시 띄워
         // 회로 차단에 한 걸음 다가가면서, 그 계정이 언제 풀리는지는 아무도 알지 못한다. 위 주석이
         // 말하는 "이 경로로만 닫히는 세션"은 검토자에게도 똑같이 있다.
-        let limitResetsAt: number | null = null
-        if (outcome === 'failed' && deps.probeLimit && reporting) {
-          // The probe reads files — a failure there must not block handling the worker's report.
-          try {
-            limitResetsAt = await deps.probeLimit(reporting)
-          } catch (err) {
-            deps.log?.(`limit probe failed dispatch=${reporting.id}: ${String(err)}`)
-          }
-        }
+        //
+        // **Every slow read of a report runs with the Host's chain handed on** (offChain; the 67 s `send` of
+        // 2026-11-03, with every other command queued behind it): the limit probe's files, the verdict file, the
+        // repair target, the language and the not-provable git read. Nothing is committed before them and each
+        // commit below is built on `deps.getState()` read after them, so a commit another command lands meanwhile
+        // is kept (the lost-commit race the chain exists for).
+        // A succeeded implementation report reads nothing slow, so it keeps the chain (no hand-off, no second queue).
+        const readReport = (): Promise<ReportReads> => reportReads(deps, { taskId, dispatchId, outcome, reporting, args })
+        const reads = outcome === 'failed' || reporting?.review ? await offChain(deps, readReport) : await readReport()
+        const limitResetsAt = reads.limitResetsAt
         /** limitResetsAt 을 그 Dispatch 에 싣고 같은 소식을 status 메시지로도 남긴다. 두 경로(검토
          *  보고와 구현 보고)가 같은 것을 해야 하므로 한 군데에 둔다 — 복사해 두면 한쪽만 고쳐진다.
          *
@@ -6086,45 +6159,13 @@ async function handleCommandInner(
         // 검토 Dispatch 의 보고는 다른 판정으로 간다. applyWorkerDone 으로 보내면 dispatched 에서만
         // 나가는 전이를 reviewing 인 Task 에 적용하려다 거절되고, 검토 결과가 어디에도 반영되지 않는다.
         if (reporting?.review) {
-          // 구조화된 판정(설계 §8.2). 파일이 없으면 undefined(outcome 으로 해석), 깨졌거나 읽을 수
-          // 없으면 'malformed'(Gate) — 조용히 "이슈 없음" 으로 읽지 않는다. **convergence 가 없는
-          // Run 은 읽지 않는다** — applyReviewResult 는 issues 를 그 경로에서 무시하므로 읽어도
-          // 헛돌고, 그 Run 의 동작은 오늘과 바이트 단위로 같아야 한다(이 파일의 다른 규율과 같다).
-          //
-          // **suffix(`.review.json`)를 붙이는 자리는 여기 하나뿐이다.** deps.readReviewFile 은
-          // 완성된 경로를 받는다 — 배선이 또 붙이면 `….md.review.json.review.json` 을 찾다가
-          // 조용히 못 찾고, 구조화된 판정 기능이 죽은 채로 아무 신호도 내지 않는다.
-          const beforeReview = deps.getState()
-          const reviewTask = beforeReview.tasks.find((t) => t.id === taskId)
-          const reviewRun = reviewTask && beforeReview.runs.find((r) => r.id === reviewTask.runId)
-          const reviewJob = reviewRun && jobOf(beforeReview, reviewRun)
-          let issues: ReviewIssueInput[] | 'malformed' | undefined
-          if (reviewJob?.convergence && deps.readReviewFile && reporting.specPath) {
-            try {
-              const text = await deps.readReviewFile(`${reporting.specPath}.review.json`)
-              if (text !== null) {
-                const parsed = parseReviewFile(text)
-                if (parsed.ok) {
-                  issues = parsed.issues
-                } else {
-                  issues = 'malformed'
-                  deps.log?.(`review.json for dispatch=${dispatchId} is malformed: ${parsed.error}`)
-                }
-              }
-            } catch (e) {
-              issues = 'malformed'
-              deps.log?.(`review.json for dispatch=${dispatchId} could not be read: ${String(e)}`)
-            }
-          }
-          // **상태를 읽기 전에 기다린다.** repairTargetFor 도 이제 소켓을 건널 수 있고(그 선언),
-          // 인자는 왼쪽부터 평가되므로 객체 리터럴 안에서 await 하면 그 await 는 위의
-          // `deps.getState()` **뒤에** 일어난다 — 그 사이에 커밋된 것을 아래 setState 가 덮는다.
-          // 먼저 받아 두면 그 창이 없다.
-          const repairTarget = deps.repairTargetFor ? (await deps.repairTargetFor(taskId)) ?? undefined : undefined
-          // **같은 이유로 여기서 받아 둔다.** `lang` 도 이제 소켓을 건널 수 있고(그 선언), 아래
-          // 리터럴 안에서 await 하면 그 await 는 첫 인자인 `deps.getState()` 뒤에 일어난다 — 바로
-          // 위 줄이 막 없앤 그 창을 도로 여는 셈이다.
-          const gateLang = (await deps.lang?.()) ?? 'en'
+          // 구조화된 판정(설계 §8.2)은 reportReads 가 읽는다: 파일이 없으면 undefined, 깨졌으면 'malformed'(Gate),
+          // convergence 가 없는 Run 은 읽지 않는다. `.review.json` suffix 를 붙이는 자리도 그곳 하나뿐이다 —
+          // deps.readReviewFile 은 완성된 경로를 받는다.
+          // The verdict file, the repair target and the language were read above (reportReads), before the state
+          // this commit is built on: **awaited before reading the state**, as they always were, so nothing committed
+          // during those awaits is overwritten by the setState below.
+          const { issues, repairTarget, gateLang } = reads
           // 진입 스냅숏(s)이 아니라 지금 상태를 읽는다 — 위 탐침과 방금 파일 읽기의 await 동안 다른
           // 흐름이 커밋했을 수 있고, 낡은 스냅숏으로 부르면 setState 가 그것을 덮어 잃는다(아래 구현
           // 경로와 같은 이유).
@@ -6159,8 +6200,7 @@ async function handleCommandInner(
         }
         // T12: what this machine cannot run; a hands-off plan takes a failed report that only says so as succeeded.
         // Not a report that ended at a usage limit: that is the limit's, not the machine's.
-        const notProvable =
-          limitResetsAt === null ? await notProvableOfReport(deps, deps.getState(), { taskId, dispatch: reporting, outcome, args }) : null
+        const notProvable = reads.notProvable
         if (notProvable?.converted) deps.log?.(`worker_done: task=${taskId} failed -> succeeded, not provable here: ${notProvable.note}`)
         // getState is read again here — the state may have changed during the probeLimit await
         // above, and calling applyWorkerDone with the pre-await snapshot (s) would overwrite and

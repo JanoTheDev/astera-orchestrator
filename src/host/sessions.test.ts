@@ -190,6 +190,39 @@ describe('registrySessions — list', () => {
     ])
   })
 
+  // 2026-11-03: 45 listings in flight at once, each reading every session's hook file on libuv's 4 shared threads.
+  it('a listing asked for while one runs over the same sessions joins it; one over other sessions builds its own', async () => {
+    const ptys = new PtyRegistry({ spawn: fakePty, log: () => {} })
+    const procs = new ProcRegistry({ spawn: fakeProc, log: () => {} })
+    ptys.open({ id: 'p1', file: 'sh', args: [], opts, meta: { kind: 'session', id: 's1', restore: {} } })
+    const answers: Array<() => void> = []
+    const sessions = registrySessions({
+      ptys,
+      procs,
+      hookEventsDir: NO_HOOK_DIR,
+      accounts: () => new Promise<Account[]>((r) => answers.push(() => r([])))
+    })
+    const first = sessions.listSessions()
+    const second = sessions.listSessions()
+    expect(answers).toHaveLength(1)
+    // A session started meanwhile is not missing from the next answer: that one is a listing of its own
+    ptys.open({ id: 'p2', file: 'sh', args: [], opts, meta: { kind: 'session', id: 's2', restore: {} } })
+    const third = sessions.listSessions()
+    expect(answers).toHaveLength(2)
+    for (const answer of answers) answer()
+    // The first two answered from the first listing, each its own array
+    const [a1, a2, a3] = await Promise.all([first, second, third])
+    expect(a1.map((x) => x.id)).toEqual(['s1'])
+    expect(a2).toEqual(a1)
+    expect(a2).not.toBe(a1)
+    expect(a3.map((x) => x.id)).toEqual(['s1', 's2'])
+    // Once it answered, the next one lists afresh
+    const fourth = sessions.listSessions()
+    expect(answers).toHaveLength(3)
+    answers[2]()
+    expect((await fourth).map((x) => x.id)).toEqual(['s1', 's2'])
+  })
+
   // A note the app wrote is the app's, and nothing forces its keys to be strings.
   it('a note key that is not a string reads as null rather than being passed on', async () => {
     const ptys = new PtyRegistry({ spawn: fakePty, log: () => {} })
