@@ -3,6 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import fsSync from 'node:fs'
 import { EXIT_RECORD, HEARTBEAT_MS, previousHostLines, readLogTail, watchExit, type ExitFs } from './exitWatch'
+import { ENDED_BY_APP } from '../core/host/endedByApp'
 
 const DIR = path.join('profile', 'host')
 const FILE = path.join(DIR, EXIT_RECORD)
@@ -161,6 +162,26 @@ describe('heartbeat and the silent death', () => {
     expect(previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => false, tail: ['x'] }).join(' ')).not.toContain('without a word')
     f.advance(60_000)
     expect(previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => true, tail: ['x'] })).toEqual([])
+  })
+
+  // 2026-11-03 07:33: the app replaced an unanswering Host with taskkill, and the next Host called it a native crash.
+  it('names the app when its note names this very Host, and not for another pid or an older note', () => {
+    const f = fakes()
+    const log = dead(f)
+    f.advance(30_000)
+    const note = (pid: number, at: number): void =>
+      void f.files.set(path.join(DIR, ENDED_BY_APP), JSON.stringify({ pid, at, why: 'it was not answering' }))
+    note(55, f.now())
+    const out = previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => false, tail: log.slice(-2) })
+    expect(out[0]).toBe('the last Host (pid 55) was ended by the app (it was not answering) after 0 s; last heartbeat 1970-01-01T00:16:40.000Z')
+    expect(out[1]).toBe('the last Host was running tasks-dispatch for 0 s when it was ended')
+    expect(out.slice(2)).toEqual(log.slice(-2).map((l) => `  | ${l}`))
+    expect(out.join(' ')).not.toContain('native crash')
+    // a note for another process, or one from before this Host started (a reused pid), is not this Host's end
+    note(56, f.now())
+    expect(previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => false })[0]).toContain('died without a word')
+    note(55, 0)
+    expect(previousHostLines(DIR, { fs: f.fs, now: f.now, alive: () => false })[0]).toContain('died without a word')
   })
 
   it('keeps the exit wording for a record with an exit code, however old', () => {

@@ -10,10 +10,13 @@
 //    also gets the exit code on the way out. The next Host reads it (`previousHostLines`): an exit code says how the
 //    last one left, none says it was killed from outside or crashed natively, and a command still running says what
 //    it was doing and for how long (up to its last stamp).
+//  - a forced end by the app (an unanswering Host replaced with taskkill) leaves the app's note `ended-by-app.json`
+//    (core/host/endedByApp.ts), so that end is named as the app's and not read as a native crash.
 import fsSync from 'node:fs'
 import path from 'node:path'
 import v8 from 'node:v8'
 import type { HostLog } from './log'
+import { ENDED_BY_APP, parseEndedByApp, type EndedByApp } from '../core/host/endedByApp'
 
 export const EXIT_RECORD = 'exit-record.json'
 /** Shares of V8's heap limit that are logged, once each. */
@@ -83,6 +86,18 @@ export function pidAlive(pid: number): boolean {
   }
 }
 
+/** The app's note that it ended Host `pid` (core/host/endedByApp.ts), when there is one for that Host: the same pid,
+ *  written after that Host started (a pid is reused, so an older note names another process). Never throws. */
+function endedByAppOf(dir: string, fs: ExitFs, pid: number, startedAt: number | undefined): EndedByApp | null {
+  try {
+    const note = parseEndedByApp(fs.readFileSync(path.join(dir, ENDED_BY_APP), 'utf8'))
+    if (!note || note.pid !== pid) return null
+    return typeof startedAt === 'number' && note.at < startedAt ? null : note
+  } catch {
+    return null
+  }
+}
+
 /** What the last Host left in `dir`, as host.log lines (none for a profile that never had one). Never throws.
  *  `tail` is the previous host.log's last lines, read before this Host wrote its own first line. */
 export function previousHostLines(
@@ -105,6 +120,14 @@ export function previousHostLines(
     const silent = !r.exit && typeof r.seen === 'number' && (o.now ?? Date.now)() - r.seen > 3 * HEARTBEAT_MS
     const alive = typeof r.pid === 'number' ? (o.alive ?? pidAlive)(r.pid) : false
     if (!r.exit && alive) return [] // a live pid is a Host still running, not a dead one
+    // The app ended this very Host by force (core/host/endedByApp.ts): no exit handler ran, and that is why, not a crash.
+    const ended = !r.exit && typeof r.pid === 'number' ? endedByAppOf(dir, fs, r.pid, r.startedAt) : null
+    if (ended) {
+      lines.push(`the last Host${pid} was ended by the app (${ended.why})${up}; last heartbeat ${new Date((r.seen ?? ended.at) as number).toISOString()}`)
+      if (doing.length > 0) lines.push(`the last Host was running ${doing.join(', ')} when it was ended`)
+      for (const l of (o.tail ?? []).slice(-TAIL_LINES)) lines.push(`  | ${l}`)
+      return lines
+    }
     if (silent) {
       lines.push(`the last Host${pid} died without a word (native crash?)${up}; last heartbeat ${new Date(r.seen as number).toISOString()}`)
       if (doing.length > 0) lines.push(`the last Host died while running ${doing.join(', ')}`)
