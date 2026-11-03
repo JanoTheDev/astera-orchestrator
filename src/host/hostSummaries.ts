@@ -124,7 +124,57 @@ export function createHostSummaries(d: HostSummariesDeps): HostSummaries {
   /** The last good read, by the file's mtime and size: `summaries` is asked per call, and the file changes only when a
    *  card is written. Never mutated: every caller builds a new file from it. */
   let cached: { mtimeMs: number; size: number; file: StoreFile } | null = null
+  /**
+   * **What `summaries` answers from: memory, once the file was read** (2026-11-03: `summaries` took 110 s, then a
+   * burst of 38, 25 and 21 s, on a Host whose async file calls all waited in libuv's pool). This Host is the file's
+   * only writer (`save` below), so after the first read the file holds nothing memory does not, and a read need not
+   * touch the disk at all. A hand edit is still picked up: at most every RECHECK_MS a read starts a look at the file's
+   * stamp in the background, and a changed file is read again — never on the reader's time.
+   */
+  let memory: StoreFile | null = null
+  let reading: Promise<StoreFile> | null = null
+  let checkedAt = 0
+  let checking = false
+  /** Moves with every save: a background look that began before a save must not put the older file back. */
+  let saves = 0
+  const newestFirst = new WeakMap<StoreFile, SessionSummary[]>()
+  const RECHECK_MS = 30_000
+  const recheck = (): void => {
+    const at = Date.now()
+    if (checking || at - checkedAt < RECHECK_MS) return
+    checking = true
+    checkedAt = at
+    const before = saves
+    void loadFromDisk()
+      .then((f) => {
+        if (saves === before) memory = f
+      })
+      .catch(() => {})
+      .finally(() => {
+        checking = false
+      })
+  }
   const load = async (): Promise<StoreFile> => {
+    if (memory) {
+      recheck()
+      return memory
+    }
+    // Callers that arrive together share one read
+    reading ??= loadFromDisk().then(
+      (f) => {
+        memory = f
+        checkedAt = Date.now()
+        reading = null
+        return f
+      },
+      (err: unknown) => {
+        reading = null
+        throw err
+      }
+    )
+    return reading
+  }
+  const loadFromDisk = async (): Promise<StoreFile> => {
     const st = await fs.stat(d.file).catch(() => null)
     if (st && cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) return cached.file
     const r = await readStoreFile(d.file)
@@ -148,6 +198,9 @@ export function createHostSummaries(d: HostSummariesDeps): HostSummaries {
     const tmp = `${d.file}.${process.pid}.tmp`
     await fs.writeFile(tmp, JSON.stringify(f), { mode: 0o600 })
     await renameRetrying(tmp, d.file)
+    // On disk now, so memory moves to it (`memory`): the next read answers the card at once
+    saves++
+    memory = f
   }
 
   /** The prose, or null: no account, a refusal, a failure and a timeout all read the same way. */
@@ -303,8 +356,14 @@ export function createHostSummaries(d: HostSummariesDeps): HostSummaries {
       idle.set(id, timer)
     },
     read: async (jobId) => {
-      const { summaries } = await load()
-      return summaries.filter((x) => jobId === undefined || x.jobId === jobId).sort((a, b) => b.at.localeCompare(a.at))
+      const file = await load()
+      // Sorted once per file, not once per read: several windows poll this
+      let sorted = newestFirst.get(file)
+      if (!sorted) {
+        sorted = [...file.summaries].sort((a, b) => b.at.localeCompare(a.at))
+        newestFirst.set(file, sorted)
+      }
+      return sorted.filter((x) => jobId === undefined || x.jobId === jobId)
     },
     settled: async () => {
       await chain

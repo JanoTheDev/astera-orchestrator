@@ -30,8 +30,23 @@ export const HOST_ONLY_ENV: RegExp = /^(ELECTRON_RUN_AS_NODE$|ASTERA_HOST_)/i
 export function hostWorkerBaseEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const base: NodeJS.ProcessEnv = {}
   for (const [k, v] of Object.entries(env)) if (!HOST_ONLY_ENV.test(k)) base[k] = v
+  // The pool size the Host's start chose for the Host alone (HOST_THREADPOOL_ENV) goes no further; one the person set
+  // themselves (no marker) is theirs and stays.
+  if (env[HOST_THREADPOOL_MARK] === '1') delete base.UV_THREADPOOL_SIZE
   return base
 }
+
+/** **libuv's thread pool for the Host: 16 threads, not the default 4** (2026-11-03). Every async file call of the Host
+ *  (`fs.promises`, also `dns.lookup`) runs on that pool. With 13 workers, their installs and a delivery on one machine,
+ *  the Host's own heartbeat (a sync write on a timer) went on while its health snapshot, which waits on two small
+ *  async reads first, stopped for minutes, and `sessions list` and `summaries` waited 60 to 110 s on a stat: the
+ *  pool's 4 threads were all held, and every call queued behind them. The size takes effect only when it is in the
+ *  environment before the pool's first use, so the start sets it (pathProbe.ts says why the entry module cannot).
+ *  A value the person already set is left as it is. */
+export const HOST_THREADPOOL_SIZE = '16'
+/** Marks that the start set UV_THREADPOOL_SIZE, so `hostWorkerBaseEnv` keeps it from the workers. HOST_ONLY_ENV by
+ *  its prefix, so it never reaches them itself. */
+export const HOST_THREADPOOL_MARK = 'ASTERA_HOST_THREADPOOL_SET'
 
 /** The three paths a Host needs before it can spawn a worker itself (§2.2): the binary and the
  *  bundle the worker's `astera` shuttle runs, and the skills folder the CLI's help reads. The app and
@@ -131,6 +146,7 @@ export function hostSpawnPlan(a: {
       env: {
         ...env,
         ELECTRON_RUN_AS_NODE: '1',
+        ...(env.UV_THREADPOOL_SIZE === undefined ? { UV_THREADPOOL_SIZE: HOST_THREADPOOL_SIZE, [HOST_THREADPOOL_MARK]: '1' } : {}),
         ASTERA_HOST_PROFILE_DIR: a.profileDir,
         ASTERA_HOST_LOG: a.logPath,
         ASTERA_HOST_VERSION: a.version,

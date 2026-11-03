@@ -247,6 +247,24 @@ describe('registrySessions — list', () => {
     }
   })
 
+  // 2026-11-03: `sessions list` waited over 60 s on a queued file read while the Host answered pings.
+  it('a listing does not wait long on a file it has an earlier answer for; one it never read is waited for', async () => {
+    const { ptys, procs } = harness()
+    const acc = (provider: 'claude' | 'codex'): Account[] => [{ id: 'acc1', label: 'a', configDir: 'D:/a', color: '#000', createdAt: 'x', provider }]
+    let reply: Promise<Account[]> = Promise.resolve(acc('codex'))
+    const sessions = registrySessions({ ptys, procs, hookEventsDir: NO_HOOK_DIR, accounts: () => reply, listFsWaitMs: 20 })
+    expect((await sessions.listSessions()).find((r) => r.id === 'ses-1')?.provider).toBe('codex')
+    // the accounts file hangs: the listing answers with what it gave last, within the wait
+    let release!: (v: Account[]) => void
+    reply = new Promise((r) => (release = r))
+    expect((await sessions.listSessions()).find((r) => r.id === 'ses-1')?.provider).toBe('codex')
+    // the read that hung lands, and the next listing has it
+    release(acc('claude'))
+    await new Promise((r) => setTimeout(r, 0))
+    reply = new Promise(() => {})
+    expect((await sessions.listSessions()).find((r) => r.id === 'ses-1')?.provider).toBe('claude')
+  })
+
   // A note the app wrote is the app's, and nothing forces its keys to be strings.
   it('a note key that is not a string reads as null rather than being passed on', async () => {
     const ptys = new PtyRegistry({ spawn: fakePty, log: () => {} })
