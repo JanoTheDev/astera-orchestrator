@@ -5592,12 +5592,12 @@ describe('handleCommand — convergence', () => {
       expect(deps.repairs).toEqual([])
     }
   })
-  it('worker-release 는 수렴 중인 Task 의 Dispatch 를 거절한다', async () => {
+  // 2026-11-03: a finished worker's tab goes while its Task is in review (memory); a repair starts fresh and resumes
+  it('worker-release closes an ended attempt while its Task is in review', async () => {
     const deps = convDeps()
     const { implId } = await reviewingRun(deps)
-    const r = await call(deps, 'worker-release', { dispatch: implId })
-    expect(r.status).toBe(409)
-    expect(String((r.body as { error: string }).error)).toContain('still converging')
+    expect(deps.getState().dispatches.find((d) => d.id === implId)?.endedAt).toBeDefined()
+    expect((await call(deps, 'worker-release', { dispatch: implId })).status).toBe(200)
   })
   it('worker-release 는 꺼진 Run 에서는 지금처럼 통과한다', async () => {
     const deps = convDeps()
@@ -5609,7 +5609,7 @@ describe('handleCommand — convergence', () => {
     await call(deps, 'send', { type: 'worker_done', taskId, dispatchId, outcome: 'succeeded', subject: 's', body: 'b' }, 'sess1')
     expect((await call(deps, 'worker-release', { dispatch: dispatchId })).status).toBe(200)
   })
-  it('worker-release 는 validating 인 Task 의 Dispatch 도 거절한다', async () => {
+  it('worker-release closes an ended attempt while its Task is validating', async () => {
     const deps = convDeps()
     await call(deps, 'run-create', { objective: 'o', cwd: 'D:/p', convergence: true })
     await call(deps, 'task-create', { spec: 's', account: 'accA', validate: 'c1' })
@@ -5618,9 +5618,7 @@ describe('handleCommand — convergence', () => {
     const dispatchId = (ws.body as { dispatchId: string }).dispatchId
     await call(deps, 'send', { type: 'worker_done', taskId, dispatchId, outcome: 'succeeded', subject: 's', body: 'b' }, 'sess1')
     expect(deps.getState().tasks[0].status).toBe('validating')
-    const r = await call(deps, 'worker-release', { dispatch: dispatchId })
-    expect(r.status).toBe(409)
-    expect(String((r.body as { error: string }).error)).toContain('still converging')
+    expect((await call(deps, 'worker-release', { dispatch: dispatchId })).status).toBe(200)
   })
   it('worker-release 는 열린 repair Dispatch 가 있는 Task 도 거절한다 — Task 상태가 이미 dispatched 로 넘어갔어도', async () => {
     const deps = convDeps()

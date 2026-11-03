@@ -6035,14 +6035,17 @@ async function handleCommandInner(
       if (d) {
         const task = s.tasks.find((t) => t.id === d.taskId)
         const run = task && s.runs.find((r) => r.id === task.runId)
+        // **An attempt that ended may go while its Task is checked or reviewed** (2026-11-03: the owner wants finished tabs
+        // gone, memory is tight): a repair the review asks for starts fresh in the same worktree and resumes the worker's
+        // own conversation where one was recorded (repair.ts performRepair). Refused only while this attempt is still
+        // open, or a repair is open in this very session (the next attempt works in it).
         const converging =
           // A reviewer's session is never the one a repair reuses: its verdict is recorded, so it may go
           !d.review &&
           !!(run && jobOf(s, run)?.convergence) &&
           !!task &&
-          (task.status === 'validating' ||
-            task.status === 'reviewing' ||
-            s.dispatches.some((x) => x.taskId === task.id && x.repair !== undefined && !x.endedAt))
+          ((!d.outcome && !d.endedAt && (task.status === 'validating' || task.status === 'reviewing')) ||
+            s.dispatches.some((x) => x.taskId === task.id && x.repair !== undefined && !x.endedAt && x.sessionId === d.sessionId))
         if (converging) return conflict(`task ${task!.id} is still converging — release after it completes`)
       }
       await deps.releaseWorker({ dispatchId: id, closeReason: 'released' })

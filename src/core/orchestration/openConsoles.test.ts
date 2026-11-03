@@ -30,12 +30,13 @@ describe('openConsolesOf', () => {
     expect(reasons(s)).toEqual({ w1: 'working', w2: 'working' })
   })
 
-  it('reviewing: a reviewer at work, and a worker kept for repair while its Task validates or reviews', () => {
+  // 2026-11-03: a finished worker is not kept for its Task's check or review (memory); a repair starts fresh and resumes
+  it('reviewing: a reviewer at work; a worker whose attempt ended has none while its Task validates or reviews', () => {
     const s = state(
-      [task('t1', 'reviewing'), task('t2', 'validating')],
-      [dsp('d1', 't1', 'rev', { ...open, review: true }), dsp('d2', 't2', 'w2')]
+      [task('t1', 'reviewing'), task('t2', 'validating'), task('t3', 'reviewing')],
+      [dsp('d1', 't1', 'rev', { ...open, review: true }), dsp('d2', 't2', 'w2'), dsp('d3', 't3', 'w3'), dsp('d4', 't3', 'rev3', { ...open, review: true })]
     )
-    expect(reasons(s)).toEqual({ rev: 'reviewing', w2: 'reviewing' })
+    expect(reasons(s)).toEqual({ rev: 'reviewing', w2: 'none', w3: 'none', rev3: 'reviewing' })
   })
 
   it('waiting-for-answer: a Task with an open Gate', () => {
@@ -71,7 +72,7 @@ describe('openConsolesOf', () => {
     expect(reasons(s)).toEqual({ w1: 'none', rev: 'none', old: 'none', new: 'working' })
   })
 
-  it('an earlier attempt of a converging Task has a reason: worker-release refuses it, so it is not idle', () => {
+  it('an earlier attempt of a converging Task has none: worker-release lets an ended attempt go', () => {
     const s = state(
       [task('t3', 'validating')],
       [dsp('d3', 't3', 'old', { outcome: 'failed' }), dsp('d4', 't3', 'new')],
@@ -79,7 +80,7 @@ describe('openConsolesOf', () => {
       {},
       { convergence: {} }
     )
-    expect(reasons(s).old).toBe('reviewing')
+    expect(reasons(s).old).toBe('none')
     expect(reasons(state([task('t3', 'validating')], [dsp('d3', 't3', 'old', { outcome: 'failed' }), dsp('d4', 't3', 'new')])).old).toBe('none')
   })
 
