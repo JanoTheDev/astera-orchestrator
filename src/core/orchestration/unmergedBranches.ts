@@ -1,7 +1,7 @@
 // W8-G (#101): the plan branches of a project that no one has merged. A project with no remote and delivery `pr` leaves
 // each plan's work on its own branch (`JobRun.pr.note` + `branch`), and the next plan's workers start from the default
 // branch. The planner is told which branches those are, so it does not base Tasks on work the workers will not have.
-import { git as realGit } from '../worktrees/git'
+import { fetchSerially, git as realGit } from '../worktrees/git'
 import { deliveryBranchOf } from './delivery'
 import { jobInProject, projectOfJob } from './projects'
 import { jobOf, type OrchState } from './state'
@@ -74,6 +74,6 @@ export async function branchInOrigin(s: OrchState, runOf: JobRun, run: typeof re
   const t = await planTargetOf(s, runOf, run)
   if (!t) return null
   const ref = `refs/remotes/origin/${t.into}`
-  if (!(await run(['fetch', 'origin', `+refs/heads/${t.into}:${ref}`], { cwd: t.cwd })).ok) return null
+  if (!(await fetchSerially(['fetch', 'origin', `+refs/heads/${t.into}:${ref}`], { cwd: t.cwd }, run)).ok) return null
   return isAncestor(t.branch, ref, t.cwd, run)
 }

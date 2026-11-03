@@ -314,14 +314,84 @@ export async function fetchBaseRef(
   if (!m) return 'local'
   const [, remote, branch] = m
   if (!(await remoteExists(repo, remote))) return 'local'
-  const r = await git(
+  const r = await fetchSerially(
     ['fetch', '--no-tags', remote, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`],
-    { cwd: repo, timeoutMs: FETCH_TIMEOUT_MS, signal: opts.signal }
+    { cwd: repo, timeoutMs: FETCH_TIMEOUT_MS, ...(opts.signal ? { signal: opts.signal } : {}) }
   )
   if (r.cancelled) throw cancelledError()
   if (r.ok) return 'fetched'
   if (await refExists(repo, `refs/remotes/${baseRef}`)) return 'stale'
   throw new Error(`FETCH_FAILED: could not refresh ${baseRef} from the remote — check the network (${r.stderr})`)
+}
+
+// ── One fetch per repository at a time ──────────────────────────────────────────────────────────────────────────────
+//
+// Several plans of one project fetch origin into the same refs: the origin sync of each Run (in its own worktree), a
+// fork's `originAhead`, every delivery's catch-up (in the project folder). Worktrees share their repository's refs, so
+// two of those at once raced on `refs/remotes/origin/<branch>` and one lost with "cannot lock ref ...: is at X but
+// expected Y" (host.log 2026-11-03: origin syncs skipped for that alone). Fetches are therefore queued per repository,
+// keyed by its common git dir, and a lock race with a process outside Astera (an IDE's background fetch) is tried again.
+
+/** The common git dir of each folder asked about, so one repository's worktrees share one key. */
+const commonDirOf = new Map<string, Promise<string>>()
+/** The tail of the fetch queue of each repository. */
+const fetchTail = new Map<string, Promise<unknown>>()
+
+/** The key of `cwd`'s repository: its absolute common git dir, else (git cannot tell) the folder itself. Asked of the real
+ *  git, never of a caller's test seam, so a scripted git's calls stay what the test wrote. */
+export function repoKeyOf(cwd: string): Promise<string> {
+  const at = path.resolve(cwd)
+  let key = commonDirOf.get(at)
+  if (!key) {
+    key = git(['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: at, timeoutMs: 10_000 }).then((r) =>
+      r.ok && r.stdout !== '' ? path.resolve(r.stdout).toLowerCase() : at.toLowerCase()
+    )
+    commonDirOf.set(at, key)
+    // A folder git could not answer for is asked again next time (it may have been busy, or not there yet)
+    void key.then((k) => {
+      if (k === at.toLowerCase()) commonDirOf.delete(at)
+    })
+  }
+  return key
+}
+
+/** Runs `fn` once every earlier fetch of the same repository has ended. Never rejects for an earlier one's failure. */
+export async function serialFetch<T>(cwd: string, fn: () => Promise<T>): Promise<T> {
+  const key = await repoKeyOf(cwd)
+  const before = fetchTail.get(key) ?? Promise.resolve()
+  const mine = before.catch(() => undefined).then(fn)
+  const tail = mine.catch(() => undefined)
+  fetchTail.set(key, tail)
+  try {
+    return await mine
+  } finally {
+    if (fetchTail.get(key) === tail) fetchTail.delete(key)
+  }
+}
+
+/** git's words for a ref another process was updating at that moment: worth one more try, never a real failure. */
+export const REF_LOCK_RACE = /cannot lock ref|unable to update local ref|Unable to create '[^']*\.lock'|is at [0-9a-f]+ but expected [0-9a-f]+/i
+
+/** Delays before each further try of a fetch that lost a ref-lock race (`REF_LOCK_RACE`). */
+export const FETCH_RACE_RETRY_MS = [250, 1_000, 3_000] as const
+
+/** `git fetch …` in `cwd`, queued behind the repository's other fetches (`serialFetch`), and tried again after a short
+ *  wait when it lost a ref-lock race. `run` is the caller's git (a test seam); the queue key is the real git's answer. */
+export function fetchSerially(
+  args: string[],
+  opts: { cwd: string; timeoutMs?: number; signal?: AbortSignal },
+  run: typeof git = git,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))
+): Promise<GitResult> {
+  return serialFetch(opts.cwd, async () => {
+    let r = await run(args, opts)
+    for (const ms of FETCH_RACE_RETRY_MS) {
+      if (r.ok || r.cancelled || !REF_LOCK_RACE.test(`${r.stderr}\n${r.stdout}`)) break
+      await wait(ms)
+      r = await run(args, opts)
+    }
+    return r
+  })
 }
 
 /** T4: how long one `git fetch origin <branch>` of the origin sync may take before it counts as offline. */
@@ -337,7 +407,7 @@ export async function fetchOrigin(
   const remotes = await git(['remote'], { cwd: repo })
   if (!remotes.ok) return { kind: 'no-repo', reason: (remotes.stderr || remotes.stdout).trim() || 'git cannot run there' }
   if (!remotes.stdout.split('\n').some((l) => l.trim() === 'origin')) return { kind: 'no-origin' }
-  const r = await git(['fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], {
+  const r = await fetchSerially(['fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], {
     cwd: repo,
     timeoutMs: ORIGIN_FETCH_TIMEOUT_MS
   })

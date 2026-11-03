@@ -22,7 +22,7 @@ import { coordinatorReleaseOf } from './releaseDefer'
 import { REPLAN_LIFT_HOLD } from './replanStart'
 import { handleCommand, type OrchServerDeps } from '../command'
 import { createDispatchLoop as freshLoop } from './dispatchLoop'
-import { DELIVERY_FIX_MARK, DELIVERY_OWNER_PUSHES, DELIVERY_RETRY_NOW } from '../delivery'
+import { DELIVERY_FIX_MARK, DELIVERY_MERGE_MARK, DELIVERY_OWNER_PUSHES, DELIVERY_RETRY_NOW } from '../delivery'
 import { APP_CALLER } from '../../host/driver'
 import { addDecision, COORDINATOR_START_WINDOW_MS, emptyState, type OrchState } from '../state'
 import { needsInput } from '../sessionIndex'
@@ -2899,6 +2899,51 @@ describe('a delivery that finishes by itself (T3)', () => {
     const merge = h.state().tasks.find((t) => t.spec.includes('f00dfeed'))
     expect(merge).toBeDefined()
     expect(merge!.runId).toBe('run_1')
+  })
+
+  // Owner report 2026-11-03 (run_6d22657b8a30143f): a conflict that comes back on every try was retried until the owner
+  // was asked; it goes to a merge worker in the plan branch, and the plan is delivered again once that completes
+  it('a conflict between the plan\'s worktrees at delivery opens a merge Task, and the plan is delivered once it completes', async () => {
+    let calls = 0
+    const conflicted: Push = async () => ({
+      ok: false,
+      reason: "merging the plan's worktrees failed: git merge-tree says astera/b does not merge cleanly",
+      branch: 'main',
+      code: 'worktree-conflict',
+      worktrees: [{ path: '/wt/task-b', branch: 'astera/b' }]
+    })
+    const h = pushPlan(async (a) => (++calls === 1 ? conflicted(a) : ok(a)))
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    const merges = h.state().tasks.filter((t) => t.spec.includes(DELIVERY_MERGE_MARK))
+    expect(merges).toHaveLength(1)
+    expect(merges[0]).toMatchObject({ runId: 'run_1', spec: expect.stringContaining('refs/heads/astera/b') })
+    expect(h.state().runs[0].deliveryState?.state).not.toBe('needs-owner')
+    expect(outcomeOf(h.state(), 'run_1')).not.toBe('completed')
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    expect(calls).toBe(2)
+    expect(h.state().runs[0].deliveryState).toMatchObject({ state: 'delivered' })
+    expect(outcomeOf(h.state(), 'run_1')).toBe('completed')
+  })
+
+  it('work left uncommitted in a worktree at delivery goes to a merge Task that commits it first', async () => {
+    const h = pushPlan(async () => ({
+      ok: false,
+      reason: 'these worktrees hold work that was not merged (uncommitted, or not reachable): /wt/task-a.',
+      branch: 'main',
+      code: 'unmerged-work',
+      worktrees: [{ path: '/wt/task-a', branch: null }]
+    }))
+    await pass(h)
+    finishAll(h)
+    await pass(h)
+    const merges = h.state().tasks.filter((t) => t.spec.includes(DELIVERY_MERGE_MARK))
+    expect(merges).toHaveLength(1)
+    expect(merges[0].spec).toContain('git add -A && git commit')
+    expect(merges[0].spec).toContain('/wt/task-a')
   })
 
   // T5: a hands-free plan mends a failed delivery validation itself

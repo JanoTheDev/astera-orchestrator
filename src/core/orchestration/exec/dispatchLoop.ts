@@ -70,6 +70,10 @@ import {
   deliveryDue,
   deliveryFixesOf,
   deliveryFixOf,
+  DELIVERY_MERGE_MARK,
+  deliveryMergeOf,
+  deliveryMergesOf,
+  MERGE_WORKER_STOPS,
   deliveryFallbackLine,
   deliveryFallbackOf,
   deliveryBranchOf,
@@ -1136,6 +1140,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         error?: unknown
         code?: unknown
         conflictWith?: unknown
+        worktrees?: unknown
         deliveryState?: { state?: unknown; nextRetryAt?: unknown }
       } | null
       if (r.status >= 400) {
@@ -1172,6 +1177,11 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         // T1: a push refused by the repository (a pre-push hook) too, its output quoted in the Task
         if ((body?.code === 'validation-failed' || body?.code === 'push-refused') && anchor)
           await startDeliveryFix(run.id, anchor, why, typeof body.branch === 'string' ? body.branch : undefined, body.code)
+        // A conflict that comes back on every try (the plan's worktrees with each other, or with the branch), or work
+        // left uncommitted in a worktree: a merge worker mends it in the plan branch, and the Run is delivered again
+        // once it completes. Retrying the same merge only reached the owner question after five identical failures
+        if (typeof body?.code === 'string' && MERGE_WORKER_STOPS.has(body.code) && anchor)
+          await startDeliveryMerge(run.id, anchor, body.code, why, Array.isArray(body.worktrees) ? (body.worktrees as { path: string; branch: string | null }[]) : [], typeof body.conflictWith === 'string' ? body.conflictWith : undefined)
         return
       }
       log(
@@ -1183,6 +1193,49 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       )
     } catch (e) {
       log(`run=${run.id} completed, and delivering it failed: ${String(e)}`)
+    }
+  }
+
+  /** The merge Task of a Run whose push delivery stopped on a merge only a merge worker can mend (`MERGE_WORKER_STOPS`):
+   *  the one still open is started again, else the next one is made, FAILURE_LIMIT in all (`deliveryMergeOf`; after
+   *  them run-deliver asks the owner). It works in the plan branch, as any merge Task (`startMergeWorker`). Never throws. */
+  const startDeliveryMerge = async (
+    runId: string,
+    anchor: Task,
+    code: string,
+    reason: string,
+    worktrees: { path: string; branch: string | null }[],
+    clashWith: string | undefined
+  ): Promise<void> => {
+    const s = c.getState()
+    const run = s.runs.find((r) => r.id === runId)
+    if (!run || run.worktree === undefined) return
+    const plan = run.worktree
+    const mine = deliveryMergesOf(s, runId)
+    const open = mine.find((t) => t.status !== 'completed')
+    if (!open && deliveryMergeOf(s, run) !== 'fix') return
+    const n = open ? mine.indexOf(open) + 1 : mine.length + 1
+    const key = `${DELIVERY_MERGE_MARK} merge ${n} of ${FAILURE_LIMIT}`
+    // The plan branch is where the merge worker stands: it is the target, never a branch to merge into itself
+    const others = worktrees.filter((w) => !isSamePath(w.path, plan))
+    const steps =
+      code === 'unmerged-work'
+        ? 'First, in each worktree listed below, commit the uncommitted work as it is (`git add -A && git commit -m "<summary>"`; ' +
+          'never discard, reset, clean or force-remove anything there), then merge its branch into this plan branch.'
+        : (clashWith !== undefined ? `Merge the delivery branch's commit in first (\`git merge --no-edit ${clashWith}\`) and resolve the conflict. ` : '') +
+          'Merge the branches of the worktrees listed below into this plan branch, resolving every conflict so both sides survive.'
+    try {
+      await startMergeWorker({
+        runId,
+        taskId: open?.parentId ?? anchor.id,
+        key,
+        reason: `${key} the plan's delivery stopped, and the same merge would stop again: ${steps} ${reason}`,
+        worktrees: others
+      })
+      const job = jobOf(s, run)
+      if (!open) planActivity(runId, `Merge Task ${n} of ${FAILURE_LIMIT} created in plan ${job ? jobNameOf(job) : runId} for its delivery's merge`)
+    } catch (e) {
+      log(`run=${runId}: the delivery merge task failed to start: ${String(e)}`)
     }
   }
 

@@ -17,7 +17,7 @@ import { comparablePath, isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
 import { inCheckoutSlot } from '../../worktrees/checkoutLimit'
 import { workerBaseFailure } from '../../worktrees/base'
-import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, GIT_WRITE_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS } from '../../worktrees/git'
+import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, fetchSerially, GIT_WRITE_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
 import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup, type InstallTurn } from '../../worktrees/setup'
 import { askUntilAnswered, defaultActionPresenceCheck, type CheckResult, type PresenceCheck } from '../../worktrees/presence'
@@ -332,7 +332,15 @@ export type Integration =
     }
   /** `reason` is English (logs, `run-merge`, a merge worker's spec); `message`, when set, is the same sentence for the
    *  owner's Gate, rendered in the app's language by the caller (dispatchLoop.ts). */
-  | { kind: 'human'; reason: string; message?: Message }
+  | {
+      kind: 'human'
+      reason: string
+      message?: Message
+      /** git (or the drive under it) gave no answer at all: a timeout, a spawn refused, a marker check that did not come
+       *  back. Nothing was merged or changed; the same call later is expected to work, so a delivery retries it with its
+       *  backoff instead of treating it as a conflict or the owner's problem. */
+      transient?: true
+    }
   | { kind: 'agent'; reason: string; worktrees: { path: string; branch: string | null }[] }
 
 export interface IntegrateContext {
@@ -355,7 +363,7 @@ export interface IntegrateContext {
 }
 
 /** A result only a person can settle: English `reason`, the owner's own language through `message`. */
-const human = (key: MessageKey, params: MessageParams): Integration => ({
+const human = (key: MessageKey, params: MessageParams): Extract<Integration, { kind: 'human' }> => ({
   kind: 'human',
   reason: t('en', key, params),
   message: { key, params }
@@ -432,9 +440,12 @@ export async function integrateWorktrees(
   // 뜻하고, 폴더가 사라졌거나 저장소가 아닐 때도 똑같이 실패한다 — 순서가 반대였을 때 이 함수는
   // 그 경우에도 "분리된 HEAD" 라고 말했다. 그 오진이 createWorktree 어댑터 쪽에서 실제로 사람을
   // 헤매게 했고(그쪽 주석), 같은 질문을 같은 방식으로 묻는 이 자리도 같은 순서여야 한다.
-  const dir = await gitDir(mergeInto)
+  // A git that did not answer (killed at its deadline, never started under memory pressure) is not "no repository": the
+  // result is `transient`, so a delivery tries again later instead of reading it as the owner's to fix
+  const dirProbe = await realGit(['rev-parse', '--absolute-git-dir'], { cwd: mergeInto })
+  const dir = dirProbe.ok && dirProbe.stdout ? path.resolve(dirProbe.stdout) : null
   if (!dir)
-    return human('jobs.integration.noGit', { folder: mergeInto })
+    return { ...human('jobs.integration.noGit', { folder: mergeInto }), ...(dirProbe.exitCode === undefined ? { transient: true as const } : {}) }
   const head = await (ctx.git ?? realGit)(['symbolic-ref', '--quiet', 'HEAD'], { cwd: mergeInto })
   if (!head.ok)
     return human('jobs.integration.detachedHead', { folder: mergeInto })
@@ -461,7 +472,8 @@ export async function integrateWorktrees(
       busy = m
       break
     }
-    return human('jobs.integration.gitDirUnreachable', { dir, marker: m[0] })
+    // A marker check that gave no answer is the drive (or git) not answering now: tried again later, never a conflict
+    return { ...human('jobs.integration.gitDirUnreachable', { dir, marker: m[0] }), transient: true }
   }
   if (busy)
     return human('jobs.integration.inProgress', { op: busy[1], marker: busy[0] })
@@ -482,7 +494,7 @@ export async function integrateWorktrees(
   //    하나만 준다. 그러면 Gate 의 문장이 사실을 말할 수 없다.
   const status = await (ctx.git ?? realGit)(['status', '--porcelain', '--untracked-files=no'], { cwd: mergeInto })
   if (!status.ok)
-    return human('jobs.integration.statusUnreadable', { folder: mergeInto, error: status.stderr })
+    return { ...human('jobs.integration.statusUnreadable', { folder: mergeInto, error: status.stderr }), ...(status.exitCode === undefined ? { transient: true as const } : {}) }
   if (status.stdout !== '')
     return human('jobs.integration.uncommitted', { count: status.stdout.split('\n').length })
 
@@ -593,6 +605,13 @@ export async function integrateWorktrees(
     // merge-tree --write-tree writes tree objects and on a big repository can run long; the long write
     // ceiling keeps a slow probe from being killed and misreported as "could not test".
     const probe = await probeMerge(mergeInto, 'HEAD', ref, ctx.git ?? realGit)
+    // A probe killed at its deadline (or never started) said nothing about the merge: tried again later
+    if (probe.kind === 'error' && probe.transient)
+      return {
+        kind: 'human',
+        reason: `the app could not test whether ${target.branch} merges into the branch this folder is on: git merge-tree gave no answer (${probe.why})`,
+        transient: true
+      }
     if (probe.kind !== 'clean')
       return {
         kind: 'agent',
@@ -817,7 +836,8 @@ export function worktreeDeps(ctx: {
       if (alive.length === 0) return { ok: true, merged: [], uncommitted: 0, ...unreached }
       const r = await ctx.integrate(runCwd, alive, { reap: false, ...(opts?.message !== undefined ? { message: opts.message } : {}) })
       // An `agent` result names its worktrees: run-merge and run-integrate-all hand them to the AI merge Task
-      if (r.kind !== 'merged') return { ok: false, reason: r.reason, ...(r.kind === 'agent' ? { conflict: r.worktrees } : {}) }
+      if (r.kind !== 'merged')
+        return { ok: false, reason: r.reason, ...(r.kind === 'agent' ? { conflict: r.worktrees } : {}), ...(r.kind === 'human' && r.transient ? { transient: true as const } : {}) }
       return {
         ok: true,
         merged: alive,
@@ -895,12 +915,14 @@ async function probeMerge(
   ours: string,
   theirs: string,
   run: typeof realGit
-): Promise<{ kind: 'clean' } | { kind: 'conflict' } | { kind: 'error'; why: string }> {
+): Promise<{ kind: 'clean' } | { kind: 'conflict' } | { kind: 'error'; why: string; /** git gave no answer at all */ transient?: true }> {
   // merge-tree writes tree objects and can run long on a big repository: the write ceiling keeps it from being killed
   const r = await run(['merge-tree', '--write-tree', ours, theirs], { cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS })
   if (r.ok) return { kind: 'clean' }
   if (r.exitCode === 1 && /^(\d{6} [0-9a-f]+ [123]\t|CONFLICT )/m.test(r.stdout)) return { kind: 'conflict' }
-  return { kind: 'error', why: gitWhy(r) || (r.timedOut ? 'timed out' : `no output (exit code ${r.exitCode ?? 'none'})`) }
+  const why = gitWhy(r) || (r.timedOut ? 'timed out' : `no output (exit code ${r.exitCode ?? 'none'})`)
+  // Killed at its deadline, or never started (a spawn refused under memory pressure): no answer, not a failure
+  return r.timedOut === true || r.errorCode !== undefined ? { kind: 'error', why, transient: true } : { kind: 'error', why }
 }
 
 /** Sorts worktree folders by whether they are there, asked through `presence` (askUntilAnswered). A folder that is there
@@ -1005,7 +1027,7 @@ async function fetchMissing(
   }
   const said: string[] = []
   for (const t of tries) {
-    const r = await run(t.args, { cwd: t.cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS })
+    const r = await fetchSerially(t.args, { cwd: t.cwd, timeoutMs: GIT_WRITE_TIMEOUT_MS }, run)
     if (await known()) return null
     said.push(`${t.what}: ${tail(r)}`)
   }
@@ -1034,7 +1056,7 @@ async function recheckTips(
 ): Promise<string | null> {
   if ((await a.backToBase()) !== null) return null
   // A failed fetch leaves origin's ref as it was: read as not moved
-  if (!a.local) await run(['fetch', 'origin', a.branch], { cwd: a.cwd, timeoutMs: GIT_FETCH_TIMEOUT_MS })
+  if (!a.local) await fetchSerially(['fetch', 'origin', a.branch], { cwd: a.cwd, timeoutMs: GIT_FETCH_TIMEOUT_MS }, run)
   const target = await run(['rev-parse', a.landed], { cwd: a.cwd })
   if (target.ok && target.stdout !== a.base) return `${a.landed} moved to ${target.stdout.slice(0, 7)}`
   const heads = await headsOf(a.list, run)
@@ -1111,7 +1133,22 @@ export interface PushContext {
  *  `validation-failed` the checks failed on the merged result (a hands-free plan opens a fix Task for it), `push-refused`
  *  the repository refused a push origin had nothing new for (a pre-push hook, a protected branch): pushing again changes
  *  nothing, so it stops at once and, like `validation-failed`, a hands-free plan opens a fix Task quoting the refusal. */
-export type PushStop = 'fetch-failed' | 'rejected' | 'origin-conflict' | 'merge-failed' | 'main-diverged' | 'validation-failed' | 'push-refused'
+export type PushStop =
+  | 'fetch-failed'
+  | 'rejected'
+  | 'origin-conflict'
+  | 'merge-failed'
+  | 'main-diverged'
+  | 'validation-failed'
+  | 'push-refused'
+  /** The plan's worktrees do not merge cleanly into the branch (with each other or with it), also after the refresh:
+   *  the same merge would fail every time, so it goes to a merge worker in the plan branch (`worktrees` names them). */
+  | 'worktree-conflict'
+  /** A worktree still holds uncommitted work (`worktrees` names them): git merged only its commits. A merge worker
+   *  commits it and merges it into the plan branch; retrying the same merge would leave it out again. */
+  | 'unmerged-work'
+  /** git gave no answer while merging (a timeout, a check that did not come back): nothing landed, tried again later. */
+  | 'git-busy'
 
 /** The end of a git command's output, both streams: a pre-push hook prints its report on stdout, git its own line
  *  ("failed to push some refs") on stderr, and the report is what says why. */
@@ -1198,10 +1235,13 @@ export type PushResult =
       reason: string
       branch?: string
       code?: PushStop
-      /** origin-conflict: origin's commit the plan clashes with */
+      /** origin-conflict: origin's commit the plan clashes with; worktree-conflict: the branch's commit, when the plan
+       *  clashes with it rather than only with itself */
       conflictWith?: string
       /** T19 merge-failed: the target's tip it was judged on (`origin/<branch>`, the local branch when `local`) */
       target?: string
+      /** worktree-conflict and unmerged-work: the worktrees for the merge worker */
+      worktrees?: { path: string; branch: string | null }[]
     }
 
 /**
@@ -1246,19 +1286,21 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
       branch = own.stdout
     } else return { ok: false, reason: `could not tell the repository's default branch (origin/HEAD is not set): set the project's delivery branch` }
   }
-  const fail = (reason: string, code?: PushStop, conflictWith?: string): PushResult => ({
+  const failWith = (reason: string, code?: PushStop, conflictWith?: string, worktrees?: { path: string; branch: string | null }[]): PushResult => ({
     ok: false,
     reason,
     branch,
     ...(code ? { code } : {}),
-    ...(conflictWith ? { conflictWith } : {})
+    ...(conflictWith ? { conflictWith } : {}),
+    ...(worktrees && worktrees.length > 0 ? { worktrees } : {})
   })
+  const fail = (reason: string, code?: PushStop, conflictWith?: string): PushResult => failWith(reason, code, conflictWith)
 
   // T3: the owner pushed it: is every worktree's HEAD on the branch, here or on origin? Nothing is written. T6: a local
   // delivery asks the local branch only
   const landed = a.local ? branch : `origin/${branch}`
   if (a.ownerPushed) {
-    if (!a.local) await run(['fetch', 'origin', branch], net)
+    if (!a.local) await fetchSerially(['fetch', 'origin', branch], net, run)
     for (const wt of a.worktrees) {
       const head = await run(['rev-parse', 'HEAD'], { cwd: wt })
       if (!head.ok) continue // a folder already gone holds nothing that is not somewhere else
@@ -1289,7 +1331,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
 
   // 3. T6: a local delivery has no origin to catch up with
   if (!a.local) {
-    const fetched = await run(['fetch', 'origin', branch], net)
+    const fetched = await fetchSerially(['fetch', 'origin', branch], net, run)
     if (!fetched.ok) return fail(`git fetch origin ${branch} failed: ${why(fetched)}`, 'fetch-failed')
     const ff = await run(['merge', '--ff-only', `origin/${branch}`], w)
     // T1: coded, so a retry tells it apart: it delivers by itself once the owner fixed their branch
@@ -1314,8 +1356,15 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   let list = a.worktrees
   let judged = await headsOf(list, run)
   let merged = await ctx.mergeWorktrees(cwd, list, { message: a.message })
-  // T11: refresh, then deliver once more. The worktrees holding everything are refreshed onto `base` and only they merge
-  if (!merged.ok) {
+  /** What a failed merge says about itself: `transient` git gave no answer; `conflict` the worktrees git found do not
+   *  merge cleanly (a merge worker's); `clashWith` the branch's commit a refresh found the plan conflicting with. */
+  let transient = !merged.ok && merged.transient === true
+  let conflict: { path: string; branch: string | null }[] = !merged.ok ? (merged.conflict ?? []) : []
+  let clashWith: string | undefined
+  // T11: refresh, then deliver once more. The worktrees holding everything are refreshed onto `base` and only they merge.
+  // Not after a git that gave no answer: the refresh would ask the same git, and nothing about the plan was learned
+  if (!merged.ok && transient) ctx.log(`delivery: merging into ${branch} got no answer from git (${merged.reason}); tried again later`)
+  else if (!merged.ok) {
     ctx.log(`delivery: merging into ${branch} failed (${merged.reason}); refreshing the plan onto ${base} and trying once more`)
     let stop = await backToBase()
     const tips = stop === null ? await tipsOf(a.worktrees, run, ctx.presence, (gone) => ctx.log(`delivery: skipping ${gone.length} removed worktree(s) on the retry: ${gone.join(', ')}`)) : []
@@ -1323,15 +1372,24 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
       if (stop !== null) break
       const r = await refreshOnto(wt, base, `Refresh onto ${branch} before delivery`, { log: ctx.log, git: run, ...(ctx.gitAtLeast ? { gitAtLeast: ctx.gitAtLeast } : {}) })
       if (r.kind === 'conflict' || r.kind === 'human') stop = r.reason
+      // That worktree conflicts with the branch itself: merging the branch's commit into the plan is the merge worker's
+      if (r.kind === 'conflict') {
+        clashWith = base
+        if (!conflict.some((x) => isSamePath(x.path, wt))) conflict = [...conflict, { path: wt, branch: null }]
+      }
     }
     if (stop === null) {
       list = tips
       judged = await headsOf(list, run)
       const again = await ctx.mergeWorktrees(cwd, list, { message: a.message })
+      if (!again.ok) {
+        transient = again.transient === true
+        if (again.conflict) conflict = again.conflict
+      }
       merged = again.ok ? again : { ok: false, reason: `${merged.reason}; after refreshing onto ${base}: ${again.reason}` }
     } else merged = { ok: false, reason: `${merged.reason}; refreshing onto ${base} did not help: ${stop}` }
   }
-  if (!merged.ok) {
+  if (!merged.ok && !transient) {
     const moved = await recheckTips({ cwd, landed, local: a.local === true, branch, base, list, judged, backToBase }, run)
     if (moved !== null) {
       ctx.log(`delivery: ${moved} since the merge failed; merging once more`)
@@ -1339,12 +1397,17 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
       const target = await run(['rev-parse', landed], { cwd })
       if (target.ok && target.stdout !== base && (await run(['merge', '--ff-only', target.stdout], w)).ok) base = target.stdout
       const again = await ctx.mergeWorktrees(cwd, list, { message: a.message })
+      if (!again.ok) {
+        transient = again.transient === true
+        if (again.conflict) conflict = again.conflict
+      }
       merged = again.ok ? again : { ok: false, reason: `${merged.reason}; after ${moved}: ${again.reason}` }
     }
   }
   /** Undoes Astera's merges: back to `base`, the clean commit recorded before them. T3: only while the folder is still on
    *  `branch` with no tracked change (the owner may have moved on meanwhile; their work is never reset). */
-  const undo = async (reason: string, code?: PushStop, conflictWith?: string): Promise<PushResult> => {
+  const undo = async (reason: string, code?: PushStop, conflictWith?: string, worktrees?: { path: string; branch: string | null }[]): Promise<PushResult> => {
+    const fail = (why: string, c?: PushStop, w?: string): PushResult => failWith(why, c, w, worktrees)
     const now = await run(['rev-parse', 'HEAD'], { cwd })
     if (now.ok && now.stdout === base) return fail(reason, code, conflictWith)
     const still = await run(['symbolic-ref', '--quiet', '--short', 'HEAD'], { cwd })
@@ -1365,12 +1428,22 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
     return fail(`${reason} Astera's merges were undone; ${branch} is back at ${base}.`, code, conflictWith)
   }
   if (!merged.ok) {
-    const out = await undo(`merging the plan's worktrees failed: ${merged.reason}`, 'merge-failed')
+    const why = `merging the plan's worktrees failed: ${merged.reason}`
+    if (transient) return undo(why, 'git-busy')
+    // The same merge fails the same way next time (T19's recheck found neither tip moved): a merge worker resolves it in
+    // the plan branch
+    const out = conflict.length > 0 ? await undo(why, 'worktree-conflict', clashWith, conflict) : await undo(why, 'merge-failed')
     const target = await tipOf(cwd, landed, run) // T19: read after recheckTips' fetch: a later move makes it due again
     return target !== null && !out.ok ? { ...out, target } : out
   }
   const left = [...(merged.dirty ?? []), ...(merged.unchecked ?? []), ...(merged.notMerged ?? [])]
-  if (left.length > 0) return undo(`these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`)
+  if (left.length > 0) {
+    const why = `these worktrees hold work that was not merged (uncommitted, or not reachable): ${left.join(', ')}.`
+    // Uncommitted work is only in that folder, and a retry merges only its commits again: a merge worker commits it.
+    // A folder that could not be read or reached may answer next time, so that alone is retried
+    const dirty = merged.dirty ?? []
+    return dirty.length > 0 ? undo(why, 'unmerged-work', undefined, dirty.map((p) => ({ path: p, branch: null }))) : undo(why, 'git-busy')
+  }
 
   // 5. The merges may add a dependency: validating against the old node_modules fails on a module that is not there
   const validateMerged = async (): Promise<{ ok: true; ran: number } | { ok: false; reason: string; busy?: true }> => {
@@ -1408,7 +1481,7 @@ export async function deliverByPush(a: PushDelivery, ctx: PushContext): Promise<
   const ident = pushed.ok ? [] : await mergeIdentityArgs(cwd, run)
   for (let round = 1; !pushed.ok && round <= PUSH_ROUNDS; round++) {
     ctx.log(`delivery: push of ${branch} was rejected (${why(pushed)}), fetching (round ${round} of ${PUSH_ROUNDS})`)
-    const refetched = await run(['fetch', 'origin', branch], net)
+    const refetched = await fetchSerially(['fetch', 'origin', branch], net, run)
     if (!refetched.ok)
       return undo(`git push origin ${branch} was rejected (${why(pushed)}), and fetching origin to catch up failed: ${why(refetched)}.`, 'fetch-failed')
     const behind = !(await run(['merge-base', '--is-ancestor', `origin/${branch}`, 'HEAD'], { cwd })).ok
