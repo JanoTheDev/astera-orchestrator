@@ -320,6 +320,42 @@ describe('a failed delivery', () => {
   it('does not end a Run that still works', () => {
     expect(outcomeOfRun([task('a', 'completed'), task('b', 'merging')], run({ pr: { at: 'x', error: 'e' } }), state)).toBe('running')
   })
+
+  // A stop the loop recorded itself (`run-deliver --stopped`, a refresh that needs a person) left no delivery.error,
+  // so the Run read completed while its delivery was being retried
+  it('reads failed from the attempt itself while it is retried, waits on the owner, or failed', () => {
+    for (const s of ['retrying', 'needs-owner', 'failed'] as const)
+      expect(outcomeOfRun(done, run({ deliveryState: { state: s, attempts: 1, lastError: 'could not be refreshed' } }), state)).toBe('failed')
+    expect(deliveryErrorOf(run({ deliveryState: { state: 'retrying', attempts: 1, lastError: 'could not be refreshed' } }))).toBe('could not be refreshed')
+  })
+})
+
+// Owner report 2026-11-03: a Run read done although its work never reached main
+describe('a delivery still to come', () => {
+  const NOW = '2026-11-03T00:00:00.000Z'
+  const done = [task('a', 'completed')]
+  const withJob = (job: Partial<Job> = {}): OrchState => ({
+    ...emptyState(),
+    jobs: [{ id: 'j1', objective: 'o', cwd: PROJ, createdAt: NOW, ...job } as Job]
+  })
+  const run = (over: Partial<JobRun>): JobRun => ({ id: 'r1', jobId: 'j1', ordinal: 1, createdAt: NOW, ...over }) as JobRun
+
+  it('reads checking, not completed, while its delivery is pending in a plan branch or being made', () => {
+    const s = withJob()
+    expect(outcomeOfRun(done, run({ worktree: '/wt/plan', deliveryState: { state: 'pending', attempts: 0 } }), s)).toBe('checking')
+    expect(outcomeOfRun(done, run({ deliveryState: { state: 'delivering', attempts: 0 } }), s)).toBe('checking')
+    expect(outcomeOfRun(done, run({ deliveryState: { state: 'pending', attempts: 0, waitingFor: { jobId: 'j2', since: NOW } } }), s)).toBe('checking')
+  })
+
+  it('reads completed once delivered, and for a delivery the loop will never make', () => {
+    const s = withJob()
+    expect(outcomeOfRun(done, run({ worktree: '/wt/plan', delivery: { at: NOW, sha: 'abc' }, deliveryState: { state: 'delivered', attempts: 1 } }), s)).toBe('completed')
+    // a `pr` plan with no plan branch is never delivered by the loop
+    expect(outcomeOfRun(done, run({ deliveryState: { state: 'pending', attempts: 0 } }), s)).toBe('completed')
+    // an archived plan and a schedule's are not delivered by the loop either
+    expect(outcomeOfRun(done, run({ worktree: '/wt/plan', deliveryState: { state: 'pending', attempts: 0 } }), withJob({ archivedAt: NOW }))).toBe('completed')
+    expect(outcomeOfRun(done, run({ worktree: '/wt/plan', deliveryState: { state: 'delivering', attempts: 0 } }), withJob({ schedule: { cron: '0 * * * *' } } as unknown as Partial<Job>))).toBe('completed')
+  })
 })
 
 // T15: the 2026-10-22 `reset --tasks` wipe left delivered Runs with no Task; they read running for ever

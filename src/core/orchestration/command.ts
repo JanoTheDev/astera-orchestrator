@@ -230,6 +230,7 @@ import { REPLAN_COMMANDS, replanCommand, replanRefusal } from './exec/replanStar
 import { coordinatorHandoff, refreshCoordinator } from './exec/coordinatorRotate'
 // T5 crash restore
 import { crashResumedBrief } from './exec/crashResume'
+import { commitLeftoverWork, type LeftoverWork } from './exec/leftoverWork'
 import { adoptLiveWorkers, specIdsOf, type LiveWorker } from './exec/adopt'
 import { specsDirOf } from './exec/specFiles'
 import { INSTALL_PLACEHOLDER_PREFIX, INSTALL_START_WINDOW_MS, isInstallingStart } from './exec/stallWatch'
@@ -278,7 +279,10 @@ import {
   withoutDeliveryError,
   // T5: a hands-free plan mends a failed delivery validation itself
   deliveryFixOf,
-  onlyDeliveryFixesFailed
+  deliveryMergeOf,
+  MERGE_WORKER_STOPS,
+  onlyDeliveryFixesFailed,
+  onlyDeliveryMergesFailed
 } from './delivery'
 import { settingRefusalOf } from './planSettings'
 import type { DeliveryProgress } from './types'
@@ -528,6 +532,8 @@ export interface OrchServerDeps {
         reason: string
         /** The worktrees git could not merge cleanly (integrateWorktrees' `agent`): an AI merge Task's to resolve. */
         conflict?: { path: string; branch: string | null }[]
+        /** git gave no answer (a timeout, a check that did not come back): nothing merged, worth the same try later. */
+        transient?: true
       }
   >
   /** 이 경로들의 워크트리를 폴더째 지운다 — `run-delete --remove-worktrees` 가 부른다. 그 안에서
@@ -1844,6 +1850,19 @@ export async function linkReportedWork(
  *  recorded base gets the Wave 8 note naming the attempt, and the Task's links keep those commits, the map the squash
  *  remap reads (`attribution-remap`). The busy windows come from the session's hook-events file; with none, the
  *  attempt's own lifetime stands in. Before any merge of that worktree: the merges come after the report. Never throws. */
+/** The worktree of a worker's succeeded report, with any uncommitted work committed (exec/leftoverWork.ts); null when
+ *  it is not one Astera checks: no git range recorded for the attempt (the Host records it for the worktrees it starts
+ *  workers in), or the folder is the plan's own project folder, the owner's checkout. */
+async function leftoverWorkOf(s: OrchState, d: Dispatch, taskId: string): Promise<LeftoverWork | null> {
+  if (d.git?.base === undefined) return null
+  const task = s.tasks.find((t) => t.id === taskId)
+  const run = task?.runId === undefined ? undefined : s.runs.find((r) => r.id === task.runId)
+  const job = run && jobOf(s, run)
+  if (!task || !job || isSamePath(d.cwd, job.cwd)) return null
+  const title = task.title.replace(/\s+/g, ' ').trim().slice(0, 60) || taskId
+  return commitLeftoverWork(d.cwd, `${title}: work left uncommitted at its report\n\nAstera committed what the worker of ${taskId} left uncommitted when it reported the Task done, so its work reaches the plan.`)
+}
+
 export async function stampReportedWork(deps: OrchServerDeps, taskId: string, dispatchId: string): Promise<void> {
   try {
     const s = deps.getState()
@@ -6162,6 +6181,26 @@ async function handleCommandInner(
         const notProvable =
           limitResetsAt === null ? await notProvableOfReport(deps, deps.getState(), { taskId, dispatch: reporting, outcome, args }) : null
         if (notProvable?.converted) deps.log?.(`worker_done: task=${taskId} failed -> succeeded, not provable here: ${notProvable.note}`)
+        // A succeeded report is the worker saying its work is done; git carries only commits, so work left staged or
+        // unsaved in its worktree would be reviewed and counted done, and then never delivered. It is committed here as
+        // the worker's, before the Task moves on (exec/leftoverWork.ts). Only in a worktree Astera made for the plan:
+        // never the owner's own folder (a Run with no worktree works there), and only for an attempt still open.
+        if ((outcome === 'succeeded' || notProvable?.converted === true) && reporting && !reporting.review && !reporting.outcome && !reporting.endedAt) {
+          const left = await leftoverWorkOf(deps.getState(), reporting, taskId)
+          if (left?.kind === 'committed')
+            deps.log?.(`task ${taskId}: dispatch=${dispatchId} reported done with ${left.files} uncommitted change(s) in ${reporting.cwd}; Astera committed them as ${left.sha}`)
+          else if (left?.kind === 'unknown') deps.log?.(`task ${taskId}: could not check ${reporting.cwd} for uncommitted work: ${left.reason}`)
+          else if (left?.kind === 'failed') {
+            deps.log?.(`task ${taskId}: dispatch=${dispatchId} reported done with ${left.files} uncommitted change(s) Astera could not commit: ${left.reason}`)
+            // The worker is there to fix it: its report is refused with what to do. A report replayed from the queue (the
+            // worker is gone) is taken as it is; the delivery still refuses to drop the folder's work
+            if (isWorker)
+              return conflict(
+                `Your worktree ${reporting.cwd} still has ${left.files} uncommitted change(s), and Astera could not commit them (${left.reason}). ` +
+                  'Commit your work (`git add -A && git commit -m "<summary>"`, resolving any conflict first), check `git status --porcelain` prints nothing, then send this report again.'
+              )
+          }
+        }
         // getState is read again here — the state may have changed during the probeLimit await
         // above, and calling applyWorkerDone with the pre-await snapshot (s) would overwrite and
         // lose that change (the same reason as in handleExit — the write inversion this has caused
@@ -7512,7 +7551,11 @@ async function handleCommandInner(
         return conflict(`Pushing this Run stopped before: ${done.error}. --force tries again`)
       if (taskOutcomeOf(s, run) !== 'completed') {
         // T5: the only failed Tasks are delivery fix Tasks: the fix attempts ran out, so the owner is asked as after FAILURE_LIMIT of them
-        if (args.auto === true && taskOutcomeOf(s, run) === 'failed' && deliveryFixOf(s, run) !== null && onlyDeliveryFixesFailed(s, id)) {
+        if (
+          args.auto === true &&
+          taskOutcomeOf(s, run) === 'failed' &&
+          ((deliveryFixOf(s, run) !== null && onlyDeliveryFixesFailed(s, id)) || (run.worktree !== undefined && onlyDeliveryMergesFailed(s, id)))
+        ) {
           const reason = run.deliveryState?.lastError ?? run.delivery?.error ?? 'a delivery fix Task failed'
           const code = run.deliveryState?.lastCode
           const p = await settle(reason, undefined, code, 'owner')
@@ -7553,10 +7596,27 @@ async function handleCommandInner(
       )
       // T5: a hands-free plan's failed validation becomes a fix Task (the loop opens it), until FAILURE_LIMIT of them ran;
       // T1: so does a push the repository refused (a pre-push hook's checks)
-      const fix = !r.ok && (r.code === 'validation-failed' || r.code === 'push-refused') ? deliveryFixOf(deps.getState(), run) : null
+      // A merge only a merge worker can mend (a conflict that comes back every try, uncommitted work) is handed to one
+      // (the loop opens it), never asked of the owner meanwhile; after FAILURE_LIMIT of them it is
+      const fix =
+        !r.ok && (r.code === 'validation-failed' || r.code === 'push-refused')
+          ? deliveryFixOf(deps.getState(), run)
+          : !r.ok && r.code !== undefined && MERGE_WORKER_STOPS.has(r.code)
+            ? deliveryMergeOf(deps.getState(), run)
+            : null
       const p = await settle(r.ok ? undefined : r.reason, recorded, r.ok ? undefined : r.code, fix, r.ok ? undefined : r.target)
       if (!r.ok)
-        return { status: 409, body: { error: r.reason, ...(r.branch ? { branch: r.branch } : {}), ...(r.code ? { code: r.code } : {}), ...(r.conflictWith ? { conflictWith: r.conflictWith } : {}), deliveryState: p } }
+        return {
+          status: 409,
+          body: {
+            error: r.reason,
+            ...(r.branch ? { branch: r.branch } : {}),
+            ...(r.code ? { code: r.code } : {}),
+            ...(r.conflictWith ? { conflictWith: r.conflictWith } : {}),
+            ...(r.worktrees ? { worktrees: r.worktrees } : {}),
+            deliveryState: p
+          }
+        }
       const removed = await offChain(deps, async () => {
         const out = deps.removeWorktrees && r.merged.length > 0 ? await deps.removeWorktrees(r.merged) : null
         await cleanAfterDelivery(deps, id) // W9-J: what the push left (the Run's own folder)
@@ -7872,17 +7932,19 @@ async function handleCommandInner(
         }
       }
       const delivered = await handleCommand(deps, caller, 'run-deliver', { run: id, force: true })
-      const body = (delivered.body ?? {}) as { code?: unknown; conflictWith?: unknown; branch?: unknown; error?: unknown }
+      const body = (delivered.body ?? {}) as { code?: unknown; conflictWith?: unknown; branch?: unknown; error?: unknown; worktrees?: unknown }
+      const mergeStop = body.code === 'merge-failed' || (typeof body.code === 'string' && MERGE_WORKER_STOPS.has(body.code))
       const why = String(body.error ?? '')
       // Origin moved on and clashes (as the loop's deliverOne hands it on), or the worktrees clash in a push delivery
       const handOff =
         body.code === 'origin-conflict' && typeof body.conflictWith === 'string' && plan !== undefined
           ? `${typeof body.branch === 'string' ? `origin/${body.branch}` : 'origin'} moved on to ${body.conflictWith} and conflicts with this plan's branch: merge it in with \`git merge --no-edit ${body.conflictWith}\` and resolve the conflict. ${why}`
-          : body.code === 'merge-failed'
+          : mergeStop
             ? why
             : null
       if (delivered.status < 400 || handOff === null) return { ...delivered, body: { ...(delivered.body as object), state: delivered.status < 400 ? 'delivered' : 'stopped' } }
-      const worktrees = body.code === 'merge-failed' ? runWorktrees(s, id).map((p) => ({ path: p, branch: null })) : []
+      const named = Array.isArray(body.worktrees) ? (body.worktrees as { path: string; branch: string | null }[]) : []
+      const worktrees = !mergeStop ? [] : named.length > 0 ? named : runWorktrees(s, id).map((p) => ({ path: p, branch: null }))
       const opened = await openMergeTask(deps, caller, id, handOff, worktrees)
       return 'taskId' in opened ? okBody({ state: 'fixing-conflicts', taskId: opened.taskId, reason: why }) : opened
     }

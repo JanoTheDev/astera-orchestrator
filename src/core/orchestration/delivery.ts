@@ -368,6 +368,13 @@ export const onlyDeliveryFixesFailed = (s: OrchState, runId: string): boolean =>
   return failed.length > 0 && failed.every(isDeliveryFix)
 }
 
+/** `onlyDeliveryFixesFailed` for the delivery merge Tasks (`DELIVERY_MERGE_MARK`): their attempts ran out, so the owner
+ *  is asked about the delivery, not told the plan did not complete. */
+export const onlyDeliveryMergesFailed = (s: OrchState, runId: string): boolean => {
+  const failed = s.tasks.filter((t) => t.runId === runId && t.status === 'failed')
+  return failed.length > 0 && failed.every((t) => t.parentId !== undefined && t.spec.includes(DELIVERY_MERGE_MARK))
+}
+
 /** What a failed delivery validation of this Run leads to: `fix` a fix Task (no owner question meanwhile), `owner`
  *  FAILURE_LIMIT fix Tasks did not make it pass, so the owner is asked now; null: not a hands-free plan, so the retries
  *  and the owner question go as for any stop. T15: a plan with no plan worktree gets one too, in a worktree of its own. */
@@ -418,6 +425,27 @@ Once you report, Astera validates the merged result again and delivers it.
 What failed:
 ${a.reason.slice(-4000)}
 `
+}
+
+// ── A delivery whose merge goes to a merge worker ──
+
+/** The words every delivery merge Task's spec holds (`DELIVERY_FIX_MARK`'s rule: counted by these words). A push
+ *  delivery that stopped on a deterministic merge problem (`worktree-conflict`: the plan's worktrees do not merge into
+ *  the branch, also after the refresh; `unmerged-work`: a worktree still holds uncommitted work) hands it to a merge
+ *  worker in the plan branch instead of retrying the same merge with the same result until the owner is asked. */
+export const DELIVERY_MERGE_MARK = 'Delivery merge:'
+
+/** The stops of a push delivery that a merge worker mends (integrateGit.ts PushStop). */
+export const MERGE_WORKER_STOPS: ReadonlySet<string> = new Set(['worktree-conflict', 'unmerged-work'])
+
+export const deliveryMergesOf = (s: OrchState, runId: string): Task[] =>
+  s.tasks.filter((t) => t.runId === runId && t.parentId !== undefined && t.spec.includes(DELIVERY_MERGE_MARK))
+
+/** What a delivery stopped on a merge worker's problem leads to: `fix` a merge Task (no owner question meanwhile),
+ *  `owner` FAILURE_LIMIT of them did not get it delivered; null: the Run has no plan branch for one to work in. */
+export function deliveryMergeOf(s: OrchState, run: JobRun): 'fix' | 'owner' | null {
+  if (run.worktree === undefined) return null
+  return deliveryMergesOf(s, run.id).length < FAILURE_LIMIT ? 'fix' : 'owner'
 }
 
 // ── T1: delivery state machine ──

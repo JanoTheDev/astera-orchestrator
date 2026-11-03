@@ -3,6 +3,7 @@ import { coordinatorStarting, jobOf, type OrchState } from './state'
 import { FAILURE_LIMIT, type Dispatch, type Gate, type Job, type JobRun, type Task } from './types'
 import { completionSettled, replanOn } from './replan'
 import { jobActive } from './schedule'
+import { isJobActive } from './lifecycle'
 
 // tasksOwnedBy, isTerminal and outcomeOf moved here from view.ts so runningRunCount can ask outcomeOf:
 // the renderer's build includes this file and not view.ts, which re-exports them.
@@ -50,12 +51,29 @@ export function outcomeOf(state: OrchState, runId: string): RunOutcome {
 export const deliveryErrorOf = (run: JobRun | undefined): string | undefined =>
   run?.deliveryState !== undefined && (SETTLED.has(run.deliveryState.state) || run.deliveryState.state === 'delivering')
     ? undefined
-    : (run?.pr?.error ?? run?.delivery?.error)
+    : (run?.pr?.error ?? run?.delivery?.error ?? (run?.deliveryState !== undefined && STOPPED.has(run.deliveryState.state) ? run.deliveryState.lastError : undefined))
 const SETTLED = new Set<string>(['delivered', 'delivered-by-owner', 'dismissed'])
+/** A delivery attempt stopped and is retried, waits on the owner, or ended failed: the attempt's own error (a stop the
+ *  loop recorded itself, `run-deliver --stopped`, leaves no `delivery.error` and read completed before). */
+const STOPPED = new Set<string>(['retrying', 'needs-owner', 'failed'])
+
+/** A delivery the driving loop is still going to make or is making: `delivering`, or `pending` (also while it waits
+ *  for another plan to land first, `waitingFor`) for a Run that has a plan branch of its own (one without, in a `pr`
+ *  plan, is never delivered by the loop, so it would wait for nothing). Only an active plan that is not a schedule's,
+ *  as the loop's own (dispatchLoop.ts openCompletedRunPrs). Its Tasks are done, but its work is not on the branch yet. */
+function deliveryUnderWay(s: OrchState, run: JobRun): boolean {
+  const p = run.deliveryState
+  if (p === undefined || deliveryEnded(run)) return false
+  if (p.state !== 'delivering' && !(p.state === 'pending' && (run.worktree !== undefined || p.waitingFor !== undefined))) return false
+  const job = jobOf(s, run)
+  return job !== undefined && isJobActive(job) && job.schedule === undefined
+}
 
 /** What a Run reads: its Tasks' outcome, except that a plan whose work did not get delivered did not complete, and a
  *  plan whose final check has not settled is `checking`, not completed (item 8: "Plan done" was read, then the check
- *  reopened the plan). Only `outcomeOfTasks` says whether the Tasks are done, which is what the delivery itself asks (it
+ *  reopened the plan). A plan whose delivery is still to come or under way reads `checking` too: "completed" is said
+ *  only once its work reached the branch (or nothing is left for Astera to deliver), never while a push that may fail
+ *  is pending (owner report 2026-11-03: a Run read done although its work never reached main). Only `outcomeOfTasks` says whether the Tasks are done, which is what the delivery itself asks (it
  *  must still see them completed to retry, and a failed outcome would take the failed-plan branches). */
 export function outcomeOfRun(tasks: readonly Task[], run: JobRun | undefined, s: OrchState): RunOutcome {
   const lost = lostTasksOutcome(s, run, tasks)
@@ -63,7 +81,7 @@ export function outcomeOfRun(tasks: readonly Task[], run: JobRun | undefined, s:
   const outcome = outcomeOfTasks(tasks, s.gates)
   if (outcome !== 'completed') return outcome
   if (deliveryErrorOf(run) !== undefined) return 'failed'
-  return run !== undefined && checkPending(s, run) ? 'checking' : outcome
+  return run !== undefined && (checkPending(s, run) || deliveryUnderWay(s, run)) ? 'checking' : outcome
 }
 
 /** Delivered: the Run pushed its work (a sha, no error), or opened its pull request (a url, not a draft, no error) or

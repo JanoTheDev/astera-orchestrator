@@ -54,7 +54,7 @@ const happy = (): Record<string, Reply | Reply[]> => ({
   'merge-base --is-ancestor origin/main HEAD': {}
 })
 
-function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty'; validate?: 'ok' | 'fail' | 'fail-second' | 'busy'; install?: 'ok' | 'fail'; presence?: PresenceCheck } = {}) {
+function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | 'conflict' | 'conflict-once' | 'dirty' | 'conflict-named' | 'transient'; validate?: 'ok' | 'fail' | 'fail-second' | 'busy'; install?: 'ok' | 'fail'; presence?: PresenceCheck } = {}) {
   const g = fakeGit({ ...happy(), ...over })
   const merges: { into: string; paths: string[]; message?: string }[] = []
   const validated: string[] = []
@@ -72,6 +72,11 @@ function setup(over: Record<string, Reply | Reply[]> = {}, o: { merge?: 'ok' | '
         g.setHead('merged-1')
         return { ok: false, reason: 'git merge-tree says wt-b does not merge cleanly' }
       }
+      if (o.merge === 'conflict-named') {
+        g.setHead('merged-1')
+        return { ok: false, reason: 'git merge-tree says astera/b does not merge cleanly', conflict: [{ path: '/wt-b', branch: 'astera/b' }] }
+      }
+      if (o.merge === 'transient') return { ok: false, reason: 'rebase-merge did not answer', transient: true }
       g.setHead('merged')
       return o.merge === 'dirty' ? { ok: true, merged: paths, uncommitted: 2, dirty: ['/wt-a'] } : { ok: true, merged: paths, uncommitted: 0 }
     },
@@ -271,6 +276,39 @@ describe('deliverByPush (W6-H)', () => {
     expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('/wt-a') })
     expect(h.head()).toBe('base')
     expect(h.validated).toEqual([])
+  })
+
+  // Owner report 2026-11-02: the same delivery was undone and retried with the same result until the owner was asked
+  it('codes work left uncommitted in a worktree as unmerged-work, naming the worktree for a merge worker', async () => {
+    const h = setup({}, { merge: 'dirty' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, code: 'unmerged-work', worktrees: [{ path: '/wt-a', branch: null }] })
+    expect(h.head()).toBe('base')
+  })
+
+  // Owner report 2026-11-03 (run_6d22657b8a30143f): a known conflict was retried forever instead of merged by a worker
+  it('codes a conflict that survives the refresh as worktree-conflict, with the worktrees git named', async () => {
+    const h = setup(refreshable(), { merge: 'conflict-named' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, code: 'worktree-conflict', worktrees: [{ path: '/wt-b', branch: 'astera/b' }] })
+    expect(h.head()).toBe('base')
+    expect(h.calls.some((a) => a[0] === 'push')).toBe(false)
+  })
+
+  it('codes a refresh that conflicts with the branch as worktree-conflict against its commit', async () => {
+    const h = setup({ ...refreshable(), 'merge-tree --write-tree HEAD base': { ok: false, stderr: '' } }, { merge: 'conflict' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, code: 'worktree-conflict', conflictWith: 'base' })
+    expect(!r.ok && r.worktrees?.length).toBeGreaterThan(0)
+  })
+
+  it('a git that gave no answer while merging is git-busy: no refresh, nothing left merged, retried later', async () => {
+    const h = setup(refreshable(), { merge: 'transient' })
+    const r = await h.go()
+    expect(r).toMatchObject({ ok: false, code: 'git-busy' })
+    expect(h.merges).toHaveLength(1)
+    expect(h.calls.some((a) => a.join(' ').startsWith('merge --no-ff -m Refresh'))).toBe(false)
+    expect(h.head()).toBe('base')
   })
 
   it('fetches and pushes again after a push the connection lost, ten rounds at most, then stops, never forcing', async () => {
