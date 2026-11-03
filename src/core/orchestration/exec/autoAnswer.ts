@@ -270,6 +270,8 @@ export function handsOffStepsDue(s: OrchState, open: OpenQuestion[], nowMs: numb
       // T12: blockers that only need an environment this machine lacks are accepted as not provable here
       const notProvable = notProvableReviewStepOf(s, q, asked)
       if (notProvable) return [notProvable]
+      const widened = scopeReviewStepOf(s, q, asked)
+      if (widened) return [widened]
       const granted = grantOf(grantsOf(s, q), q.question)
       if (granted) return answer({ id: q.id, answer: grantedAnswer(granted), why: 'Host state' }, 'gate', `the owner granted ${granted} in advance`)
       return [{ kind: 'coordinator', question: q }]
@@ -426,6 +428,29 @@ function notProvableReviewStepOf(s: OrchState, q: OpenQuestion, asked: string): 
       choice: firstLine(acceptedNotProvable(task.title, note), 200),
       why: 'the review found only what this machine cannot provide, and the plan runs hands-off'
     }
+  }
+}
+
+/** How a hands-off answer that widened a Task's scope for its review starts: a Task widened once is not widened again. */
+export const SCOPE_REVIEW_ANSWER_HEAD = 'Widen the scope:'
+
+/** A hands-off plan's `review-needs-decision` Gate whose blocking issues all only need the Task to touch more files
+ *  (`needs: 'scope'`): answered by widening the scope to what the issues name, once per Task. The owner-only words were
+ *  checked before this, so the wider files are ordinary code. */
+function scopeReviewStepOf(s: OrchState, q: OpenQuestion, asked: string): HandsOffStep | null {
+  const task = s.tasks.find((t) => t.id === q.taskId)
+  const blocking = (task?.reviewIssues ?? []).filter((i) => i.blocking)
+  if (!task || blocking.length === 0 || !blocking.every((i) => i.needs === 'scope')) return null
+  if (/ask me/i.test(`${task.prompt ?? ''}
+${task.spec}`)) return null
+  if (s.gates.some((g) => g.taskId === task.id && g.id !== q.id && g.kind === REVIEW_NEEDS_DECISION && g.resolution?.startsWith(SCOPE_REVIEW_ANSWER_HEAD))) return null
+  const text =
+    `${SCOPE_REVIEW_ANSWER_HEAD} fix ${blocking.map((i) => i.title).join('; ')} in the files those issues name, keeping to ` +
+    "the Task's spec and the plan's decisions, and list the extra files in your report."
+  return {
+    kind: 'answer',
+    answer: { id: q.id, answer: text, why: 'safe default' },
+    decision: { kind: 'gate', taskId: task.id, question: asked, choice: firstLine(text, 200), why: 'the review only needs more files touched, and the plan runs hands-off' }
   }
 }
 

@@ -2,7 +2,7 @@
 // questions-answer with one feed line; the owner's kinds of question stay open; the setting turns it all off.
 import { describe, expect, it } from 'vitest'
 import { STOPPED_DEP_OPTIONS } from '../overlap'
-import { ASK_GRACE_MS, autoAnswersDue, autoAnswerOf, autoAnswerOnOf, coordinatorDecideBody, ESCALATION_DEFAULT_ANSWER, grantedAnswer, grantOf, handsOffStepsDue, PLANNER_ANSWER_WAIT_MS, REFUSED_ANSWER, type OpenQuestion } from './autoAnswer'
+import { ASK_GRACE_MS, autoAnswersDue, autoAnswerOf, autoAnswerOnOf, coordinatorDecideBody, ESCALATION_DEFAULT_ANSWER, grantedAnswer, grantOf, handsOffStepsDue, PLANNER_ANSWER_WAIT_MS, REFUSED_ANSWER, SCOPE_REVIEW_ANSWER_HEAD, type OpenQuestion } from './autoAnswer'
 import { SCOPE_ANSWER, SCOPE_WHY } from './scopeDecider'
 import type { HostSession } from '../command'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from './dispatchLoop'
@@ -650,6 +650,15 @@ describe('a review-needs-decision Gate on a hands-off plan', () => {
     const g = gate('The review needs a decision: next dev not run (needs environment)')
     const s = reviewed([issue({ needs: 'environment' })])
     const earlier = { id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', kind: 'review-needs-decision' as const, status: 'resolved' as const, resolution: notProvableReviewAnswer([issue({})]), createdAt: NOW, resolvedAt: NOW }
+    expect(handsOffStepsDue({ ...s, gates: [earlier] }, [g], T0)).toEqual([{ kind: 'coordinator', question: g }])
+  })
+
+  it('only scope blockers: answered by widening the scope, once per Task', () => {
+    const g = gate('The review found issues no code change fixes: band draws on the wrong side (needs scope)')
+    const s = reviewed([issue({ title: 'band draws on the wrong side', needs: 'scope' })])
+    const steps = handsOffStepsDue(s, [g], T0)
+    expect(steps).toEqual([expect.objectContaining({ kind: 'answer', answer: expect.objectContaining({ id: 'gat_1', answer: expect.stringContaining(SCOPE_REVIEW_ANSWER_HEAD) }) })])
+    const earlier = { id: 'gat_0', runId: 'run_1', taskId: 'tsk_x', question: 'q', kind: 'review-needs-decision' as const, status: 'resolved' as const, resolution: `${SCOPE_REVIEW_ANSWER_HEAD} x`, createdAt: NOW, resolvedAt: NOW }
     expect(handsOffStepsDue({ ...s, gates: [earlier] }, [g], T0)).toEqual([{ kind: 'coordinator', question: g }])
   })
 
