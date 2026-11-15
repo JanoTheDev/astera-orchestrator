@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import { makeRepo, gitSync, tempDir } from '../core/worktrees/testRepo'
 import { PtyRegistry } from './registry'
 import { ProcRegistry } from './procRegistry'
-import { createHostWorktrees, loadWorktreesIfSpawning, type HostWorktreesDeps } from './worktrees'
+import { createHostWorktrees, loadWorktreesIfSpawning, retryHeld, type HostWorktreesDeps } from './worktrees'
 import { emptyState, type OrchState } from '../core/orchestration/state'
 import type { Dispatch } from '../core/orchestration/types'
 import { RepairNeeded } from '../core/settings/repairNeeded'
@@ -636,5 +636,34 @@ describe('createHostWorktrees — the loop’s members', () => {
     await h.wt.ops.remove(h.wt.infoOf(a)!.id, true, false)
     expect(stopped).toEqual([[[50, 51, 70], true]])
     expect(h.wt.paths()).toEqual([])
+  })
+})
+
+describe('retryHeld: a clean-up Windows refused on a locked file is tried again later', () => {
+  it('tries again after each wait until nothing is held, and stops there', async () => {
+    vi.useFakeTimers()
+    try {
+      const held = { removed: [], kept: [{ path: 'C:/wt/a', reason: 'WORKTREE_BUSY: a file in the folder is held open' }] }
+      const freed = { removed: ['C:/wt/a'], kept: [] }
+      const again = vi.fn().mockResolvedValueOnce(held).mockResolvedValueOnce(freed)
+      const lines: string[] = []
+      expect(retryHeld(held, again, (m) => lines.push(m), [1000, 2000, 4000])).toBe(held)
+      expect(again).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(again).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(again).toHaveBeenCalledTimes(2)
+      await vi.advanceTimersByTimeAsync(10_000)
+      expect(again).toHaveBeenCalledTimes(2)
+      expect(lines.join('\n')).toMatch(/held by a locked file; trying again/)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a folder kept for its contents (untracked, unpushed) is not retried', () => {
+    const again = vi.fn()
+    retryHeld({ removed: [], kept: [{ path: 'C:/wt/a', reason: '1 untracked file' }] }, again, () => {}, [1])
+    expect(again).not.toHaveBeenCalled()
   })
 })

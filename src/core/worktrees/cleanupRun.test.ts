@@ -264,6 +264,14 @@ describe('cleanFinished: the Host-start sweep', () => {
     expect(lines.join('\n')).toMatch(/kept: its Run is still running/)
   })
 
+  it('keeps the folders of a delivered plan whose Run is paused', async () => {
+    const p = await deliveredPlan(1)
+    const state = { ...p.state, runs: p.state.runs.map((r) => ({ ...r, paused: true })) } as OrchState
+    const r = await cleanFinished(deps(state))
+    expect(r.removed).toEqual([])
+    for (const f of [p.run, ...p.tasks]) expect(existsSync(f)).toBe(true)
+  })
+
   it('keeps the folders of an archived plan whose coordinator runs between Tasks (all ready), and says why', async () => {
     const p = await deliveredPlan(2)
     const state = {
@@ -300,5 +308,63 @@ describe('cleanFinished: the Host-start sweep', () => {
     expect(r.removed).toHaveLength(18) // 17 Task folders + the plan folder
     expect(existsSync(folders[7])).toBe(true)
     expect(reg.list().map((w) => w.path)).toEqual([folders[7]])
+  })
+})
+
+// ── A finished folder switched to another branch (a `land/*` branch pushed to origin, as on the owner's machine) ──
+// The facts were read on the registry's branch, which held commits no remote had, so a folder whose checkout had
+// landed was kept for good. They are read on the folder's HEAD now; the registry's branch is kept by the removal
+// unless it is merged.
+describe('a finished folder that moved to a landed branch', () => {
+  /** A delivered plan with one more Task folder t9 (failed, never merged): one commit on its registry branch that no
+   *  remote has, then the folder checked out on `land/t9`, with one more commit, pushed to origin when `push`. */
+  async function movedFolder(push: boolean): Promise<{ state: OrchState; folder: string; branch: string }> {
+    const p = await deliveredPlan(1)
+    const t = (await createWorktree({ repoPath: repo, name: 'moved', baseRef: p.planBranch, registry: reg })).info
+    await fs.writeFile(path.join(t.path, 'draft.txt'), 'draft')
+    sh(t.path, ['add', '-A'])
+    sh(t.path, ['commit', '-m', 'draft only here'])
+    sh(t.path, ['checkout', '-b', 'land/t9', p.planBranch])
+    await fs.writeFile(path.join(t.path, '.gitignore'), 'node_modules/\n')
+    await fs.writeFile(path.join(t.path, 'landed.txt'), 'landed')
+    sh(t.path, ['add', '-A'])
+    sh(t.path, ['commit', '-m', 'landed'])
+    if (push) sh(t.path, ['push', 'origin', 'land/t9'])
+    const state = {
+      ...p.state,
+      tasks: [...p.state.tasks, { id: 't9', runId: 'run_1', status: 'failed', consecutiveFailures: 9 } as Task],
+      dispatches: [...p.state.dispatches, { id: 'd9', taskId: 't9', cwd: t.path, sessionId: 's9' } as never]
+    }
+    return { state, folder: t.path, branch: t.branch }
+  }
+
+  it('its HEAD is on origin: removed, and the registry branch with the commit no remote has is kept', async () => {
+    const m = await movedFolder(true)
+    const r = await cleanRun('run_1', deps(m.state))
+    expect(r.removed).toContain(m.folder)
+    expect(existsSync(m.folder)).toBe(false)
+    expect(branchExists(m.branch)).toBe(true)
+    expect(branchExists('land/t9')).toBe(true)
+  })
+
+  it('its HEAD is not on any remote: kept', async () => {
+    const m = await movedFolder(false)
+    const r = await cleanRun('run_1', deps(m.state))
+    expect(existsSync(m.folder)).toBe(true)
+    expect(r.kept.map((k) => k.path)).toContain(m.folder)
+  })
+
+  it.runIf(process.platform === 'win32')('a junction in its node_modules to a folder outside survives with its contents', async () => {
+    const m = await movedFolder(true)
+    const outside = await tempDir('astera-wt-clean-outside-')
+    await fs.writeFile(path.join(outside, 'keep.txt'), 'precious')
+    await fs.mkdir(path.join(m.folder, 'node_modules', '@x'), { recursive: true })
+    await fs.symlink(outside, path.join(m.folder, 'node_modules', '@x', 'pkg'), 'junction')
+    const r = await cleanRun('run_1', deps(m.state))
+    expect(r.removed).toContain(m.folder)
+    // the background delete of the trashed folder runs after the answer; give it time to reach the junction
+    await new Promise((ok) => setTimeout(ok, 1500))
+    expect(existsSync(m.folder)).toBe(false)
+    expect(await fs.readFile(path.join(outside, 'keep.txt'), 'utf8')).toBe('precious')
   })
 })

@@ -10,16 +10,18 @@ import { readPushState } from './push'
 import { blockingChanges, removeWorktree } from './remove'
 import type { WorktreeStore } from './registry'
 
-/** Commits of `branch` that no remote branch has, or null when git could not say. */
-async function unpushedCount(path: string, branch: string): Promise<number | null> {
-  const r = await git(['rev-list', '--count', branch, '--not', '--remotes'], { cwd: path })
+/** Commits of what the folder has checked out (`HEAD`) that no remote branch has, or null when git could not say.
+ *  HEAD, not the registry's branch: a folder switched to another branch (a `land/*` branch pushed to origin) holds that
+ *  branch's commits, and the registry's branch is a ref the removal keeps unless it is merged (remove.ts). */
+async function unpushedCount(path: string): Promise<number | null> {
+  const r = await git(['rev-list', '--count', 'HEAD', '--not', '--remotes'], { cwd: path })
   const n = r.ok ? Number(r.stdout.trim()) : NaN
   return Number.isInteger(n) ? n : null
 }
 
-/** The branch is an ancestor of its base (null when git could not say, and a missing base is "could not say"). */
-async function inBaseOf(path: string, branch: string, baseRef: string): Promise<boolean | null> {
-  const r = await git(['merge-base', '--is-ancestor', `refs/heads/${branch}`, baseRef], { cwd: path })
+/** The folder's HEAD is an ancestor of its base (null when git could not say, and a missing base is "could not say"). */
+async function inBaseOf(path: string, baseRef: string): Promise<boolean | null> {
+  const r = await git(['merge-base', '--is-ancestor', 'HEAD', baseRef], { cwd: path })
   if (r.ok) return true
   return (await git(['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`], { cwd: path })).ok ? false : null
 }
@@ -41,8 +43,8 @@ export async function worktreeRows(
       const readable = item.status === 'ok'
       const changes = readable ? await blockingChanges(item.path).catch(() => null) : null
       const dirty = changes?.count ?? null
-      const unpushed = readable ? await unpushedCount(item.path, item.branch) : null
-      const inBase = readable ? await inBaseOf(item.path, item.branch, item.baseRef) : null
+      const unpushed = readable ? await unpushedCount(item.path) : null
+      const inBase = readable ? await inBaseOf(item.path, item.baseRef) : null
       const live = isPathInUse(item.path) !== null
       return {
         item,
@@ -94,6 +96,7 @@ export async function cleanRows(
     }
   }
   deps.log?.(`worktree clean-up: removed ${out.removed.length}, kept ${out.kept.length}`)
+  for (const k of out.kept) deps.log?.(`worktree clean-up kept ${k.path}: ${k.reason}`)
   return out
 }
 
@@ -169,7 +172,9 @@ export async function cleanFinished(deps: CleanDeps): Promise<CleanResult> {
     const st = deps.state()
     const active = new Set([
       ...st.tasks.filter((t) => ['dispatched', 'validating', 'reviewing', 'merging', 'ready', 'pending'].includes(t.status)).map((t) => t.runId),
-      ...st.runs.filter((r) => r.coordinatorSessionId !== undefined && r.coordinatorStopPending === undefined).map((r) => r.id)
+      ...st.runs.filter((r) => r.coordinatorSessionId !== undefined && r.coordinatorStopPending === undefined).map((r) => r.id),
+      // A paused Run, or a Run of a paused plan, is resumed in its folders
+      ...st.runs.filter((r) => r.paused === true || st.jobs.find((j) => j.id === r.jobId)?.paused === true).map((r) => r.id)
     ])
     const stillRuns = finished.filter((r) => active.has(r.owner!.runId))
     const result = await cleanAndReport(finished.filter((r) => !active.has(r.owner!.runId)), deps, false)
