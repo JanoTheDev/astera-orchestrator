@@ -20,6 +20,7 @@ import {
   applyReply,
   createApproval,
   answerEscalation, // W7-C
+  answerHeldQuestions,
   applyReviewResult,
   applyWorkerDone,
   blockForReview,
@@ -5452,8 +5453,10 @@ async function handleCommandInner(
       // adding a new function this reuses recomputeReady, the existing pure-layer function that
       // createTask and applyWorkerDone already use. recomputeReady only promotes pending to ready
       // and never touches blocked — that property is unchanged.
-      const tasks = recomputeReady(s.tasks.map((t) => (t.id === id ? nextTask : t)))
-      await deps.setState(closeGatesOfCompleted({ ...s, tasks }, id, now))
+      // The owner's Continue on a held Task answers what it was held on: a question left open holds it again at once
+      const base = status === 'ready' && task.status === 'blocked' && !fromAgentSession && caller.role !== 'mcp' ? answerHeldQuestions(s, id, now) : s
+      const tasks = recomputeReady(base.tasks.map((t) => (t.id === id ? nextTask : t)))
+      await deps.setState(closeGatesOfCompleted({ ...base, tasks }, id, now))
       return okBody(tasks.find((t) => t.id === id)!)
     }
     case 'session-task-start': {

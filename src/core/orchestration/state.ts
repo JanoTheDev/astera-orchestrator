@@ -2468,6 +2468,23 @@ export function answerEscalation(
   return ok(a.by === 'owner' ? releaseHeld(state, e.taskId, now) : state, { answered: 'accepted' })
 }
 
+/** What the owner's Continue on a held Task answers its open questions with (`answerHeldQuestions`). */
+export const CONTINUE_ANSWER = 'The owner chose Continue: carry on with this task as its spec says.'
+
+/** The owner's Continue on a held Task (task-update --status ready): its open questions and escalations are answered as
+ *  the owner's answer to each would be. One left open holds the Task again (exec/autoAnswer.ts handsOffStepsDue).
+ *  An approval request is left alone: it is answered approve or deny only. */
+export function answerHeldQuestions(s: OrchState, taskId: string, now: string): OrchState {
+  let state = s
+  for (const m of s.messages) {
+    if (m.taskId !== taskId || m.answered || m.approval !== undefined) continue
+    const a = { messageId: m.id, body: CONTINUE_ANSWER, by: 'owner' as const }
+    const r = m.type === 'escalation' ? answerEscalation(state, a, now) : m.type === 'question' ? applyReply(state, a, now) : undefined
+    if (r?.ok) state = r.state
+  }
+  return state
+}
+
 export function createGate(
   s: OrchState,
   a: { taskId: string; question: string; options?: string[]; kind?: GateKind; reason?: GateReason; cause?: Gate['cause'] },

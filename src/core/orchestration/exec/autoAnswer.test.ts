@@ -7,7 +7,7 @@ import { SCOPE_ANSWER, SCOPE_WHY } from './scopeDecider'
 import type { HostSession } from '../command'
 import { createDispatchLoop, ORCH_FIRE_TICK_MS, type DispatchLoopContext } from './dispatchLoop'
 import { handleCommand, type OrchServerDeps } from '../command'
-import { addDecision, createGate, emptyState, type OrchState } from '../state'
+import { addDecision, CONTINUE_ANSWER, createGate, emptyState, type OrchState } from '../state'
 import { deriveActivity, noticeOf, type ActivityDraft } from '../activity'
 import { heldForOwner, outcomeOf } from '../running'
 import { FAILURE_LIMIT, type ReviewIssue, type Task } from '../types'
@@ -145,7 +145,7 @@ async function rig(
     log: () => {},
     nowMs: () => clock
   } as unknown as DispatchLoopContext
-  const loop = createDispatchLoop(ctx)
+  let loop = createDispatchLoop(ctx)
   return {
     gate: made.value,
     lines,
@@ -166,6 +166,10 @@ async function rig(
     tick: async () => {
       clock += ORCH_FIRE_TICK_MS
       await loop.nudge()
+    },
+    /** A Host restart: a fresh loop, which forgets what it tried in memory */
+    restart: () => {
+      loop = createDispatchLoop(ctx)
     }
   }
 }
@@ -537,6 +541,28 @@ describe('a hands-off refusal holds its Task', () => {
     expect(r.state().tasks[0].status).toBe('ready')
     // The answer is the status line the next Dispatch's briefing carries
     expect(r.state().messages.filter((m) => m.taskId === held.id && m.type === 'status').at(-1)?.body).toContain('Answer: yes, run it')
+  })
+
+  // The owner's Continue (task-update --status ready) on that held Task left the escalation open, so the next Host to
+  // read it (a restart) held the Task again at once: the button did nothing. Continue answers it, as the owner's answer would.
+  it("Continue on the held Task answers its open escalation, so the Task stays ready across a Host restart", async () => {
+    const r = await rig('Run jobs-archive and delete the old runs?', undefined, true, { handsOff: true, escalation: true })
+    const held = r.state().tasks[0]
+    await r.tick()
+    expect(r.state().tasks[0]).toMatchObject({ status: 'blocked' })
+    expect((await r.handle('task-update', { id: held.id, status: 'ready' })).status).toBe(200)
+    expect(r.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: true, answerBody: CONTINUE_ANSWER })
+    // The next Dispatch's briefing carries it
+    expect(r.state().messages.filter((m) => m.taskId === held.id && m.type === 'status').at(-1)?.body).toContain(`Answer: ${CONTINUE_ANSWER}`)
+    r.restart()
+    await r.tick()
+    await r.tick()
+    expect(r.state().tasks[0].status).toBe('ready')
+    // An agent's task-update answers nothing: an escalation is the owner's
+    const r2 = await rig('Run jobs-archive and delete the old runs?', undefined, true, { handsOff: true, escalation: true })
+    await r2.tick()
+    await handleCommand(r2.deps, { sessionId: 'coord_1' }, 'task-update', { id: r2.state().tasks[0].id, status: 'ready' })
+    expect(r2.state().messages.find((m) => m.id === 'msg_esc')).toMatchObject({ answered: false })
   })
 })
 
