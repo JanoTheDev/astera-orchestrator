@@ -47,9 +47,11 @@ export function outcomeOf(state: OrchState, runId: string): RunOutcome {
 /** Why a Run's delivery failed (a merge conflict or a refused push, `run.pr.error` or `run.delivery.error`), or
  *  undefined. A later successful delivery replaces the record, so the error is gone with it. T1: a delivery that ended
  *  (delivered, by the owner, or dismissed by them) never reads failed, whatever error a record still holds. A new attempt
- *  that is running (`delivering`) has no error yet: the old one is `deliveryState.previousError`, not the plan's. */
+ *  that is running (`delivering`) has no error yet: the old one is `deliveryState.previousError`, not the plan's. Nor
+ *  does one the loop set `pending` again (its Run ran again: a merge worker or an integration Task after the stop), which
+ *  keeps the stopped attempt's `delivery.error` until its next attempt starts (2026-11-15: a plan read failed meanwhile). */
 export const deliveryErrorOf = (run: JobRun | undefined): string | undefined =>
-  run?.deliveryState !== undefined && (SETTLED.has(run.deliveryState.state) || run.deliveryState.state === 'delivering')
+  run?.deliveryState !== undefined && (SETTLED.has(run.deliveryState.state) || run.deliveryState.state === 'delivering' || run.deliveryState.state === 'pending')
     ? undefined
     : (run?.pr?.error ?? run?.delivery?.error ?? (run?.deliveryState !== undefined && STOPPED.has(run.deliveryState.state) ? run.deliveryState.lastError : undefined))
 const SETTLED = new Set<string>(['delivered', 'delivered-by-owner', 'dismissed'])

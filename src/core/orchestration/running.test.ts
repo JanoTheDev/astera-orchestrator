@@ -310,6 +310,15 @@ describe('a failed delivery', () => {
     expect(outcomeOfRun(done, r, state)).toBe('completed')
   })
 
+  // 2026-11-15: a push stopped on a merge, its merge worker ran (the loop set the delivery pending again) and completed;
+  // until the next attempt started the plan read failed with no reason, its stopped attempt's error still on the Run
+  it('a delivery set pending again after a stop is not read failed while its next attempt is to come', () => {
+    const r = run({ worktree: 'C:/wt/plan', delivery: { at: 'x', branch: 'main', error: 'git merge-tree says B does not merge cleanly' }, deliveryState: { state: 'pending', attempts: 0 } })
+    const s = { ...state, jobs: [{ id: 'j1', objective: 'o', cwd: 'C:/repo', createdAt: 'x' } as Job], runs: [r] }
+    expect(deliveryErrorOf(r)).toBeUndefined()
+    expect(outcomeOfRun(done, r, s)).toBe('checking')
+  })
+
   it('makes a Run whose Tasks all completed read failed, and leaves the Tasks-only answer alone', () => {
     expect(outcomeOfRun(done, run({ pr: { at: 'x', error: 'merge conflict' } }), state)).toBe('failed')
     expect(outcomeOfRun(done, run({ delivery: { at: 'x', error: 'push refused' } }), state)).toBe('failed')
