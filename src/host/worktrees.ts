@@ -52,6 +52,28 @@ import type { HostServer } from './server'
 
 /** How long a removal waits for a running, unattached app to attach (the app retries its Host with a 10 s backoff cap). */
 const APP_REATTACH_WAIT_MS = 30_000
+/** A removal Windows refused because a file in the folder was held open (remove.ts WORKTREE_BUSY, or the link walk
+ *  stopped by one): it passes once the holder lets go, so it is tried again later instead of only at the next start. */
+const HELD = /WORKTREE_BUSY|LINKS_UNVERIFIED|EBUSY|EPERM|EACCES/
+export const CLEAN_RETRY_WAITS_MS = [5 * 60_000, 30 * 60_000, 2 * 60 * 60_000]
+
+/** Answers `r`, and when a folder in it was held by a locked file, runs `again` after each of `waits` until none is. */
+export function retryHeld(r: CleanResult, again: () => Promise<CleanResult>, log: (m: string) => void, waits = CLEAN_RETRY_WAITS_MS): CleanResult {
+  const held = r.kept.filter((k) => HELD.test(k.reason)).length
+  if (held === 0) return r
+  if (waits.length === 0) {
+    log(`worktree clean-up: ${held} folder(s) still held by a locked file; left for the next start`)
+    return r
+  }
+  log(`worktree clean-up: ${held} folder(s) held by a locked file; trying again in ${Math.round(waits[0]! / 60_000)} min`)
+  setTimeout(() => {
+    void again()
+      .then((next) => retryHeld(next, again, log, waits.slice(1)))
+      .catch((e: unknown) => log(`worktree clean-up retry failed: ${message(e)}`))
+  }, waits[0]).unref?.()
+  return r
+}
+
 export const WORKTREE_CALLS: ReadonlySet<string> = new Set(['worktree-list', 'worktree-add', 'worktree-remove', 'worktree-root'])
 
 export interface HostWorktreesDeps {
@@ -486,12 +508,14 @@ export function createHostWorktrees(d: HostWorktreesDeps): HostWorktrees {
     list: () => registry.list(),
     isPathInUse,
     cleanRun: async (runId) => {
-      if (!(await cleanable(`worktree clean-up of run ${runId}`))) return { removed: [], kept: [] }
-      return cleanRun(runId, cleanDeps)
+      const again = async (): Promise<CleanResult> =>
+        (await cleanable(`worktree clean-up of run ${runId}`)) ? cleanRun(runId, cleanDeps) : { removed: [], kept: [] }
+      return retryHeld(await again(), again, d.log)
     },
     cleanFinished: async () => {
-      if (!(await cleanable('worktree clean-up at start'))) return { removed: [], kept: [] }
-      return cleanFinished(cleanDeps)
+      const again = async (): Promise<CleanResult> =>
+        (await cleanable('worktree clean-up at start')) ? cleanFinished(cleanDeps) : { removed: [], kept: [] }
+      return retryHeld(await again(), again, d.log)
     },
     ops: {
       rows: async () => {
