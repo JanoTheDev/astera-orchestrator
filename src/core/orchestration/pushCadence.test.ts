@@ -1,5 +1,5 @@
 // T10: the plan branch is pushed at the end by default (`pushCadence`), a person pushes it at once with
-// `run-draft-pr --now`, and only a Task an open Task depends on is merged into the plan branch before the delivery.
+// `run-draft-pr --now`, and every finished Task is merged into the plan branch before the delivery (2026-11-15).
 import { describe, it, expect } from 'vitest'
 import { handleCommand, type OrchServerDeps } from './command'
 import { draftPrDue } from './draftPr'
@@ -94,20 +94,20 @@ describe('push cadence (T10)', () => {
   })
 })
 
-describe('only a Task an open Task depends on is merged into the plan branch (T10)', () => {
-  it('one with no open dependent completes without a plan merge, and its worktree is left for the delivery', () => {
+// 2026-11-15: T10 left a Task no open Task depended on in its worktree for the delivery, so the plan branch the delivery's
+// fix Tasks work in lacked its commits. Every Task is merged into the plan branch now; only the push waits (the cadence).
+describe('every finished Task is merged into the plan branch, a dependent or not', () => {
+  it('one with no open dependent goes to merging too, and a completed one not merged yet is merged before the delivery', () => {
     const s = setup({ tasks: [task(), task({ id: 't2', deps: ['t1'], status: 'ready' }), task({ id: 't3' })], dispatches: [ended('t1'), ended('t3')] }).state()
     const [t1, , t3] = s.tasks
     expect(doneStatusOf(s, t1)).toBe('merging')
-    expect(doneStatusOf(s, t3)).toBe('completed')
-    // A completed one not merged yet: merged only while an open Task depends on it
-    expect(wavesToMerge(s, () => true).map((w) => w.taskId)).toEqual(['t1'])
-    expect(deliveryWorktrees(s, 'r1')).toContain('/wt/t3')
+    expect(doneStatusOf(s, t3)).toBe('merging')
+    expect(wavesToMerge(s, () => true).map((w) => w.taskId)).toEqual(['t1', 't3'])
   })
 
-  it('once its dependent is done, a completed Task is no longer merged before the delivery', () => {
-    const s = setup({ tasks: [task(), task({ id: 't2', deps: ['t1'] })], dispatches: [ended('t1'), ended('t2')] }).state()
+  it('once merged and recorded, the delivery merges only the plan folder', () => {
+    const s = setup({ tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2', deps: ['t1'], mergedIntoPlanAt: NOW })], dispatches: [ended('t1'), ended('t2')] }).state()
     expect(wavesToMerge(s, () => true)).toEqual([])
-    expect(deliveryWorktrees(s, 'r1')).toEqual(['/wt/t1', '/wt/t2', WT]) // the plan's own folder last
+    expect(deliveryWorktrees(s, 'r1')).toEqual([WT])
   })
 })
