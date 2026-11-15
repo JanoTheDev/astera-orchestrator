@@ -22,7 +22,10 @@ export async function writeDurably(file: string, text: string): Promise<void> {
   try {
     const fh = await fs.open(tmp, 'w')
     try {
-      await fh.writeFile(text, 'utf8')
+      // One write request, not `writeFile`'s 512 KiB chunks: each chunk waits its own turn in libuv's pool, so a 16 MB
+      // state behind a busy pool cost 33 waits (2026-11-15: state-put past 15 s while a small read waited 10 s).
+      const buf = Buffer.from(text, 'utf8')
+      for (let at = 0; at < buf.length; ) at += (await fh.write(buf, at, buf.length - at, at)).bytesWritten
       await fh.sync()
     } finally {
       await fh.close()
@@ -63,6 +66,24 @@ async function syncDir(dir: string): Promise<void> {
     }
   } catch {
     /* best effort: the file itself is already flushed */
+  }
+}
+
+/** `file` as text, read in one request rather than `readFile`'s 512 KiB chunks (the reason is in writeDurably). */
+export async function readWhole(file: string): Promise<string> {
+  const fh = await fs.open(file, 'r')
+  try {
+    const { size } = await fh.stat()
+    const buf = Buffer.allocUnsafe(size)
+    let at = 0
+    while (at < size) {
+      const { bytesRead } = await fh.read(buf, at, size - at, at)
+      if (bytesRead === 0) break
+      at += bytesRead
+    }
+    return buf.toString('utf8', 0, at)
+  } finally {
+    await fh.close()
   }
 }
 
