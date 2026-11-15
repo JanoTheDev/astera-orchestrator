@@ -9,7 +9,7 @@
 // differs from SchedulerConfigStore, which recovers per entry.
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { LAST_GOOD_SUFFIX, readLastGood, writeDurably } from '../recovery/plan'
+import { LAST_GOOD_SUFFIX, readLastGood, readWhole, writeDurably } from '../recovery/plan'
 import {
   deleteRuns,
   detachCoordinator,
@@ -50,6 +50,9 @@ interface ArchivedRun {
   status: 'completed' | 'failed'
   endedAt: string
 }
+
+/** A temp file of the store's own untouched this long belongs to a write that died (see sweepStaleTemps). */
+const STALE_TMP_MS = 60 * 60 * 1000
 
 const TERMINAL = new Set(['completed', 'failed'])
 /** A Run id that is safe as a file name; any other Run stays in the hot file. */
@@ -424,9 +427,10 @@ export class OrchestrationStore {
      *  there, which is why the pure helper leaves those out. */
     reportedDispatchIds?: ReadonlySet<string>
   }): Promise<OrchLoadResult> {
+    await this.sweepStaleTemps()
     let parsed: unknown
     try {
-      parsed = JSON.parse(await fs.readFile(this.filePath, 'utf8'))
+      parsed = JSON.parse(await readWhole(this.filePath))
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
         this.state = emptyState()
@@ -630,6 +634,19 @@ export class OrchestrationStore {
 
   get(): OrchState {
     return this.state
+  }
+
+  /** Removes the `<file>.<uuid>.tmp` files writes killed before their rename left behind (a 16 MB state each). Only
+   *  ones older than STALE_TMP_MS: another process may be mid-write on the same file right now. */
+  private async sweepStaleTemps(): Promise<void> {
+    const dir = path.dirname(this.filePath)
+    const prefix = path.basename(this.filePath) + '.'
+    for (const name of await fs.readdir(dir).catch(() => [] as string[])) {
+      if (!name.startsWith(prefix) || !name.endsWith('.tmp')) continue
+      const file = path.join(dir, name)
+      const st = await fs.stat(file).catch(() => null)
+      if (st && Date.now() - st.mtimeMs > STALE_TMP_MS) await fs.rm(file, { force: true }).catch(() => {})
+    }
   }
 
   /**
