@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -157,7 +158,23 @@ export interface TrashFs {
   rename(from: string, to: string): Promise<void>
   rm(p: string, opts: { recursive: true; force: true }): Promise<void>
 }
-const realFs: TrashFs = { rename: (from, to) => fs.rename(from, to), rm: (p, opts) => fs.rm(p, opts) }
+/** **The trash is deleted by a child Node, never by this process's own `fs.rm`** (2026-11-15). Node's recursive
+ *  `fs.promises.rm` queues every entry of a tree on libuv's pool at once: measured on Node 24.15, a 10,000-file tree
+ *  put 17,040 fs requests in flight together and a side `fs.stat` waited 352 ms behind them. A worktree's
+ *  node_modules is tens of times that, and a sweep trashes several at once, so the Host's every async file call
+ *  (sessions list, the state save, settings reads, path probes) waited 10 to 400 s in line. The child runs the same
+ *  `fs.promises.rm` on its own pool; `ELECTRON_RUN_AS_NODE` makes the app's Electron binary a Node too. */
+export function rmInChild(p: string, opts: { recursive: true; force: true }): Promise<void> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      ['-e', 'require("fs").promises.rm(process.argv[1], JSON.parse(process.argv[2])).catch((e) => { console.error(String(e)); process.exit(1) })', p, JSON.stringify(opts)],
+      { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, windowsHide: true },
+      (err, _out, stderr) => (err ? reject(new Error(stderr.trim() || err.message)) : resolve())
+    )
+  })
+}
+const realFs: TrashFs = { rename: (from, to) => fs.rename(from, to), rm: rmInChild }
 
 /** Renames `folder` to `<root>/.trash/<name>-<time>`, tried again while a held file refuses it (BUSY, about 5 s).
  *  The trash path; the last error is thrown, and the folder is then where it was, whole. */

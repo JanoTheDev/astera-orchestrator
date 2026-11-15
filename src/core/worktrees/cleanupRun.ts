@@ -26,19 +26,44 @@ async function inBaseOf(path: string, baseRef: string): Promise<boolean | null> 
   return (await git(['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`], { cwd: path })).ok ? false : null
 }
 
-/** The rows of the Worktrees page. A folder git cannot read (`status` other than `ok`) has every fact null. */
+/** How many worktrees' git facts are read at once. **Bounded** (2026-11-15): with all 129 of a monorepo's
+ *  worktrees at once, the Host-start sweep ran 129 `git status --untracked-files=all` plus their lstats together for
+ *  72 s, and every Host file call (sessions list 50 s, settings reads 10 s) waited behind them. */
+export const ROW_GIT_CONCURRENCY = 4
+
+/** `fn` over `items`, at most `limit` at a time, answers in `items`' order. */
+async function mapLimited<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const lane = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane))
+  return out
+}
+
+/** The rows of the Worktrees page. A folder git cannot read (`status` other than `ok`) has every fact null.
+ *  `want` picks rows by owner before any git call is made: a sweep of one plan reads that plan's folders only. */
 export async function worktreeRows(
   items: readonly WorktreeListItem[],
   state: OrchState,
-  isPathInUse: (p: string) => string | null
+  isPathInUse: (p: string) => string | null,
+  want: (owner: WorktreeRow['owner']) => boolean = () => true
 ): Promise<WorktreeRow[]> {
   const owners = worktreeOwners(state)
+  const ownerOf = (item: WorktreeListItem): WorktreeRow['owner'] =>
+    owners.get(item.path.replace(/\\/g, '/').replace(/\/+$/, '')) ?? inferOwner(item, items, owners)
+  const wanted = items.map((item) => ({ item, owner: ownerOf(item) })).filter((x) => want(x.owner))
   const pushByRepo = new Map<string, Record<string, Record<string, BranchPushState>>>()
-  for (const repo of new Set(items.map((w) => w.repoPath)))
-    pushByRepo.set(repo, await readPushState(repo, [...new Set(items.filter((w) => w.repoPath === repo).map((w) => w.baseRef))]).catch(() => ({})))
-  return Promise.all(
-    items.map(async (item): Promise<WorktreeRow> => {
-      const owner = owners.get(item.path.replace(/\\/g, '/').replace(/\/+$/, '')) ?? inferOwner(item, items, owners)
+  for (const repo of new Set(wanted.map((w) => w.item.repoPath)))
+    pushByRepo.set(repo, await readPushState(repo, [...new Set(wanted.filter((w) => w.item.repoPath === repo).map((w) => w.item.baseRef))]).catch(() => ({})))
+  return mapLimited(
+    wanted,
+    ROW_GIT_CONCURRENCY,
+    async ({ item, owner }): Promise<WorktreeRow> => {
       const push = pushByRepo.get(item.repoPath)?.[item.baseRef]?.[item.branch]
       const readable = item.status === 'ok'
       const changes = readable ? await blockingChanges(item.path).catch(() => null) : null
@@ -60,7 +85,7 @@ export async function worktreeRows(
         live,
         ready: isReadyToClean({ owner, live, dirty, unpushed, inBase })
       }
-    })
+    }
   )
 }
 
@@ -151,8 +176,8 @@ async function cleanAndReport(rows: readonly WorktreeRow[], deps: CleanDeps, rep
 /** A finished plan's ready worktrees (and only that plan's) are removed. Never throws. */
 export async function cleanRun(runId: string, deps: CleanDeps): Promise<CleanResult> {
   try {
-    const rows = await worktreeRows(await deps.list(), deps.state(), deps.isPathInUse)
-    return await cleanAndReport(rows.filter((r) => r.owner?.runId === runId), deps, true)
+    const rows = await worktreeRows(await deps.list(), deps.state(), deps.isPathInUse, (o) => o?.runId === runId)
+    return await cleanAndReport(rows, deps, true)
   } catch (e) {
     deps.log?.(`worktree clean-up of run ${runId} failed: ${String(e)}`)
     return { removed: [], kept: [] }
@@ -164,8 +189,7 @@ export async function cleanRun(runId: string, deps: CleanDeps): Promise<CleanRes
  *  folder whose Run still runs, archived or not: it is kept and reported. Never throws. */
 export async function cleanFinished(deps: CleanDeps): Promise<CleanResult> {
   try {
-    const rows = await worktreeRows(await deps.list(), deps.state(), deps.isPathInUse)
-    const finished = rows.filter((r) => r.owner && (r.owner.delivered || r.owner.archived))
+    const finished = await worktreeRows(await deps.list(), deps.state(), deps.isPathInUse, (o) => o !== undefined && (o.delivered || o.archived === true))
     // The Run still runs: a Task is being worked, checked, reviewed or merged, work is waiting for its turn (ready, pending),
     // or its coordinator session is recorded and not being stopped (it runs at the project root, so no folder shows it).
     // A Run with no Task left and no coordinator is not running.

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { execFileSync, spawn } from 'node:child_process'
 import { promises as fs, existsSync } from 'node:fs'
 import path from 'node:path'
-import { blockingChanges, deleteTrash, removeWorktree, isDangerousRemovalPath, type TrashFs } from './remove'
+import { blockingChanges, deleteTrash, removeWorktree, isDangerousRemovalPath, rmInChild, type TrashFs } from './remove'
 import { createWorktree } from './create'
 import { WorktreeRegistry } from './registry'
 import { localBranchExists } from './git'
@@ -617,5 +617,18 @@ describe('deleteTrash', () => {
     expect(tries).toBe(3)
     expect(logs).toHaveLength(1)
     expect(logs[0]).toMatch(/could not delete D:\/trash\/x/)
+  })
+})
+
+describe('rmInChild', () => {
+  // The trash's delete runs in a child Node, so its fs requests never queue on this process's pool
+  it('removes a whole tree, and a missing path is no error (force)', async () => {
+    const root = path.join(await tempDir('astera-wt-rmchild-'), 'trashed')
+    await fs.mkdir(path.join(root, 'node_modules', 'pkg'), { recursive: true })
+    await fs.writeFile(path.join(root, 'node_modules', 'pkg', 'index.js'), 'x')
+    await fs.writeFile(path.join(root, 'a b.txt'), 'x')
+    await rmInChild(root, { recursive: true, force: true })
+    expect(existsSync(root)).toBe(false)
+    await expect(rmInChild(root, { recursive: true, force: true })).resolves.toBeUndefined()
   })
 })
