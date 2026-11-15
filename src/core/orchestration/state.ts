@@ -243,19 +243,15 @@ export const samePlace = (a: string, b: string): boolean => {
   return norm(a) === norm(b)
 }
 
-/** T10: some not-completed Task of its Run lists it in its deps: its work must be on the plan branch before that one forks. */
-export const hasOpenDependent = (s: Pick<OrchState, 'tasks'>, task: Task): boolean =>
-  s.tasks.some((x) => x.runId === task.runId && x.status !== 'completed' && x.deps.includes(task.id))
-
-/** Where a Task whose work succeeded goes. `merging` when it has work to land on its plan branch: an open Task depends on it
- *  (hasOpenDependent), its Run has its own worktree (integrate.ts runRootOf), it is not itself a merge Task (`parentId`), and some attempt (not a review)
+/** Where a Task whose work succeeded goes. `merging` when it has work to land on its plan branch: its Run has its own worktree (integrate.ts runRootOf), it is not itself a merge Task (`parentId`), and some attempt (not a review)
  *  worked outside that worktree. Otherwise `completed`, as before. A Task reads completed only once its commits are on
  *  the plan branch: the app's merge (dispatchLoop mergeWaves) moves it on, or a Gate stops it. Every move to completed
  *  asks this, a person's `task-update --status completed` too. */
 export function doneStatusOf(s: Pick<OrchState, 'runs' | 'dispatches' | 'tasks'>, task: Task): 'merging' | 'completed' {
   const root = s.runs.find((r) => r.id === task.runId)?.worktree
-  // T10: only a Task an open Task depends on is merged now; the rest stay in their worktrees for the delivery to merge
-  if (root === undefined || task.parentId || !hasOpenDependent(s, task)) return 'completed'
+  // Every Task lands on the plan branch, a leaf too (2026-11-15): left in its worktree for the delivery, the plan branch
+  // its delivery-fix Tasks work in never held its commits. Merging is local; the push cadence (draftPr.ts) is what saves load
+  if (root === undefined || task.parentId) return 'completed'
   return s.dispatches.some((d) => d.taskId === task.id && !d.review && !samePlace(d.cwd, root)) ? 'merging' : 'completed'
 }
 

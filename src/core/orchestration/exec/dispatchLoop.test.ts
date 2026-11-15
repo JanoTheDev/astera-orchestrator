@@ -31,6 +31,7 @@ import { ASK_GRACE_MS } from './autoAnswer'
 import { START_RETRY_LIMIT_OTHER } from './handsOffRecovery'
 import type { Decision, Dispatch, Job, Message, PushCadence, Task } from '../types'
 import { acceptSlotHolds, taskBoardsOf } from '../blocked'
+import { deliveryWorktrees } from '../integrate'
 import { FAILURE_LIMIT } from '../types'
 import type { Account, SlotHold } from '../../types'
 import { installPending, installSettled, installTurn } from '../../worktrees/setup'
@@ -617,7 +618,7 @@ describe('createDispatchLoop', () => {
   it('an integration conflict starts a merge worker, and its failure opens a Gate', async () => {
     const h = rig()
     driven(h, {
-      tasks: [task({ id: 'tsk_1', status: 'merging' })], // T10: a completed one no open Task depends on waits for the delivery
+      tasks: [task({ id: 'tsk_1', status: 'merging' })],
       dispatches: [
         { id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW, endedAt: NOW, outcome: 'succeeded' } as Dispatch
       ]
@@ -645,6 +646,33 @@ describe('createDispatchLoop', () => {
     expect(h.state().tasks.find((t) => t.id === merge.id)!.status).toBe('blocked')
     await h.loop.nudge()
     expect(h.state().gates.filter((g) => g.taskId === merge.id)).toHaveLength(1)
+  })
+  // 2026-11-15 (run_3dade49b87aaa832): a one-Task plan's Task, which no Task depends on, completed straight to `completed`
+  // and stayed in its worktree; the plan branch its delivery-fix Tasks worked in never held its commit.
+  it('a lone Task no Task depends on is merged into the plan branch before it completes, and the delivery has nothing of it left to merge', async () => {
+    const h = rig()
+    const s0 = h.state()
+    h.setState({
+      ...s0,
+      jobs: s0.jobs.map((j) => ({ ...j, handsOff: true })),
+      tasks: [task({ id: 'tsk_1', status: 'dispatched' })],
+      dispatches: [{ id: 'dsp_1', taskId: 'tsk_1', provider: 'claude', accountId: 'accA', sessionId: 'w-1', cwd: '/wt-child', specPath: '', startedAt: NOW } as Dispatch]
+    })
+    const merges: [string, string[]][] = []
+    h.ctx.integrate = async (root, paths) => {
+      merges.push([root, paths])
+      return { kind: 'merged', uncommitted: 0 }
+    }
+    const done = await h.as('w-1', 'send', { type: 'worker_done', taskId: 'tsk_1', dispatchId: 'dsp_1', outcome: 'succeeded', subject: 'a', body: 'b' })
+    expect(done.status).toBe(200)
+    expect(h.state().tasks.find((t) => t.id === 'tsk_1')!.status).toBe('merging')
+    await h.loop.nudge()
+    await h.settle()
+    expect(merges).toEqual([['/wt1', ['/wt-child']]])
+    const t1 = h.state().tasks.find((t) => t.id === 'tsk_1')!
+    expect(t1.status).toBe('completed')
+    expect(t1.mergedIntoPlanAt).toBeDefined()
+    expect(deliveryWorktrees(h.state(), 'run_1')).not.toContain('/wt-child')
   })
   it('writes the merge Task title and its Gate reason in the app language (en), with no Hangul', async () => {
     const h = rig()

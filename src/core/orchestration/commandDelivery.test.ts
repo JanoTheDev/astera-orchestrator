@@ -139,9 +139,9 @@ describe('run-deliver (W6-H)', () => {
     expect(outcomeOf(ok.state(), 'r1')).toBe('completed')
   })
 
-  it('T10: a Task no open Task depended on, never merged into the plan branch, is merged by the delivery', async () => {
+  it('a completed Task never merged into the plan branch (state from before every Task merged) is merged by the delivery', async () => {
     const h = setup({ project: { delivery: 'push', deliveryBranch: 'main' }, run: { worktree: '/wt/plan' }, tasks: [task({ mergedIntoPlanAt: NOW }), task({ id: 't2' })] })
-    expect(doneStatusOf(h.state(), h.state().tasks[1])).toBe('completed')
+    expect(doneStatusOf(h.state(), h.state().tasks[1])).toBe('merging')
     expect((await h.call('run-deliver', { run: 'r1' })).status).toBe(200)
     expect(h.pushes[0].worktrees).toContain('/wt/t2')
     expect(h.pushes[0].worktrees).not.toContain('/wt/t1') // folded: the plan branch brings it
