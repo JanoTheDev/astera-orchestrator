@@ -943,6 +943,52 @@ describe('refreshOnto: a running plan takes in another plan\'s delivery (T11)', 
     expect(reason).not.toContain('fetching it failed')
   })
 
+  // host.log 2026-11-15: a merge that died on another git's index.lock became the owner's question, and the same merge
+  // landed a second later
+  it('a merge that finds the index locked is tried again after a short wait, and merges once the lock is gone', async () => {
+    const wt = await worked('b')
+    const sha = await deliver('a.txt', 'a')
+    const lock = path.resolve(wt, gitSync(wt, ['rev-parse', '--git-path', 'index.lock']).trim())
+    await fs.writeFile(lock, '')
+    const waits: number[] = []
+    const wait = async (ms: number): Promise<void> => {
+      waits.push(ms)
+      await fs.rm(lock, { force: true })
+    }
+    expect(await refreshOnto(wt, sha, 'refresh', { log: logTo(), wait })).toEqual({ kind: 'merged' })
+    expect(waits).toEqual([1_000])
+    expect(logs.some((m) => m.includes('locked by another git process'))).toBe(true)
+  })
+
+  it('a lock that stays is retried a bounded number of times, then reported as before', async () => {
+    const wt = await worked('b')
+    const sha = await deliver('a.txt', 'a')
+    const lock = path.resolve(wt, gitSync(wt, ['rev-parse', '--git-path', 'index.lock']).trim())
+    await fs.writeFile(lock, '')
+    const waits: number[] = []
+    const r = await refreshOnto(wt, sha, 'refresh', { log: logTo(), wait: async (ms) => void waits.push(ms) })
+    expect(r).toMatchObject({ kind: 'human', reason: expect.stringContaining('index.lock') })
+    expect(waits).toEqual([1_000, 3_000, 10_000])
+    await expect(fs.stat(lock)).resolves.toBeTruthy() // never removed: it is another process's
+  })
+
+  it('two refreshes of one worktree run one after the other: the second finds the commit merged', async () => {
+    const wt = await worked('b')
+    const sha = await deliver('a.txt', 'a')
+    const calls: string[] = []
+    const tagged = (tag: string): typeof git => async (args, opts) => {
+      calls.push(`${tag} ${args[0]}`)
+      return git(args, opts)
+    }
+    const [a, b] = await Promise.all([
+      refreshOnto(wt, sha, 'origin sync', { log: logTo(), git: tagged('A') }),
+      refreshOnto(wt, sha, 'refresh', { log: logTo(), git: tagged('B') })
+    ])
+    expect([a, b]).toEqual([{ kind: 'merged' }, { kind: 'current' }])
+    // every git call of the second after the last of the first
+    expect(calls.map((c) => c[0]).join('')).toMatch(/^A+B+$/)
+  })
+
   it('never merges under uncommitted changes', async () => {
     const wt = await worked('b')
     await fs.writeFile(path.join(wt, 'b.txt'), 'edited, not committed')

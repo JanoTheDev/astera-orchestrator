@@ -17,7 +17,7 @@ import { comparablePath, isSamePath } from '../../files/tree'
 import { createWorktree } from '../../worktrees/create'
 import { inCheckoutSlot } from '../../worktrees/checkoutLimit'
 import { workerBaseFailure } from '../../worktrees/base'
-import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, fetchSerially, GIT_WRITE_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS } from '../../worktrees/git'
+import { git as realGit, type GitResult, gitDir, gitVersionAtLeast, listGitWorktrees, fetchOrigin, fetchSerially, REF_LOCK_RACE, GIT_WRITE_TIMEOUT_MS, GIT_FETCH_TIMEOUT_MS } from '../../worktrees/git'
 import { backupRef, removeWorktree } from '../../worktrees/remove'
 import { deliveryLockKey, withDeliveryLock } from './deliveryLock'
 import { LOCKFILES, SETUP_SLOT_WAIT_MS, installTurn, runWorktreeSetup, type InstallTurn } from '../../worktrees/setup'
@@ -949,26 +949,56 @@ async function sortFolders(paths: string[], presence: PresenceCheck = defaultAct
  *  into at all (not on a branch, uncommitted changes, git refused), so it was left as it was. */
 export type Refresh = { kind: 'current' } | { kind: 'merged' } | { kind: 'conflict'; reason: string } | { kind: 'human'; reason: string }
 
+type RefreshContext = {
+  log(m: string): void
+  git?: typeof realGit
+  gitAtLeast?: typeof gitVersionAtLeast
+  fetchBranch?: string
+  /** T1: the plan's project folder (the Job's cwd), which may be another clone than the worktree's repository: where
+   *  the delivered commit is looked for when origin does not give it. */
+  projectDir?: string
+  /** Test seam: the wait before a try after a lock race (`REFRESH_LOCK_RETRY_MS`). */
+  wait?: (ms: number) => Promise<void>
+}
+
+/** The waits before each further try of a refresh whose merge found the index or a ref locked by another git process. */
+export const REFRESH_LOCK_RETRY_MS = [1_000, 3_000, 10_000] as const
+/** The tail of the refresh queue of each worktree (`refreshOnto`). */
+const refreshTail = new Map<string, Promise<unknown>>()
+
 /**
  * **T11: merges `base` (a commit another plan of the project delivered) into a worktree of a plan still running**, so
  * the plan's next Task starts on the new base and its own delivery does not collide. A merge, never a rebase: the
  * worktree's commits keep their ids. The guards of integrateWorktrees: a worktree off a branch or with uncommitted
  * tracked changes is left alone, and a conflict is found by `merge-tree --write-tree` before anything is written.
+ *
+ * One refresh per worktree at a time: the origin sync, a pass's refresh before a Task starts and a delivery's refresh
+ * merged into one worktree side by side, and the loser's `git merge` died on the winner's index.lock and became the
+ * owner's question (host.log 2026-11-15). A merge that still loses a lock race (a git outside this queue) is tried again
+ * from the top after a short wait, its guards read again: a winner that merged the same commit makes it `current`.
  */
-export async function refreshOnto(
-  worktree: string,
-  base: string,
-  message: string,
-  ctx: {
-    log(m: string): void
-    git?: typeof realGit
-    gitAtLeast?: typeof gitVersionAtLeast
-    fetchBranch?: string
-    /** T1: the plan's project folder (the Job's cwd), which may be another clone than the worktree's repository: where
-     *  the delivered commit is looked for when origin does not give it. */
-    projectDir?: string
+export async function refreshOnto(worktree: string, base: string, message: string, ctx: RefreshContext): Promise<Refresh> {
+  const key = comparablePath(worktree)
+  const mine = (refreshTail.get(key) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+    let r = await refreshOnce(worktree, base, message, ctx)
+    for (const ms of REFRESH_LOCK_RETRY_MS) {
+      if (r.kind !== 'human' || !REF_LOCK_RACE.test(r.reason)) break
+      ctx.log(`refresh: ${worktree} was locked by another git process; trying again in ${ms / 1000}s`)
+      await (ctx.wait ?? ((w: number) => new Promise((res) => setTimeout(res, w))))(ms)
+      r = await refreshOnce(worktree, base, message, ctx)
+    }
+    return r
+  })
+  const tail = mine.catch(() => undefined)
+  refreshTail.set(key, tail)
+  try {
+    return await mine
+  } finally {
+    if (refreshTail.get(key) === tail) refreshTail.delete(key)
   }
-): Promise<Refresh> {
+}
+
+async function refreshOnce(worktree: string, base: string, message: string, ctx: RefreshContext): Promise<Refresh> {
   const run = ctx.git ?? realGit
   if ((await run(['merge-base', '--is-ancestor', base, 'HEAD'], { cwd: worktree })).ok) return { kind: 'current' }
   // A merged pull request's commit is on origin only until fetched: never mistaken for a conflict

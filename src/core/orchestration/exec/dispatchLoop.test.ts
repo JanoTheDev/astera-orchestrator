@@ -5,6 +5,7 @@
 // 워크트리·세션)뿐이다. **setState 는 상태를 갈아 끼운 뒤 `loop.run()` 을 다시 부른다** — 앱의 커밋
 // 훅이 하는 일 그대로라(B4), 루프의 scheduleAgain 갈래가 운영에서처럼 돈다.
 import { ORIGIN_SYNC_MARK } from './originSync'
+import type { Refresh } from './integrateGit'
 import { describe, it, expect, vi } from 'vitest'
 import {
   COORDINATOR_STOP_RETRY_CAP_TRIES,
@@ -15,6 +16,7 @@ import {
   REPLAN_IDLE_NUDGE_MS,
   REPLAN_TIMEOUT_MS,
   BACKGROUND_JOB_LIMIT_MS,
+  REFRESH_GATE_RETRY_MS,
   createDispatchLoop, type DispatchLoop, type DispatchLoopContext,
   idleWorkersOf
 } from './dispatchLoop'
@@ -3939,6 +3941,87 @@ describe('plans of one project: one delivery at a time, the others refreshed ont
     await h.loop.run()
     await h.settle()
     expect(h.state().tasks.filter((t) => t.runId === 'run_1' && t.spec.includes('shaA'))).toHaveLength(1)
+  })
+
+  // host.log 2026-11-15: the refresh lost a race for the worktree's index.lock, and the same merge landed a second later
+  const LOCKED = "merging shaA into /wt1 failed: error: Unable to create '/p/.git/worktrees/wt1/index.lock': File exists.\n\nAnother git process seems to be running in this repository"
+
+  /** The rig after a refresh lost a lock race: tsk_1's Gate open over it. */
+  const lockedOut = async (h: ReturnType<typeof rig>, refresh: () => Promise<Refresh>) => {
+    withDeliveredA(h)
+    h.ctx.refreshOnto = refresh
+    await h.loop.run()
+    await h.settle()
+    const gate = h.state().gates.find((g) => g.status === 'open')!
+    expect(gate.question).toContain("could not be refreshed onto plan A's delivery")
+    expect(h.state().tasks.find((t) => t.id === gate.taskId)?.status).toBe('blocked')
+    return gate
+  }
+
+  it("a refresh's Gate closes on its own once a later refresh takes the delivery in, and its Task goes on", async () => {
+    const h = rig()
+    let locked = true
+    const gate = await lockedOut(h, async () => (locked ? { kind: 'human', reason: LOCKED } : { kind: 'current' }))
+    locked = false
+    h.clock += REFRESH_GATE_RETRY_MS - 1
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().gates.find((g) => g.id === gate.id)?.status).toBe('open') // not tried again before its wait
+    h.clock += 1
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().gates.find((g) => g.id === gate.id)).toMatchObject({ status: 'resolved', resolution: expect.stringContaining('later refresh') })
+    expect(h.state().tasks.find((t) => t.id === gate.taskId)?.status).toBe('ready')
+  })
+
+  it("with a worker in the Run worktree, a refresh's Gate closes once HEAD holds the delivery, without merging", async () => {
+    const h = rig()
+    const refresh = vi.fn(async (): Promise<Refresh> => ({ kind: 'human', reason: LOCKED }))
+    const gate = await lockedOut(h, refresh)
+    // The other Task's worker works in /wt1, so nothing is merged under it
+    const s = h.state()
+    h.setState({ ...s, dispatches: s.dispatches.map((d) => ({ ...d, cwd: '/wt1' })) })
+    let inHead = false
+    h.ctx.inHead = async (w, sha) => w === '/wt1' && sha === 'shaA' && inHead
+    const calls = refresh.mock.calls.length
+    h.clock += REFRESH_GATE_RETRY_MS
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().gates.find((g) => g.id === gate.id)?.status).toBe('open')
+    // The origin sync merged the same commit meanwhile
+    inHead = true
+    h.clock += REFRESH_GATE_RETRY_MS
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().gates.find((g) => g.id === gate.id)?.status).toBe('resolved')
+    expect(refresh.mock.calls.length).toBe(calls)
+  })
+
+  it("a refresh's Gate whose cause stands stays open", async () => {
+    const h = rig()
+    withDeliveredA(h)
+    h.ctx.refreshOnto = async () => ({ kind: 'human', reason: `/wt1 has uncommitted changes, so shaA was not merged into it` })
+    await h.loop.run()
+    await h.settle()
+    const gate = h.state().gates.find((g) => g.status === 'open')
+    expect(gate).toBeDefined()
+    h.ctx.inHead = async () => false
+    h.clock += REFRESH_GATE_RETRY_MS
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().gates.find((g) => g.id === gate!.id)?.status).toBe('open')
+  })
+
+  it('hands-off: a refresh that lost a lock race is a start retry, not the owner\'s question', async () => {
+    const h = rig()
+    withDeliveredA(h)
+    const s = h.state()
+    h.setState({ ...s, jobs: s.jobs.map((j) => ({ ...j, handsOff: true })) })
+    h.ctx.refreshOnto = async () => ({ kind: 'human', reason: LOCKED })
+    await h.loop.run()
+    await h.settle()
+    expect(h.state().gates.filter((g) => g.status === 'open')).toEqual([])
+    expect(h.state().tasks.some((t) => t.startRetry?.reason.includes('index.lock'))).toBe(true)
   })
 
   /** Plan A's pull request, which the PR poll saw merged (`attribution-remap`) after plan B began. */

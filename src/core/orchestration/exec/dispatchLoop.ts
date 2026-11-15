@@ -106,6 +106,10 @@ export const ORCH_FIRE_TICK_MS = 15_000
 /** T7: how long a background job of the pass (a delivery, a plan-branch push, an origin sync, a refresh) may run before
  *  it is abandoned and its Run is due again. */
 export const BACKGROUND_JOB_LIMIT_MS = 20 * 60_000
+/** The words of a refresh's Gate (refreshRunOnce): how `closeRefreshedGates` tells it among a Task's Gates. */
+const REFRESH_FAILED = 'could not be refreshed onto plan'
+/** How often an open refresh Gate's refresh is tried again, to close it once the cause has passed. */
+export const REFRESH_GATE_RETRY_MS = 60_000
 
 /** The heads a delivery attempt is judged against (delivery.ts `deliveryDue`): the plan worktree's HEAD and origin's tip
  *  of the delivery branch, as this computer's refs have it (every delivery's fetch and push moves them). With no branch
@@ -320,6 +324,8 @@ export interface DispatchLoopContext {
    *  delivery is retried on when they move (delivery.ts `deliveryDue`). Optional: defaults to `git rev-parse` over the
    *  real folders; a value that cannot be read is left out. */
   deliveryHeads?(a: { worktree: string; projectCwd: string; branch?: string }): Promise<DeliveryHeads>
+  /** Whether `sha` is in `worktree`'s HEAD (a read, never a merge). Optional: defaults to `git merge-base --is-ancestor`. */
+  inHead?(worktree: string, sha: string): Promise<boolean>
   /** T19: the commit `ref` names in `cwd` (a merge-failed delivery's target tip). Optional: defaults to the real git. */
   readTip?(cwd: string, ref: string): Promise<string | null>
   /** Asked on entry and again before each slot (§4.3). */
@@ -895,7 +901,7 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
         }
         continue
       }
-      if (r.kind === 'human') return { kind: 'gate', reason: `Plan ${mine} could not be refreshed onto plan ${plan}'s delivery: ${r.reason}` }
+      if (r.kind === 'human') return { kind: 'gate', reason: `Plan ${mine} ${REFRESH_FAILED} ${plan}'s delivery: ${r.reason}` }
       // The integration Task of this delivery: its spec names the delivered commit
       const ofThis = (st: OrchState): Task | undefined => st.tasks.find((t) => t.runId === runId && isIntegrationTask(t) && t.spec.includes(d.sha))
       const existing = ofThis(s)
@@ -916,6 +922,41 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       return { kind: 'wait', why: `plan ${mine} conflicts with plan ${plan}'s delivery, and an integration task resolves that first` }
     }
     return { kind: 'ready' }
+  }
+
+  /** Whether every delivery the Run is to be refreshed onto is in its worktree's HEAD already. */
+  const deliveriesInHead = async (runId: string): Promise<boolean> => {
+    const s = c.getState()
+    const run = s.runs.find((r) => r.id === runId)
+    const job = run && jobOf(s, run)
+    if (!run || !job || run.worktree === undefined) return false
+    const inHead = c.inHead ?? (async (w: string, sha: string) => (await realGit(['merge-base', '--is-ancestor', sha, 'HEAD'], { cwd: w })).ok)
+    const held = await Promise.all(deliveriesBefore(s, run, job).map((d) => inHead(run.worktree!, d.sha)))
+    return held.every(Boolean)
+  }
+  /** When each open Gate of a failed refresh was last tried again (`closeRefreshedGates`), by Gate id. */
+  const refreshGateTriedAt = new Map<string, number>()
+  /** A Gate a failed refresh opened closes on its own once a later refresh of its Run ends `ready` (every delivery is in
+   *  its worktree, whoever merged it), so its Task goes on: the owner is asked only while the cause stands (host.log
+   *  2026-11-15: a lock held for a second kept a Task blocked after the same merge landed). In the background, at most
+   *  every REFRESH_GATE_RETRY_MS per Gate. */
+  const closeRefreshedGates = async (): Promise<void> => {
+    const s = c.getState()
+    for (const g of s.gates) {
+      if (g.status !== 'open' || !g.question.includes(REFRESH_FAILED)) continue
+      if (c.nowMs() - (refreshGateTriedAt.get(g.id) ?? -Infinity) < REFRESH_GATE_RETRY_MS || !c.mayStart()) continue
+      refreshGateTriedAt.set(g.id, c.nowMs())
+      // Its own kind: it waits for the Run's background refresh (refreshRunningPlans), which is throttled, to end first
+      void inBackground('refresh gate', g.runId, async (alive) => {
+        const r = await refreshRun(g.runId, g.taskId, { now: true })
+        // A worker in the Run worktree holds the merge back, but the delivery may be in it already (the origin sync merged it)
+        const taken = r.kind === 'ready' || (r.kind === 'wait' && r.busy === true && (await deliveriesInHead(g.runId)))
+        if (!alive() || !taken) return
+        const done = await c.handle('gate-resolve', { id: g.id, resolution: 'resolved: a later refresh took in the delivery' })
+        if (done.status >= 400) log(`run=${g.runId}: closing gate=${g.id} after its refresh succeeded was refused: ${JSON.stringify(done.body)}`)
+        else log(`run=${g.runId}: gate=${g.id} closed: a later refresh took in the delivery, task=${g.taskId} goes on`)
+      })
+    }
   }
 
   /** T7: the background jobs under way (`inBackground`), by Run and kind: each settles to true when it was abandoned. */
@@ -1689,6 +1730,8 @@ export function createDispatchLoop(c: DispatchLoopContext): DispatchLoop {
       if (!c.mayStart()) return
       // T11: after the deliveries, so the other plans of a project that just delivered take it in within this pass
       await refreshRunningPlans()
+      if (!c.mayStart()) return
+      await closeRefreshedGates()
       if (!c.mayStart()) return
       // W8-C: after the delivery, so a plan queued after one delivered in this pass starts in it too
       await startQueuedPlans()

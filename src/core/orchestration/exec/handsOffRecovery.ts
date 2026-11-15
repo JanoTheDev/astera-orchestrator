@@ -43,7 +43,9 @@ const TRANSIENT_START = [
   /pty supervisor/i,
   /connection to the Host|no connection to the Host|the Host is (?:busy|restarting|leaving)/i,
   /memory pressure|out of memory/i,
-  /network drive/i
+  /network drive/i,
+  // A git lock another process held (index.lock, a ref's .lock): a refresh before the start already retried it briefly
+  /Unable to create '[^']*\.lock'|another git process seems to be running|cannot lock ref/i
 ]
 export const isTransientStartFailure = (reason: string): boolean => TRANSIENT_START.some((re) => re.test(reason))
 

@@ -70,6 +70,13 @@ describe('start failures under hands-off', () => {
     expect(isTransientStartFailure('Error: the pty supervisor did not answer the spawn')).toBe(true)
     expect(isTransientStartFailure('fork: origin main could not be fetched: timed out')).toBe(true)
     expect(isTransientStartFailure('--agent must be claude|codex')).toBe(false)
+    // host.log 2026-11-15: a refresh before the start lost a race for the worktree's index.lock
+    expect(
+      isTransientStartFailure(
+        "Plan P could not be refreshed onto plan Q's delivery: merging e0df024 into C:\\wt failed: error: Unable to create 'C:/r/.git/worktrees/wt/index.lock': File exists.\n\nAnother git process seems to be running in this repository"
+      )
+    ).toBe(true)
+    expect(isTransientStartFailure("Plan P could not be refreshed onto plan Q's delivery: C:\\wt has uncommitted changes")).toBe(false)
   })
 
   it('backs off a growing wait, more tries for a transient cause, then gives up', () => {
