@@ -75,7 +75,7 @@ import { findHostHeld, hostHeldLive, nativeOfForwardedRekey } from './host/hostN
 import { applyAdoptRolling } from './host/adoptRolling'
 import { chatAdoptPlan, hostCarryOnIsOurs, hostStartingDefers } from './chatAdopt'
 import { reattachSessions, type ReattachResult } from './host/reattach'
-import { createWorktreeRoute, NO_HOST_CONNECTION, hostDeadlineMessage } from './host/worktreeRoute'
+import { createWorktreeRoute, NO_HOST_CONNECTION, hostDeadlineMessage, isHostDeadline } from './host/worktreeRoute'
 import { createPluginsRoute } from './host/pluginsRoute'
 import { createSourcesRoute } from './host/sourcesRoute'
 import { createAppCompletionChecks } from './host/pluginChecksRoute'
@@ -5429,8 +5429,11 @@ export function registerIpc(
         const r = await orchCall({ cmd, args: args ?? {}, sessionId: '', ...(PERSON_WAITS_LONGER.has(cmd) ? { timeoutMs: PERSON_COMMAND_DEADLINE_MS } : {}) })
         return { status: r.status, body: r.body }
       } catch (e) {
-        orchLog(`host route: ${cmd} got no answer: ${e instanceof Error ? e.message : String(e)}`)
-        return { status: 503, body: { error: e instanceof Error ? e.message : String(e) } }
+        const message = e instanceof Error ? e.message : String(e)
+        orchLog(`host route: ${cmd} got no answer: ${message}`)
+        // sourcesRoute's three: nothing was sent, the deadline passed, or the connection went with the call out (it may have run)
+        const code = message === NO_HOST_CONNECTION ? 'HOST_NOT_RUNNING' : isHostDeadline(message) ? 'TIMEOUT' : 'HOST_LOST'
+        return { status: 503, body: { error: message, code } }
       }
     },
     remote: remoteRuntimes,

@@ -19,7 +19,7 @@
 // node.exe. Nothing here imports chokidar (the reason the listing left core/history/index.ts).
 import path from 'node:path'
 import { readAccountEntries } from '../core/accounts/accountsFile'
-import { resolveProjectRootFrom } from '../core/files/tree'
+import { isSamePath, resolveProjectRootFrom } from '../core/files/tree'
 import { ProjectPathListing } from '../core/history/projects'
 import { SessionCwdCache } from '../core/history/sessionCwdCache'
 import { makeDescriptors } from '../core/providers/descriptor'
@@ -49,13 +49,18 @@ export function createHostProjectRoots(a: {
   const repoRoot = a.repoRoot ?? gitRepoRoot
   return {
     resolve: async (cwd) => {
+      const root = await repoRoot(cwd)
+      // A repository's own root has no candidate above it inside the repository (resolveProjectRootFrom's bound), so the
+      // answer is the root itself: the transcript walk is skipped. Measured 2026-11-15 on 1,465 folders and 4,649
+      // transcripts: 3-8 s on a quiet Host, 22 s with libuv's pool busy, inside every `jobs create` from the app.
+      if (root !== null && isSamePath(root, cwd)) return a.repoPaths().find((p) => isSamePath(p, cwd)) ?? cwd
       await (loaded ??= memo.load())
       const accounts = await readAccountEntries(path.join(a.profileDir, 'accounts.json'))
       return resolveProjectRootFrom({
         cwd,
         repoPaths: a.repoPaths(),
         projectPaths: await listing.projectPaths(accounts),
-        repoRoot
+        repoRoot: async () => root
       })
     }
   }

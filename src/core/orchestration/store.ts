@@ -7,6 +7,7 @@
 // (Task→Run, Dispatch→Task, Message→Delivery, Gate→Task). Dropping a single entry leaves
 // dangling references behind, which is a worse state than starting over. That is why this policy
 // differs from SchedulerConfigStore, which recovers per entry.
+import { createHash } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { LAST_GOOD_SUFFIX, readLastGood, readWhole, writeDurably } from '../recovery/plan'
@@ -847,6 +848,11 @@ export class OrchestrationStore {
   private plansWritten = new Map<string, Map<string, string>>()
   /** T3: the state objects each plan folder was last rendered from, so a commit that leaves a Job alone renders nothing. */
   private plansFrom = new Map<string, unknown[]>()
+  /** A digest of what each plan folder was last rendered from. A `state-put` hands over the whole state as fresh objects,
+   *  so `plansFrom` misses for every planned Job; re-rendering all of them (an existing.md read and a tasks/ readdir each,
+   *  one after another) made a state-put's save 5-11 s against a copy of a 254-plan profile, past the app's 15 s deadline
+   *  on a busy Host. */
+  private plansDigest = new Map<string, string>()
 
   /** Writes `<profile>/plans/<jobId>/plan.md` and `tasks/<NN>-<slug>.md` for every planned Job (`Job.plannerSessionIds`)
    *  whose Job, Runs, Tasks or their Dispatches changed since its last render, only the files that changed, and removes
@@ -864,6 +870,11 @@ export class OrchestrationStore {
       const tasks = [...(plansOf.get(job.id) ?? []), ...runs.flatMap((r) => tasksOfRun.get(r.id) ?? [])]
       const from = [job, ...runs, ...tasks, ...tasks.flatMap((t) => dispatchesOf.get(t.id) ?? [])]
       if (sameRefs(this.plansFrom.get(job.id), from)) continue
+      const digest = createHash('sha1').update(JSON.stringify(from)).digest('base64')
+      if (this.plansDigest.get(job.id) === digest) {
+        this.plansFrom.set(job.id, from)
+        continue
+      }
       const dir = path.dirname(planFileOf(path.dirname(this.filePath), job.id))
       try {
         const existing = await fs.readFile(path.join(dir, 'inputs', 'existing.md'), 'utf8').catch(() => undefined)
@@ -884,6 +895,7 @@ export class OrchestrationStore {
         }
         this.plansWritten.set(job.id, written)
         this.plansFrom.set(job.id, from)
+        this.plansDigest.set(job.id, digest)
       } catch {
         // retried by the next commit (see above)
       }

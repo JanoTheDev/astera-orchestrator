@@ -1324,4 +1324,27 @@ describe('the archive of finished Runs', () => {
     await store.save({ ...s1, tasks: s1.tasks.map((x) => (x.id === t.value.id ? { ...x, title: 'renamed' } : x)) })
     expect(await fs.readFile(path.join(plans, 'plan.md'), 'utf8')).toContain('no journal')
   })
+
+  // A state-put hands the Host the app's whole state as fresh objects: re-rendering every plan folder for it made the
+  // save 5-11 s on a 254-plan profile (2026-11-15) and the app's state-put timed out at 15 s.
+  it('renders no plan folder again for a whole state handed over as fresh but equal objects', async () => {
+    const job = ok(createJob(emptyState(), { objective: 'planned', cwd: 'D:/p', concurrency: 1 }, NOW))
+    const run = ok(startJobRun(job.state, job.value.id, NOW))
+    const t = ok(createTask(run.state, { runId: run.value.id, title: 'first', spec: 's', deps: [] }, NOW))
+    const s0: OrchState = { ...t.state, jobs: t.state.jobs.map((j) => ({ ...j, plannerSessionIds: [] })) }
+    const plans = path.join(dir, 'plans', job.value.id)
+    await fs.mkdir(path.join(plans, 'inputs'), { recursive: true })
+    await fs.writeFile(path.join(plans, 'inputs', 'existing.md'), '## Decisions\nkeep JSON\n', 'utf8')
+    const store = new OrchestrationStore(file())
+    await store.load()
+    await store.save(s0)
+
+    await fs.writeFile(path.join(plans, 'inputs', 'existing.md'), '## Decisions\nno journal\n', 'utf8')
+    await store.save(JSON.parse(JSON.stringify(store.get())) as OrchState)
+    expect(await fs.readFile(path.join(plans, 'plan.md'), 'utf8')).toContain('keep JSON')
+
+    const s1 = JSON.parse(JSON.stringify(store.get())) as OrchState
+    await store.save({ ...s1, tasks: s1.tasks.map((x) => ({ ...x, title: 'renamed' })) })
+    expect(await fs.readFile(path.join(plans, 'plan.md'), 'utf8')).toContain('no journal')
+  })
 })
