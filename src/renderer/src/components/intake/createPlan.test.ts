@@ -51,4 +51,29 @@ describe('createPlan', () => {
     expect(await createPlan(sched.d, { ...opts, scheduled: true })).toEqual({ ok: true, id: 'j1' })
     for (const x of [started, waiting, sched]) expect(x.sent.map((s) => s.cmd)).not.toContain('run-delete')
   })
+
+  // 2026-11-15: jobs-plan's state-put passed its 15 s deadline, orch.command threw, and the form said "Could not create
+  // the job" over a Job that was there; the owner added it again.
+  it('counts the Job as made when a step after jobs-create throws, and deletes nothing', async () => {
+    const sent: string[] = []
+    const d = {
+      command: async (cmd: string) => {
+        sent.push(cmd)
+        if (cmd === 'jobs-plan') throw new Error("Error invoking remote method 'orch.command': Error: the Host did not answer state-put within 15000ms")
+        return { status: 200, body: { id: 'j1', projectId: 'p1' } }
+      }
+    } as unknown as OrchDoor
+    expect(await createPlan(d, opts)).toEqual({ ok: true, id: 'j1' })
+    expect(sent).toEqual(['jobs-create', 'jobs-plan'])
+  })
+
+  it('says the Job may have been made when jobs-create itself got no answer', async () => {
+    for (const code of ['TIMEOUT', 'HOST_LOST']) {
+      const { d, sent } = door({ 'jobs-create': { status: 503, body: { error: 'the Host did not answer jobs-create within 120000ms', code } } })
+      expect(await createPlan(d, opts)).toEqual({ ok: false, error: 'jobs.source.lost' })
+      expect(sent.map((s) => s.cmd)).toEqual(['jobs-create'])
+    }
+    const never = door({ 'jobs-create': { status: 503, body: { error: 'there is no connection to the Host', code: 'HOST_NOT_RUNNING' } } })
+    expect(await createPlan(never.d, opts)).toEqual({ ok: false, error: 'jobs.new.failed: there is no connection to the Host' })
+  })
 })

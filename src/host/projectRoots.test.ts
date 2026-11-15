@@ -68,6 +68,21 @@ describe('createHostProjectRoots', () => {
     expect(await roots.resolve(path.join(repo, 'src'))).toBe(repo)
   })
 
+  // 2026-11-15: every `jobs create` from the app names its project's root, and the walk over 1,465 transcript folders
+  // took 3-22 s of it, measured. A repository's root has nothing above it to be lifted to.
+  it('answers a repository root without reading accounts.json or a transcript', async () => {
+    const repo = path.join(profile, 'work', 'repo')
+    await fs.writeFile(path.join(profile, 'accounts.json'), '{ not json', 'utf8')
+    const atRoot = async (dir: string): Promise<string | null> => (path.resolve(dir) === path.resolve(repo) ? repo : null)
+    const roots = createHostProjectRoots({ profileDir: profile, repoPaths: () => [], repoRoot: atRoot })
+    expect(await roots.resolve(repo)).toBe(repo)
+    // the registry's spelling, as resolveProjectRootFrom picks it
+    const spelled = createHostProjectRoots({ profileDir: profile, repoPaths: () => [repo.toUpperCase()], repoRoot: atRoot })
+    if (process.platform === 'win32') expect(await spelled.resolve(repo)).toBe(repo.toUpperCase())
+    // a folder below the root still walks, and still reads accounts.json
+    await expect(roots.resolve(path.join(repo, 'src'))).rejects.toThrow(/accounts\.json/)
+  })
+
   it('accounts.json 이 없으면 받은 경로를 그대로 돌려준다', async () => {
     const roots = createHostProjectRoots({ profileDir: profile, repoPaths: () => [], repoRoot: notARepo })
     const cwd = path.join(profile, 'nowhere')
